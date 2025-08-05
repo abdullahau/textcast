@@ -11,8 +11,8 @@ So I took matters into my own hands.
 ### Workflow
 
 1. **Save HTML** of the Bloomberg newsletter (via browser).
-2. Run `BloombergHTML-to-Text.ipynb` to convert it into a structured `.txt` file.
-3. Use `Kokoro TTS.ipynb` to turn the `.txt` into a `.wav` audio file.
+2. Run `html-to-text.ipynb` to convert it into a structured `.txt` file.
+3. Use `text-to-speech.ipynb` to turn the `.txt` into a `.wav` audio file.
 4. **AirDrop** or sync the audio to your phone — done!
 
 ---
@@ -21,13 +21,13 @@ So I took matters into my own hands.
 
 ```
 .
-├── input/           # Raw HTML files of Bloomberg newsletters
-├── output/          # Processed .txt files with inlined footnotes & block quote markers
-├── example/         # Generated .wav audio files
-├── BloombergHTML-to-Text.ipynb   # Parses Bloomberg HTML into clean text
-├── Kokoro TTS.ipynb              # Converts text into audio using Kokoro
-├── config.py        # Optional: stores Hugging Face access token
-├── .env             # Optional: stores access token securely
+├── input/                  # Raw HTML files of Bloomberg newsletters
+├── output/                 # Processed .txt files with inlined footnotes & block quote markers
+├── example/                # Generated .wav audio files
+├── html-to-text.ipynb      # Parses Bloomberg HTML into clean text
+├── text-to-speech.ipynb    # Converts text into audio using Kokoro
+├── config.py               # Optional: stores Hugging Face access token
+├── .env                    # Optional: stores access token securely
 └── README.md
 ```
 
@@ -37,9 +37,9 @@ So I took matters into my own hands.
 
 You can run the notebooks directly in your browser using:
 
-[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/yourusername/your-repo-name/blob/main/BloombergHTML-to-Text.ipynb)
+[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abdullahau/matt-levine-TTS/blob/main/text-to-speech.ipynb)
 
-[![Open in Kaggle](https://kaggle.com/static/images/open-in-kaggle.svg)](https://kaggle.com/kernels/welcome?src=https://github.com/yourusername/your-repo-name/blob/main/BloombergHTML-to-Text.ipynb)
+[![Open in Kaggle](https://kaggle.com/static/images/open-in-kaggle.svg)](https://kaggle.com/kernels/welcome?src=https://github.com/abdullahau/matt-levine-TTS/blob/main/text-to-speech.ipynb)
 
 ---
 
