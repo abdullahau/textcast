@@ -22,7 +22,7 @@ So I built one.
 ### Project Structure
 
 ```
-.
+matt-levine-TTS/
 ├── input/                  # Raw HTML files of newsletters
 ├── output/                 # Clean .txt files with inline footnotes & quotes
 ├── example/                # Example .wav audio outputs
