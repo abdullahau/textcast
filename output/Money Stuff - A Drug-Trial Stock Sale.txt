@@ -1,10 +1,22 @@
-A Drug-Trial Stock Sale
+A Drug-Trial Stock Sale:
 
 INmune, Linqto, SRT financing, bank AI agents and the AI pay wars.
 
-
-
 INMB:
+
+Summary of INMB
+
+Here is a summary and analysis of the provided text:
+
+INmune Bio, a biotechnology company, found itself in a difficult position after its Alzheimer's drug trial yielded largely disappointing results. Rather than waiting for the stock to plummet after announcing the bad news, the company executed an unusual "weird trade" to raise needed capital. It privately sold nearly nineteen million dollars worth of stock to two institutional investors a day *before* publicly disclosing the trial outcomes, allowing the company to secure funds and the sophisticated investors to potentially profit by quickly reselling the shares.
+
+The main topics discussed include the challenging capital raising environment for small biotechnology companies, especially when facing adverse clinical trial results. It highlights how companies might seek out market "loopholes" or unconventional financing methods when traditional avenues are closed. The passage also delves into the behavior of sophisticated institutional investors, who are willing to engage in transactions with asymmetric information if there's an arbitrage opportunity, and the regulatory nuances of securities offerings. The tone is analytical and slightly cynical, portraying the maneuver as clever but perhaps "unsporting" to the general investing public, while retaining a detached, humorous observation of the "weirdness" of the trade.
+
+The broader context is that small biotechs are often cash-strapped and their valuations heavily depend on clinical trial success. When the ideal scenario of good trial results leading to a higher stock price for fundraising isn't possible, companies may explore less conventional methods to secure funding. This specific case illustrates how certain offering structures, like registered direct offerings to sophisticated institutional investors, can allow deals to proceed even when the company holds undisclosed material nonpublic information. The core insight is how such intermediaries can facilitate capital raises by interposing complexity, saving the company from direct public embarrassment and allowing the institutional buyers to quickly sell the stock into the market, possibly before the negative news becomes widely known. This practice can create a profitable niche in the capital markets for those capable of exploiting such information timing.
+
+Several notable financial terms and references are used. "Phase 2 trial" refers to a stage of clinical research testing a drug's effectiveness and safety in a larger patient group. "Material nonpublic information" is significant company data not yet released to the public, which could affect stock prices; here, investors signed a "big boy representation" acknowledging they were proceeding without this information. The stock sale was a "registered direct offering," meaning it was a public offering sold directly to institutions, allowing immediate resale. A "prospectus" is a legal document detailing an investment, which must disclose all material facts. The concept of a "short position" is mentioned, where investors sell borrowed shares anticipating a price drop. "Dilution" refers to the reduction in existing shareholders' ownership percentage when new shares are issued. A "shelf registration statement" is an SEC filing allowing a company to register securities for future quick sale. Finally, "T+1 settlement" means that the exchange of money and securities occurs one business day after a trade is executed.
+
+End of summary
 
 Here’s a weird little trade, first reported by Adam Feuerstein of StatNews. INmune Bio Inc. is a biotechnology company working on treatments for cancer and Alzheimer’s Disease. It recently conducted a Phase 2 trial of an Alzheimer’s drug called XPro. It... didn’t work, is the short summary (“showing no effects in the modified intent-to-treat population”), though there is some good news (“predefined analyses demonstrated a cognitive benefit for XPro over placebo on the primary endpoint”), and I do not want to give you any investing or medical advice. But INmune got these results last week, and it seems safe to say they were not what it was hoping for.
 
@@ -44,9 +56,21 @@ But the prospectus is dated Monday, June 30: The investors bought the stock, and
 
 This is a small, weird, occasionally lucrative niche in the capital markets. Sometimes a company cannot do a public offering of stock directly to retail investors, because it would create too much embarrassment and/or legal liability. But it can find an intermediary, some investment firm that will buy its stock and immediately turn around to sell it to the public, interposing some complication to save the company from the awkwardness. (The classic case that we have discussed around here is Bed Bath & Beyond Inc.) Here, INmune probably couldn’t have sold stock directly to the public, but it could sell stock indirectlyto the public, [Footnote 5: Not legal advice! One could raise objections; this does seem a bit unsporting to the people who bought stock on Friday.]  and it did.
 
-
-
 Linqto:
+
+Summary of Linqto
+
+Here is a summary and analysis of the provided text.
+
+The passage explains that shares in major private companies like SpaceX and OpenAI are difficult for individual investors to buy or sell, unlike public company stocks. This illiquidity results in a wide range of highly variable markups, meaning there is no single market price, and intermediaries can exploit this by selling shares at inflated prices and buying them back at a discount. The article highlights how firms like Linqto operate in this opaque market, taking advantage of investor demand for exciting private assets.
+
+The main topics discussed are the illiquidity and lack of transparent pricing for private company shares, the significant markups individual investors face, and the role of intermediaries in facilitating (and profiting from) these transactions. The tone is conversational and somewhat cynical, particularly regarding promises of "democratizing" finance, and it includes instances of dry humor.
+
+The broader context is the shift of many large, high-growth companies to remaining private for longer, creating a challenge for individual investors seeking access. The article's insight is that while there is strong demand for these shares, the unregulated nature of the private market can lead to predatory pricing and substantial profits for the intermediaries who connect buyers and sellers, often at the expense of less sophisticated investors.
+
+Notable financial terms and references include bid/ask spread, which describes the often wide gap between buying and selling prices in private markets; special purpose vehicles, or SPVs, which are entities used to package private shares for investors; and markups, referring to the premium charged over the underlying value. The text also mentions accredited investors, who are individuals meeting certain wealth thresholds, and Rule 506 offerings, which are a type of private placement. Companies like SpaceX, Stripe, OpenAI, and Ripple are cited as examples of desirable private assets.
+
+End of summary
 
 It used to be that most big well-known companies were public, but that is not as true anymore. Now a lot of big exciting tech companies — SpaceX, Stripe, OpenAI, etc. — are private, which means that you can’t just buy them by clicking a button in your brokerage account. You need to know somebody. A lot of people want to buy shares in big exciting private tech companies, but it is hard for them to do so.
 
@@ -78,9 +102,21 @@ end quote
 
 In the private markets, the intermediaries can take a big cut coming and going.
 
-
-
 SRT:
+
+Summary of SRT
+
+This Bloomberg newsletter section explains a financial product called an SRT, which stands for either "synthetic risk transfer" or "significant risk transfer," a point of amusing ambiguity. SRTs allow banks to offload the riskiest, "first-loss" portion of their loan portfolios to investors like hedge funds, thereby reducing their regulatory capital requirements and making their balance sheets more efficient. However, a significant concern among regulators, particularly in Europe, is that banks might indirectly re-absorb this transferred risk by lending money to the very hedge funds that buy these SRTs, potentially undermining the intended capital relief and creating a "vicious circle."
+
+The main topics covered include the detailed mechanics of how Synthetic or Significant Risk Transfers work, their primary purpose of providing capital relief for banks, and the broader theme of risk transfer within the financial system. A key insight is the regulatory scrutiny surrounding these products, with authorities pushing for greater transparency due to worries about banks effectively transferring risk to themselves. The author also highlights the evolving role of banks, which are increasingly "re-tranching" their portfolios by stepping back from certain direct economic risks (like originating all corporate loans) and instead financing other players, such as hedge funds or private credit firms, who then take on those risks.
+
+The passage preserves a nuanced and somewhat humorous tone, noting the "amusing quality" of the SRT acronym's varying definitions. It uses phrases like "a little awkward" to politely criticize the potential loop where banks sell risk but then finance the buyers of that risk. The numbers provided to illustrate the SRT mechanism are explicitly stated as "illustrative and not meant to be taken seriously," underscoring that the explanation is a simplification for clarity.
+
+The broader context reveals that SRTs are a prime example of financial engineering designed to optimize against banking regulations, particularly capital requirements. It points to a structural shift in modern banking, where traditional banks are increasingly becoming financiers for other, less-regulated entities that take on specific types of credit risk. The underlying concern for regulators, especially the European Banking Authority, is systemic risk—ensuring that credit risk truly leaves the banking system and doesn't circle back, which could make the financial system more vulnerable than it appears.
+
+Notable financial terms and references include SRT (Synthetic/Significant Risk Transfer), regulatory capital, first-loss piece (the junior most tranche absorbing initial losses), hedge fund, private credit firms, tranching (dividing financial products into risk slices), non-recourse leverage (loans where the borrower's liability is limited to the collateral), and loan-to-value ratios (LTV). The European Banking Authority (EBA) and its leader, Jose Manuel Campa, are specifically mentioned as key regulatory figures pushing for greater oversight in this area.
+
+End of summary
 
 There is a financial product called an SRT, which has the amusing quality that (1) everyone knows what it means but (2) there is no agreement on what it stands for. (In the US, it often stands for “synthetic risk transfer,” while in Europe it normally stands for “significant risk transfer.” [Footnote 7: To me “synthetic” sounds more descriptive (you are transferring risk synthetically, that is, through a derivative), but “significant” in Europe refers to a specific regulatory test: You can reduce your capital requirements if the risk transfer is significant enough.] ) The rough idea of an SRT is:
 
@@ -116,9 +152,17 @@ end quote
 
 “Banks Transfer Risk to Themselves,” is how I characterized the concern last year. SRT structures tend to be driven by regulation: The bank sells enough risk to the hedge fund to get the capital relief it wants; the regulator says, in effect, “if you sell the 15% first-loss piece and keep the rest then you get to have less capital.” If a bank then goes and lends 50% against the first-loss piece, then the banks collectively have 92.5% of the risk and the hedge fund has only a 7.5% first-loss piece, [Footnote 9: This isn’t quite right, to the extent that the financing of the SRT might have margin triggers and create less economic exposure than a long-term loan at 50% LTV.]  and that can look like cheating.
 
-
-
 AI agents:
+
+Summary of AI agents
+
+The Bloomberg newsletter section humorously speculates about artificial intelligence gradually taking over roles in investment banking, starting from simply having AI assistants listed on traditional working group lists to eventually negotiating entire deals while human bankers "go to the beach." The author playfully describes how these AI assistants might get "promoted" within a bank, becoming highly efficient but slightly unsettling replacements for human colleagues, particularly for tasks involving communication like emails and chats.
+
+The main topics discussed are the extensive integration and replacement potential of AI in finance, the evolving definition of "employees" to include autonomous digital entities, and the potential redefinition of human roles in white-collar professions. The tone is characteristically witty and speculative, with a touch of "creepy appeal" as the author considers the implications of human-like AI assistants taking over.
+
+This segment comes from a financial newsletter known for deep dives into market trends and the inner workings of Wall Street, often using humor and hypothetical scenarios to illustrate complex points. The broader insight is that AI is moving beyond being just a tool to becoming a fundamental shift in how work is done, even in high-touch industries like investment banking. It highlights that the "dream" for some institutions is an army of perfect, replicable digital workers. The article grounds this speculation with real-world examples, explaining how Bank of New York Mellon is already deploying "digital employees" for tasks like code clean-up and payment validation, while JPMorgan Chase envisions a future where every employee has an AI assistant and every client interaction has an AI concierge. This raises a subtle, unsettling question about the future necessity of human bankers if their primary roles become fully automated. Notable financial terms include "working group list," which is a foundational document in any big banking deal, "data room," a repository for deal-related information, and the concept of "digital employees" and "AI concierges" as emerging roles in the financial sector. The reference to "analyst bullpen" humorously underscores the human social aspect that AI cannot replicate.
+
+End of summary
 
 A traditional early step in any big investment banking deal is the compilation and distribution of the working group list. Some junior analyst at one of the banks will put together a nicely formatted list of all the principals and bankers and lawyers and accountants on the deal, with their email addresses and office and mobile phone numbers, and will circulate it to everyone so that everyone knows how to reach everyone else.
 
@@ -152,9 +196,17 @@ end quote
 
 At some fairly abstract level, the job of an investment banker or salesperson isto be a concierge for certain categories of client experiences. If there’s an AI concierge for every client experience … you know what, never mind. Elsewhere: “Amazon Is on the Cusp of Using More Robots Than Humans in Its Warehouses.”
 
-
-
 AI wars:
+
+Summary of AI wars
+
+The Bloomberg section details the intense competition for top AI talent, particularly how Meta is aggressively recruiting staff from OpenAI, prompting OpenAI to feel their employees are being poached and even to grant them a week off to recover from the pressure. The author expresses incredulity, finding it ironic that these highly sought-after individuals might need a break from lucrative offers, and questions the obviousness of Meta's recruitment tactics during this period.
+
+The main themes revolve around the fierce competition for elite AI professionals, the challenges of employee retention in this high-demand field, and the complex motivations of these highly skilled workers who often prioritize the impact and quality of their research over mere financial gain. The piece maintains a sardonic and incredulous tone, especially in the author's questioning of needing a rest from being offered so much money, and the cynical suggestion that Meta could function as a luxurious "semi-retirement home" where former top researchers enjoy their wealth rather than pursuing groundbreaking work.
+
+This situation highlights the extreme demand for elite AI researchers, making talent acquisition a critical battleground for major tech companies. It illustrates that for these experts, financial incentives alone may not be enough, as they often seek prestigious projects and respected leadership, valuing the type of work they do over simply the compensation. The text frequently refers to substantial monetary offers like "sacks of money" and "huge sums of cash," emphasizing the immense compensation packages. Key companies mentioned are OpenAI, Meta, DeepMind, and Anthropic, all prominent players in the artificial intelligence sector, defining the specific market where this talent war is unfolding.
+
+End of summary
 
 I wrote yesterday that “I don’t understand how anyone who works in artificial intelligence gets any work done,” what with Mark Zuckerberg standing on their lawn with a boom box and a sack of money. It turns out that they don’t. The Financial Times reports:
 
@@ -174,10 +226,9 @@ end quote
 
 One possibility is that Meta is the extremely cushy semi-retirement home for OpenAI researchers: You do good work at OpenAI, you make a name for yourself, and then when you get tired you take Zuckerberg’s bag of cash, go to Meta, and sit around with your fellow extremely well-paid ex-OpenAI researchers reminiscing about the glory days when you used to do AI research instead of just polishing your Ferraris.
 
-
-
 Things happen:
 
 A Trio of US Treasury Hacks Exposes a Pattern Making Banks Nervous. US judge orders Argentina to give up majority stake in state-run oil company YPF. Standard Chartered hit with $2.7bn lawsuit over 1MDB scandal. Aberdeen chair says ‘save the world’ claim by asset managers was a ‘mistake.’ Greenhushing. The Oil Tycoon and the Philosopher Threatening Big Oil’s Carbon Capture Plans. A Desert Oasis for Youth Sports Was Built on a Financial Mirage. Britain’s Royals Give Up Their Luxury Train in the Name of Fiscal Restraint. Cap and trade, but for rent control. Snoafers. CEO Spends 1.83 Million Amex Points to Pay Surprise Tariff Bill. Trump Says He’ll Have to ‘Take a Look’ at Deporting Musk. Why Is Everyone Inviting Strangers to Their Weddings?
 
 If you'd like to get Money Stuff in handy email form, right in your inbox, pleasesubscribe at this link. Or you can subscribe to Money Stuff and other great Bloomberg newslettershere. Thanks!
+

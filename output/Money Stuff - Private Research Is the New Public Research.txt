@@ -1,10 +1,18 @@
-Private Research Is the New Public Research
+Private Research Is the New Public Research:
 
 Also Goldman’s new career path, Trump Media’s Bitcoin treasury, Hess’s JV agreement, Polymarket’s derivatives exchange and Jane Street’s partner list.
 
-
-
 Research:
+
+Summary of Research
+
+This section discusses the traditional differences between public companies, which publish their financials and whose shares are widely traded, and private companies, which typically do not. The author explains that these distinctions are rapidly blurring, with private company shares potentially becoming more accessible to ordinary investors, raising questions about how these investments will be evaluated without public financial information. The piece then highlights JPMorgan's new effort to provide research on private companies like OpenAI, signaling a potential shift toward greater information availability for these firms.
+
+The main topics explored include the evolving definitions of public versus private markets, the increasing accessibility of private company investments to retail investors through mechanisms like "tokenization" or direct offerings, and the challenges of evaluating such investments without public financial data. The author maintains a conversational and slightly wry tone, acknowledging the often-unrealistic expectation that ordinary investors deeply analyze public company financials, suggesting they often rely on the assumption that institutional investors set a sensible price. This pragmatic view extends to private companies, where the author humorously cautions against scams but notes that prices set by professionals in funding rounds are often good enough for individual investors. The piece then transitions to JPMorgan's new move to offer research on private companies, which, while initially not including ratings or price targets, is seen as a step towards more structured information and potentially, a future where private companies might be pressured to provide more financial detail to analysts.
+
+The broader context is a significant transformation in capital markets where the previously distinct worlds of private and public investment are converging, driven by regulatory shifts and technological innovations. The article's insight is that this convergence challenges established notions of transparency and investor protection. Notable financial terms include "tokenization," "private equity," "401(k) plans," "sell-side research," and "equity research." Companies mentioned include OpenAI, SpaceX, and Nvidia, along with financial institution JPMorgan Chase & Co. The author thoughtfully probes whether this convergence will lead private companies to adopt more public-style financial disclosures or if investors will simply adapt to a less transparent environment, relying on institutional trust and broader market signals.
+
+End of summary
 
 The big differences between private companies and public companies are:
 
@@ -28,9 +36,21 @@ end quote
 
 Right, early on the point here is less “we are going to build our own financial model of OpenAI, so that our retail clients have some useful information in deciding whether or not to buy OpenAI stock,” and more “we are going to write generally about OpenAI to inform our clients who might buy Nvidia.” But, at some point, will OpenAI’s chief financial officer be walking JPMorgan’s analysts through the financials, so they can improve their model, so their private-wealth bankers can sell OpenAI stock to customers? It does feel a little bit like that’s where we are heading.
 
-
-
 Goldman PE:
+
+Summary of Goldman PE
+
+The Bloomberg section highlights a significant challenge for investment banks: their employees, from recent college graduates to top executives, are consistently drawn to private equity due to its substantially higher compensation, not necessarily more engaging work. For junior bankers, this often means leaving after a couple of years, a trend so pronounced that private equity recruiting had begun even before new bankers started their jobs. For senior bankers, the allure is the potential to earn hundreds of millions at an alternative asset manager compared to tens of millions at an investment bank.
+
+The main topics discussed include the fierce competition for talent between investment banks and private equity firms, the stark disparity in compensation that drives this competition, and the strategic evolution of large financial institutions. A key theme is the blurring of boundaries between traditional investment banking and alternative asset management, with banks increasingly adopting the identity and business models of private equity firms to retain talent and expand their operations. The piece also touches on the historical context of banking regulations, particularly how the 2008 financial crisis restricted banks' activities, leading to the rise of non-bank financial institutions, and how banks are now attempting to re-enter these areas in a more permissive regulatory environment.
+
+The tone is observational and slightly wry, noting matter-of-factly that the primary motivation for shifting careers is simply better pay. There's a subtle humor in how investment banks are attempting to solve their talent retention problem by essentially becoming what their employees aspire to join, with Goldman Sachs serving as a prime example of this strategic pivot. The author's personal experience of having worked at Goldman adds a layer of informed perspective to the analysis.
+
+The broader context of this passage is the ongoing transformation of the global financial landscape. It illustrates how market forces, particularly the pursuit of higher profits and compensation, are reshaping the structures and identities of major financial players. The underlying insight is that financial institutions are adaptive entities, constantly evolving to circumvent regulatory constraints, compete for top talent, and maximize returns, often by mimicking successful business models outside their traditional purviews. This suggests a future where the distinctions between different types of financial firms become increasingly fluid.
+
+Notable financial terms and references include investment banking, private equity, alternative asset manager, leveraged buyouts, private credit, on-cycle recruiting for associate classes, and the concept of a bank's balance sheet. Specific financial institutions like JPMorgan Chase and Company, Goldman Sachs Group Incorporated, Blackstone, and KKR are mentioned, along with individuals such as Goldman Sachs CEO David Solomon and co-head of global banking and markets Dan Dees. The historical mention of Bear Stearns, Merrill Lynch, and Lehman Brothers serves as a reminder of the pre-crisis era of investment banking.
+
+End of summary
 
 A problem for investment banks is that every investment banker wants to be in private equity. This is not, as far as I can tell, because the work of private equity is vastly more interesting than the work of banking. It just pays a lot better.
 
@@ -58,9 +78,19 @@ I should say that, when I started working at Goldman in 2007, there were big ban
 
 But Goldman doesn’t have to like it, and that was all a long time ago, and we are in a more permissive and deregulatory age, and if Goldman wants to be an alternative asset manager now sure, why not, give it a try.
 
-
-
 Bitcoin treasury:
+
+Summary of Bitcoin treasury
+
+The author outlines two related theories in the intersection of crypto and stock markets. One suggests that companies holding large amounts of cryptocurrency can increase their value by going public, as the US stock market tends to value crypto assets at a premium. The second, more detailed theory addresses the dilemma of controlling shareholders in "meme-stock" companies, whose stock is valued highly for no clear fundamental reason. These shareholders face challenges in converting their highly-valued, but volatile, stock into actual money, as directly selling shares or borrowing against them would likely collapse the price, and even donating stock for tax benefits has its own issues.
+
+The core strategy proposed to solve this is for the meme-stock company to issue new shares at its inflated price and use the proceeds to buy Bitcoin. Unlike the difficult task of building a traditional business, buying Bitcoin is straightforward. Crucially, meme-stock shareholders, while typically wary of dilution, are enthusiastic about Bitcoin acquisitions. The author highlights the seemingly contradictory but accepted concept of "accretive dilution," where selling shares to buy more Bitcoin per share is seen as a positive. This transforms the company's speculative value into real, enduring asset value backed by Bitcoin. This then allows the controlling shareholders to sell their own stock or borrow against it, as there is now a tangible asset floor beneath the company's valuation, reducing its sole reliance on market sentiment.
+
+The underlying principle is that if investors buy a company's stock for irrational or "bad reasons," the company should capitalize on this by selling stock to acquire tangible, liquid assets like Bitcoin. This process eventually provides "good reasons" for the company's valuation. While other assets like gold or real estate could theoretically serve this purpose, Bitcoin is uniquely effective because of the enthusiasm it generates among meme-stock investors, making it a "smooth exit" for converting speculative stock value into real assets. The goal isn't necessarily to push the already high stock price higher, but to significantly increase the company's net asset value from near zero to a substantial amount, even if this means the stock's premium above its asset value might decrease. The piece concludes by referencing a real-world application of this strategy, citing Trump Media's acquisition of Bitcoin for a crypto treasury plan.
+
+Notable financial terms and references include crypto treasury companies, meme stocks, non-recourse borrowing, controlling shareholder, dilution, accretive dilution, net asset value, Bitcoin, Treasury bills, and the Internal Revenue Service. The author's tone is analytical and pragmatic, laced with a dry humor that observes the peculiar logic of market behavior, such as the acceptance of dilution when Bitcoin is involved. The broader context of this discussion is the exploration of innovative financial strategies that leverage unique market conditions, specifically the confluence of speculative meme stock valuations and the rise of cryptocurrencies, to create tangible value where little existed before.
+
+End of summary
 
 One theory of crypto treasury companies, which I write about a lot, is that the US stock market will pay $2 for $1 worth of crypto, so if you have a big pot of crypto, you should put it in a company and sell shares on the stock exchange, because then it will be worth more. This seems to me like a good plan for people who own a lot of crypto, and those people are constantly looking for small public companies to do this trade with.
 
@@ -94,9 +124,21 @@ Thisform of the crypto treasury strategy might not push up your stock price — 
 
 Anyway: “Trump Media Buys $2 Billion in Bitcoin for Crypto Treasury Plan.”
 
-
-
 Hess:
+
+Summary of Hess
+
+Here is a summary and analysis of the provided text.
+
+The section discusses the legal complexities of contract interpretation during corporate mergers, specifically focusing on "change-of-control" and "right-of-first-refusal" clauses. It highlights how what seems like a simple prohibition against transferring a contract can become a high-stakes dispute when a company is acquired, even if the target company technically survives as a subsidiary in a common "reverse triangular merger." The author uses the recent, contentious arbitration between Exxon Mobil, Hess, and Chevron over a lucrative Guyanese oil joint venture as a prime example of how such ambiguities can lead to prolonged, multi-billion dollar legal battles, despite industry understanding that mergers should not typically trigger these clauses.
+
+The main topics or themes explored include the intricate nature of contractual interpretation in mergers and acquisitions, the practical implications of legal language ambiguity for large-scale corporate transactions, the specific mechanics of reverse triangular mergers, and the vital role of deal-making in industries like oil and gas. There is a consistent tone of dry humor and a self-deprecating acknowledgment of the author's own past confusion as a junior lawyer, subtly underscoring the irony that even seasoned legal and industry experts can vehemently disagree on the "plain reading" of a contract. The humor also stems from the observation that despite claims of clarity and rigor, these disputes often take years to resolve, suggesting that "nobody knows" the absolute answer until a ruling is made.
+
+The broader context of this section is to illustrate the real-world friction between strict legal drafting and the practical necessities of corporate growth and asset management through mergers. The article level insight is that while the common understanding in M&A is that a surviving target company in a reverse triangular merger does not "transfer" its contracts, the precise wording of individual agreements can still be contentious enough to stall multi-billion dollar deals and threaten corporate strategies. This highlights the inherent ambiguity in legal language and the critical need for clarity in contracts, especially given that many industries, particularly energy, rely heavily on joint ventures and corporate transactions to operate and expand. The author argues that if common mergers automatically terminated underlying contracts, it would effectively cripple the M&A market, which is essential for companies to realize value and reward investors.
+
+Several notable financial and legal terms are discussed: "change-of-control clauses" are contractual provisions activated by a change in ownership; "due diligence" is the investigation process prior to an acquisition; "mergers and acquisitions" or M&A refers to corporate consolidation; a "reverse triangular merger" is a specific merger structure where a subsidiary merges *into* the target, which survives as the new acquirer's subsidiary, often used to preserve contracts; a "right of first refusal" or ROFR is a contractual right to buy an asset before it's offered to others; "joint venture" or JV is a collaborative business arrangement; and "arbitration" is a private dispute resolution method. "Merger arbitrageurs" are investors who bet on the outcome of M&A deals. The "Association of International Energy Negotiators" or AIEN is referenced as a source for template contracts in the energy sector.
+
+End of summary
 
 It’s possible that my introduction to high finance was reviewing change-of-control clauses. It is a standard part of due diligence in mergers and acquisitions: One company wants to buy another, so the buyer will get a big stack of all the target’s contracts and read through them to see if the merger will cause any problems. Each contract will probably have a clause saying something like “the company may not transfer its rights and obligations under this contract to anyone else.” And then the question is: If the company is acquired in a merger, does that trigger that clause? Does being acquired count as a transfer of the contract? Or does nothing change?
 
@@ -148,9 +190,17 @@ end quote
 
 Again, I sympathize: It can’t really be the intention of oil-and-gas joint venture agreements to preventmergers. But you’d think they could say that more clearly.
 
-
-
 Polymarket:
+
+Summary of Polymarket
+
+Polymarket, a crypto-betting platform that had been forced to operate offshore by federal regulators, is now set to legally return to the US market. This move follows the end of a government probe and involves Polymarket acquiring a lesser-known derivatives exchange called QCX, which will allow it to operate as a registered futures exchange in the United States. This strategic acquisition capitalizes on the growing popularity of prediction markets and offers Polymarket a way to legally serve US users, especially given its recent surge in popularity from bets on political outcomes.
+
+The main topics discussed include the evolving regulatory landscape for crypto-based betting and prediction markets, the strategic business maneuvers companies are employing to achieve regulatory compliance, and the unexpected intersection between financial derivatives and traditional sports betting. The author maintains a wry and informal tone, using phrases like "winkingly off-limits" and repeatedly employing "obviously" to highlight the somewhat ironic but logical outcomes of the current regulatory environment. There's a subtle humor in pointing out that prediction markets, by being regulated as commodity futures, have essentially become lightly regulated and even tax-advantaged legal sports betting sites.
+
+The broader context reveals a significant insight: the regulatory classification of prediction markets as "commodity futures" inadvertently creates a highly efficient and potentially advantageous model for running a sports betting business. This suggests that the real strategic move isn't just for Polymarket, but for traditional sports books to consider acquiring derivatives exchanges themselves, essentially joining the "regulated futures exchange" business if that's the most effective path. This highlights how financial regulations, intended for one purpose, can open up entirely new business models or loopholes in unrelated industries. Notable financial terms include "crypto-betting platform," "derivatives exchange," "commodity futures," and "registered futures exchange," all of which are central to understanding Polymarket's legal strategy and the broader market implications. The text also refers to "sports books" as traditional sports gambling operators, underscoring the convergence of these two distinct industries.
+
+End of summary
 
 Obviously:
 
@@ -164,9 +214,17 @@ For a long time, Polymarket has been winkingly off-limits to US investors, becau
 
 Obviously it makes sense for Polymarket to buy a little-known derivatives exchange, but the real move is for sports booksto buy little-known derivatives exchanges. If you can’t beat ’em, join ’em: If “regulated futures exchange” is the most efficient way to run a sports betting business, then the sports gambling sites really should get into the regulated futures exchange business.
 
-
-
 Jane Street:
+
+Summary of Jane Street
+
+This section of the newsletter revisits the author's prior observations about Jane Street Group, noting how the secretive trading firm has, as predicted, become much more widely known, but ironically for negative reasons like accusations of market manipulation in India. The author then details Jane Street's unique, highly private partnership structure, which pays its employees extraordinarily well—averaging around 1.4 million dollars per person last year in compensation and benefits—and is run collectively by dozens of executives without a single public leader. This setup allows for a high risk appetite and fosters trust among partners, contrasting sharply with more traditional, institutionalized investment banks like Goldman Sachs, which the author recalls also became famous for negative reasons, once being famously described as a "great vampire squid."
+
+The main topics discussed are the evolution of a financial firm's public reputation from obscurity to notoriety, often for less than ideal reasons, exemplified by both Jane Street and Goldman Sachs. A significant theme is Jane Street's distinctive organizational culture as a private partnership, which is characterized by extreme secrecy, collective leadership, and exceptionally high employee compensation and capital distributions to its equity holders. The piece also explores the firm's significant risk appetite, particularly in niche areas like emerging-market ETFs, and posits that this aggressive risk-taking may be linked to the trust inherent in its partnership structure, where senior risk-takers are investing their own collective capital.
+
+The author maintains a humorous and self-aware tone, acknowledging his past commentary with an "Ahahaha, well, yeah" when Jane Street's public image shifted for the worse. He jokingly refers to Jane Street's employee-centric, highly compensated collective as a "socialist paradise (but with tons of money)." The broader context is the author's ongoing analysis of financial firms, particularly his observation that many transition from relative obscurity to widespread public recognition, often due to controversies. He also reiterates his long-held view that investment banks, especially in their earlier partnership forms, functioned like "socialist collectives" for the benefit of their employees, a characteristic he sees still strongly present in Jane Street, unlike many modern, more institutionalized banks beholden to shareholders. Notable financial terms and references include Jane Street Group, Goldman Sachs Group Inc., market manipulation, bond prospectus, equity holders, high-frequency firms, investment banks, compensation and benefits, capital, and emerging-market ETFs.
+
+End of summary
 
 I wrote last year:
 
@@ -194,10 +252,9 @@ end quote
 
 Plausibly those things are related. The traditional justification for the old investment banking partnership culture was not just that it makes the partners feel important, it’s that if all of the senior risk-takers feel like they are part of a partnership, they can trust one another to take good risks with their collective capital. If you work for a powerful CEO and invest shareholder money, the CEO has to spend a lot of time thinking about managing your risks; if you and your 37 best friends share responsibility for investing your own collective billions, maybe you can trust each other more.
 
-
-
 Things happen:
 
 Millions Stolen, Death Threats: Should Banks Do More to Fight ‘Pig Butchering’? Trump Urges Supreme Court to Reject Challenge to His Tariffs. Wise co-founder urges investors to block US listing in row over voting rights. Michael Saylor’s Strategy Owns 3% of Bitcoin in Circulation After Latest Purchase. People are worried about muni junk bond market liquidity. Trump golf club ditches goats — but keeps $240,000 farm tax break. Musk Says xAI Will Make Kid-Friendly App Called Baby Grok.
 
 If you'd like to get Money Stuff in handy email form, right in your inbox, pleasesubscribe at this link. Or you can subscribe to Money Stuff and other great Bloomberg newslettershere. Thanks!
+

@@ -1,10 +1,22 @@
-Tesla Gives Musk Some Stock
+Tesla Gives Musk Some Stock:
 
 Also trend following, a Trump SPAC and a mortgage settlement.
 
-
-
 Tesla:
+
+Summary of Tesla
+
+In 2018, Tesla granted its chief executive, Elon Musk, a massive stock options package, intended to motivate him to grow the company into a trillion-dollar enterprise. This goal was largely achieved, but a Delaware judge later invalidated the package, citing issues with conflict of interest and disclosure by Tesla's board and shareholders. Despite Tesla's efforts to re-approve the original package and move its state of incorporation to Texas, the options remain invalid, prompting the company to offer Musk a new, interim stock award to retain him amidst the intense competition for top artificial intelligence talent.
+
+The main topics discussed include the intricacies of executive compensation, particularly for a high-profile figure like Elon Musk, and the legal challenges involving corporate governance and shareholder rights. The piece also delves into the strategic implications of retaining key talent in a booming sector like AI, highlighting the fierce market for top executives and researchers. Furthermore, it examines the specific accounting and tax complexities associated with large stock awards.
+
+The tone is analytical and informative, yet infused with a wry, informal humor. The author expresses a personal sense of the situation being "pretty unfair" to Musk, given he fulfilled his part of the deal. There's a playful reference to Musk as "Technoking" and a humorous aside about developing a sitcom pilot around Mark Zuckerberg trying to hire Musk for AI efforts. The most amusing part, as the author points out, is Tesla's accounting treatment of the new thirty-billion-dollar award, which it claims is worth nothing because it's unlikely to vest, primarily due to conditions tied to the ongoing Delaware legal appeal and Musk's continued employment.
+
+The broader context is crucial for understanding this situation. The 2018 compensation, a "moonshot" package, was highly contingent on ambitious growth targets that Musk remarkably achieved, leading to Tesla's market capitalization peaking at one and a half trillion dollars. The Delaware court's invalidation stemmed from concerns that Tesla's board was unduly influenced by Musk and that outside shareholders weren't fully informed when they approved the original deal. Tesla's subsequent move to incorporate in Texas was a direct response, aiming to escape Delaware's corporate law strictures regarding executive pay. The current market for AI talent is incredibly competitive, with experts commanding hundreds of millions or even billions, exemplified by figures like Sam Altman's value to OpenAI. Musk himself has a burgeoning AI startup, xAI, which recently raised billions, creating significant "outside bid" pressure for his services. While Musk already holds a substantial portion of Tesla stock, making him very wealthy, the argument is that losing the options means he effectively worked for free on the incremental value added in recent years. This new award is Tesla's attempt to "honor the bargain" and keep Musk focused on the company, preventing him from dedicating his extensive talents elsewhere.
+
+Notable financial terms and references include stock options, which are contracts granting the right to buy stock at a specific "strike price" often tied to performance. Equity market capitalization refers to a company's total value in the stock market. The Sharpe ratio is a measure of risk-adjusted return, humorously mentioned in a footnote. The article discusses options being "in-the-money" (where the stock price is above the strike price) versus "at-the-money" (where the stock price equals the strike price), and highlights "contingent" awards tied to specific performance conditions. The discussion also touches on a company's "cap table" (capitalization table detailing ownership), "pledging stock" (using shares as collateral), and the "compensation expense" a company recognizes for stock awards, governed by accounting standards like ASC Topic 718. Finally, "vesting" describes when an employee gains full ownership of stock or options, often tied to a service period.
+
+End of summary
 
 In 2018, Tesla Inc. gave Elon Musk, its chief executive officer and Technoking, a big package of stock options to motivate him to transform Tesla from about a $59 billion company into a trillion-dollar company. This worked. Tesla’s equity market capitalization peaked at about $1.5 trillion last year; it’s hovering around $1 trillion today. Musk’s “moonshot” package of stock options is worth, at today’s prices, about $87 billion. [Footnote 1: That is, 303,960,630 shares in the options grant, times (about $308.16 as of noon today, minus the $23.34 strike price).]  That is both a lot of money and kind of a bargain; it does seem unlikely that a different CEO would have added a trillion dollars of value to Tesla. [Footnote 2: Or, also, subtracted half a trillion dollars of value; Musk’s absolute performance is maybe more impressive than his Sharpe ratio, but never mind.]
 
@@ -84,9 +96,17 @@ You don’t have to choose. The point is that the only way Musk gets these optio
 
 I suppose Tesla’s accountants concluded that the probability of bothof those things happening is low. I suppose they’re right!
 
-
-
 Trend following:
+
+Summary of Trend following
+
+The piece begins by discussing a somewhat embarrassing financial reality: assets that recently increased in value often continue to do so, a phenomenon known as return continuation or momentum bias. This tendency, which contradicts the efficient market hypothesis where all information is supposedly priced in, suggests that markets don't always fully process past price movements. The author humorously notes that explanations for this often contradictory investor behavior, such as under- or overreaction to news, are themselves somewhat embarrassing.
+
+This market pattern forms the basis of "trend following," a strategy where investors buy assets that have gone up and short those that have gone down, often used by hedge funds to make a living. While typically profitable in markets with a moderate level of irrationality and stability, this strategy is currently struggling. The broader context for this struggle is attributed to recent erratic US economic policies, specifically capricious tariff announcements and reversals, which inject extreme and unpredictable chaos into global markets. This prevents consistent trends from forming, making it difficult for trend-following funds to execute their strategies effectively.
+
+The piece references figures like Cliff Asness and Antti Ilmanen, prominent experts in quantitative finance, to elaborate on momentum and reversal biases across different asset classes like stocks, bonds, and commodities. It also cites a Wall Street Journal report illustrating the poor performance of trend-following hedge funds, including Man Group's AHL Alpha fund, which are significantly underperforming the broader market benchmarks like the S&P 500. The article points out that these funds' models can't adapt quickly enough to rapid reversals caused by sudden policy shifts, leading them to be caught on the wrong side of trades. The author concludes with a wry observation that while one might expect increasing market sophistication to make trend following harder, the current difficulty stems not from increased rationality but from an overwhelming, externally imposed irrationality, making it hard to find trends when there are none.
+
+End of summary
 
 One of the more embarrassing facts in finance is that stuff — stocks, bonds, commodities, etc. — that went up last month will probably go up this month. [Footnote 6: This is extremely not investing advice, and don’t take that time scale too seriously. Antti Ilmanen: “The common empirical finding is a return continuation tendency (momentum bias) except for very short and very long windows (a week or shorter, two to five years) where reversal bias may dominate.” That’s mostly about commodities, though stocks are similar (“a strong multi-month momentum effect sandwiched between short-term and long-term reversal effects”), and “momentum strategies perform well in virtually all asset classes we study,” though not always at the same time scales.]  This is embarrassing because it seems to undermine the idea of efficient markets: “Market prices incorporate all available information, except they always forget whether prices went up last month.” It seems hard to explain except with a story of investor irrationality. On the Money Stuff Podcast, Cliff Asness pointed out that the two main explanations are (1) “investors underreact to news” and (2) “investors overreact to news,” which is additionally embarrassing.
 
@@ -106,9 +126,21 @@ end quote
 
 In general I do not have a ton of sympathy for hedge fund managers who say things like “the market has become too irrational now, so it is hard for me to make money.” That’s not how it’s supposed to work! When the market is irrational, there are lots of opportunities for smart rational hedge fund managers; if it is hard for you to make money using your old tricks, that suggests that the market has become morerational. If I had told you in 2015 that trend following wouldn’t work in 2025, you might have said “ah, yes, as artificial intelligence becomes more sophisticated and hedge funds get more competitive, it should be harder to make money by just buying the stuff that went up last month.” But that is probably not quite what happened.
 
-
-
 SPAC:
+
+Summary of SPAC
+
+The passage details two intertwined financial dealings involving the Trump family and administration. It first reports on Donald Trump Jr. and Eric Trump launching a Special Purpose Acquisition Company, or SPAC, aimed at acquiring US manufacturers that benefit from government incentives. Simultaneously, President Trump is holding private meetings with top bank CEOs to discuss monetizing mortgage giants Fannie Mae and Freddie Mac, prompting a humorous observation about the potential for conflicts of interest linking these two scenarios.
+
+The main topics include the Trump family's financial ventures, particularly their entry into public markets with a focus on government-benefiting industries. It also covers the potential privatization of government-backed mortgage entities and the broader theme of the intersection of politics and finance, particularly where it raises concerns about potential conflicts of interest and cronyism.
+
+The tone is notably sarcastic, critical, and questioning, especially regarding the ethics of the situations described. Humor is subtly present through the narrator's pointed remarks, such as the observation that the Financial Times article didn't even bother to deny conflicts of interest, and the closing rhetorical question about whether merging government-backed entities with the Trump sons' SPAC would be considered the right or wrong answer for bank pitches, highlighting the perceived lack of ethical boundaries.
+
+The broader context is the continuous intertwining of the Trump family's business interests with their political power and influence, raising concerns about individuals potentially profiting directly from government policies and programs under an administration led by a family member. The discussion of Fannie Mae and Freddie Mac touches upon a long-standing debate about the future of these government-sponsored enterprises and the significant financial opportunities their privatization would present to Wall Street banks, further exacerbating the conflict of interest concerns when combined with the Trump sons' new investment vehicle.
+
+Several notable financial terms and references are used. A "blank cheque investment vehicle," also known as a SPAC (Special Purpose Acquisition Company), refers to a shell company formed to raise capital through an initial public offering with the sole purpose of acquiring an existing private company, thereby taking it public. "Public markets" are financial markets where securities are traded. A "Securities and Exchange Commission filing" is an official document submitted to the U.S. financial regulator. "Grants, tax credits, government contracts, and preferential procurement programs" are various forms of financial incentives or advantages provided by the government. "Fannie Mae and Freddie Mac" are two large, government-sponsored enterprises that play a critical role in the U.S. housing finance system by purchasing mortgages from lenders. "Monetizing" in this context means converting their value into money, possibly through a "public offering of stock," which is the process of selling shares to the public for the first time. The passage also mentions major banks like JPMorgan Chase & Co., Goldman Sachs Group Inc., and Bank of America Corp.
+
+End of summary
 
 Sure. I mean. Sure:
 
@@ -134,9 +166,17 @@ end quote
 
 I feel like there must have been some tense internal meetings at those banks to figure out how shameless the pitch should be. Like is “just merge them with your sons’ SPAC” obviously the wrong answer, or obviously the right answer?
 
-
-
 Mortgages:
+
+Summary of Mortgages
+
+The author notes that UBS has agreed to pay 300 million dollars to the US Department of Justice to resolve a long-standing Credit Suisse case. This case concerns the mis-selling of residential mortgage-backed securities in the period leading up to the 2008 financial crisis, effectively drawing a line under a 2017 settlement Credit Suisse had previously made.
+
+The core themes revolve around the enduring financial and legal consequences for banks from the 2008 crisis, particularly related to mortgage products, and the persistent nature of regulatory settlements. The author injects humor by acknowledging their own tendency towards hyperbole, yet points out how their 2016 prediction about banks perpetually settling crisis-era mortgage cases is playing out, even if not forever. They express a wry sense of comfort in this predictable constancy amid an otherwise turbulent world.
+
+This specific settlement serves as compelling evidence supporting the author's long-held assertion that the financial industry would face prolonged repercussions from the 2008 crisis. It highlights how the legal and financial fallout from that period continues to manifest, illustrating a steady, predictable pattern. Key financial terms referenced include residential mortgage-backed securities, the 2008 financial crisis, and the US Department of Justice.
+
+End of summary
 
 In April 2016, I wrote that “the great inevitability of modern banking is that some bank will always be settling a crisis-era mortgage case with regulators from now until the end of time.” I was, and am, somewhat given to hyperbole, and realistically I do not expect that in 2035 any big banks will be paying nine-digit fines for their 2008 mortgage practices. But in 2025, sure:
 
@@ -148,10 +188,9 @@ end quote
 
 The world is in many ways a crazy place right now, so it is soothing that some things never change, like banks paying mortgage settlements.
 
-
-
 Things happen:
 
 Figma’s Pursuit of Long-Term Backers Kept IPO Price in Check. Bridgewater Founder Dalio Sells His Remaining Stake in Firm. The Fate of a Little-Known Company Behind Goldman’s Apple Card Is in Limbo. Tech Giants Are Revising AI Product Claims That Faced Scrutiny. Delta Gets Blowback for Using AI to Set Airfares. McKinsey bots. Iran proposes slashing zeros from currency after decades of decline.
 
 If you'd like to get Money Stuff in handy email form, right in your inbox, pleasesubscribe at this link. Or you can subscribe to Money Stuff and other great Bloomberg newslettershere. Thanks!
+
