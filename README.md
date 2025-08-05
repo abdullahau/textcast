@@ -1,12 +1,12 @@
-## Bloomberg to Audio: Listen to Matt Levine's *Money Stuff* on Your Commute
+## Bloomberg to Audio: Listen to Matt Levine's *Money Stuff*
 
-This lightweight personal project converts [Matt Levine’s *Money Stuff*](https://www.bloomberg.com/account/newsletters/money-stuff) newsletter from Bloomberg HTML into high-quality audio using the efficient and free [Kokoro TTS model](https://huggingface.co/hexgrad/Kokoro-82M).
+This lightweight, personal project converts [Matt Levine’s *Money Stuff*](https://www.bloomberg.com/account/newsletters/money-stuff) newsletter from Bloomberg's HTML webpage into high-quality audio using the efficient and free [Kokoro-82M model](https://huggingface.co/hexgrad/Kokoro-82M).
 
-It was born out of frustration: paid TTS services weren’t worth it, Microsoft Outlook removed “Play My Emails” from the iOS, and Apple’s “Speak Screen” made it hard to scrub between sections. I wanted a better way to:
+This project was born out of frustration: paid TTS services weren’t worth it, Microsoft Outlook removed “Play My Emails” from the iOS, and Apple’s “Speak Screen” made it hard to scrub between sections. I wanted a better way to:
 
 * Hear **footnotes read inline**
 * Distinguish **block quotes clearly**
-* **Summarize** dense sections using AI
+* **Summarize** sections using AI (optional)
 * Listen **offline**, on my commute
 
 So I built one.
@@ -19,6 +19,7 @@ So I built one.
 3. Optionally Run `html-to-text-with-summary.ipynb` to generate concise **section-by-section summaries** of the newsletter using Google's `gemini-2.5-flash`
 4. Run `text-to-speech.ipynb` to convert it into a `.wav` file using Kokoro TTS.
 5. **Airdrop** the audio to your phone and listen on the go.
+
 
 ### Project Structure
 
