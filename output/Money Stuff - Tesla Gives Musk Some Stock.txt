@@ -1,0 +1,157 @@
+Tesla Gives Musk Some Stock
+
+Also trend following, a Trump SPAC and a mortgage settlement.
+
+
+
+Tesla:
+
+In 2018, Tesla Inc. gave Elon Musk, its chief executive officer and Technoking, a big package of stock options to motivate him to transform Tesla from about a $59 billion company into a trillion-dollar company. This worked. Tesla’s equity market capitalization peaked at about $1.5 trillion last year; it’s hovering around $1 trillion today. Musk’s “moonshot” package of stock options is worth, at today’s prices, about $87 billion. [Footnote 1: That is, 303,960,630 shares in the options grant, times (about $308.16 as of noon today, minus the $23.34 strike price).]  That is both a lot of money and kind of a bargain; it does seem unlikely that a different CEO would have added a trillion dollars of value to Tesla. [Footnote 2: Or, also, subtracted half a trillion dollars of value; Musk’s absolute performance is maybe more impressive than his Sharpe ratio, but never mind.]
+
+And then last year a Delaware judge ruled that this options package was invalid, for conflict-of-interest and disclosure reasons. (She found that Tesla’s board, which approved the options, was in Musk’s pocket, and that the outside shareholders who also approved it were not fully informed about the deal.) Tesla responded by:
+
+1. Asking shareholders to approve the package again, and
+
+2. Moving its state of incorporation to Texas, so that Delaware judges couldn’t meddle in Musk’s pay anymore.
+
+Shareholders approved both measures, and the second one worked (Tesla is in Texas now), but the first one didn’t, or at least, it didn’t yet: The Delaware judge found that reapproving the options doesn’t bring them back to life, so they are still invalid. That decision is being appealed. But, for now, Musk’s $87 billion of options are gone.
+
+This situation strikes Musk, and Tesla’s board, and many of its shareholders, and also frankly me, as pretty unfair. Tesla did make a deal with Musk, that it would make him rich(er) if he made Tesla shareholders rich; he held up his end of the deal, but he has not gotten the options he was promised.
+
+We are also, in 2025, in a pretty interesting market for a man of Elon Musk’s talents. Right now, if you are a talented artificial intelligence researcher, your market value is on the order of hundreds of millions and perhaps billions of dollars. If you are a talented AI executive— if your skill set is not building generative AI models, but attracting and motivating people who build generative AI models — your market value is even higher. Sam Altman’s value to OpenAI is plausibly 100% of its valuation, which is $300 billion.
+
+I am not saying that, if Elon Musk polished up his LinkedIn and started sending around a resume, Mark Zuckerberg would pay him $90 billion to lead AI efforts at Meta. (Though I am writing a pilot for that sitcom.) I am saying, though, that if Musk were to go and start a new AI startup, he could easily raise billions of dollars at a 12-digit valuation. Also he has already done that. The startup is xAI, it raised a $10 billion round last month and it’s in talks to do more at a $200 billion valuation. I don’t know a lot about xAI’s cap table, but Musk might own one third of it, meaning that his stake is worth something like of $70 billion. The outside bid for Musk’s services — what he could get for building AI stuff awayfrom Tesla — is on the order of $70 billion. And meanwhile Tesla paid him, like, negative $87 billion last year? I would quit!
+
+That’s oversimplified. Tesla is a very important part of Musk’s empire. He owns about $127 billion worth of Tesla stock even without the 2018 options, and because Tesla is his only publiccompany, that stock is easier to turn into cash (by selling or pledging) than his private shares are. Musk’s projects require a lot of money, and Tesla is often the most straightforward source of that money. But he does have a lot of projects, and it would be understandable if he devoted his incremental efforts to projects that would pay him a lot of upside rather than to an already-large slow-growing public company where he arguably worked for free for the last seven years. [Footnote 3: I would not argue that very hard: Again, he’s a big shareholder of Tesla, so his own wealth increased by tens of billions of dollars due to his efforts, even without the options. Plenty of tech founder-CEO-shareholders don’t get huge options packages, and are motivated by their own shareholdings. (Presumably Musk isn’t getting random new options grants at xAI.) Still, a deal is a deal, etc.]
+
+It’s possible that the optimal outcome here is for (1) Musk to quit Tesla to go build AI stuff at xAI and (2) Tesla to hire a normal car executive to run a normal car company, but I doubt that many Tesla shareholders or directors think that. (That trillion-dollar valuation is not a normal-car-company valuation.) So Tesla’s board would like to throw giant gobs of stock back at Musk to keep him aligned and motivated.
+
+Presumably it cando that, because now Tesla is incorporated in Texas and the whole point of doing that was that everyone assumes (though nobody knows) that Texas courts will let it pay Musk whatever it wants. But there are tax and accounting issues. When Musk got those options in 2018, they weren’t worth very much, as an accounting matter: They were at the money (the strike price he would pay to exercise the options was equal to the market price) and highly contingent (he’d only get the options if he hit a series of aggressive operational and financial targets, including getting Tesla’s market cap to $650 billion), and they might well turn out to be worthless. If Tesla gave Musk the same options again, now, they’d be worth a ton of money: They’re very in-the-money (the stock has gone up more than 1,000%) and not contingent at all (he’s already hit all the targets). That means that (1) he would pay very high taxes on them and (2) Tesla would take a big charge to earnings. Giving him different options — at-the-money options contingent on hitting new targets — might be better (to motivate him to hit the new targets!), but would effectively leave him unpaid for his last seven years of work.
+
+Today Tesla announced that it will give Musk back a portion of his old options:
+
+start quote
+Tesla Inc. approved an interim stock award worth about $30 billion for Chief Executive Officer Elon Musk, a massive payout meant to keep the billionaire’s attention on the automaker as a legal fight over a 2018 pay package drags on.
+
+The new agreement includes 96 million shares of the automaker that will vest if Musk continues to serve in the top post for another two years, the company said Monday in a regulatory filing. The restricted stock 4 has an exercise price of $23.34, equal to the price in the prior compensation plan. …
+
+The board emphasized the importance of retaining Musk, saying in a shareholder letter released Monday that the award was a first step “good faith” payment. “After all, a ‘deal is a deal.’” It said it’s working on a longer-term CEO compensation strategy, which will be put to a vote at the EV maker’s Nov. 6 annual meeting.
+end quote
+
+Here are the filing, the terms of the new options, and the shareholder letter, which makes it clear that this is meant to (1) compensate Musk for his pastwork:
+
+start quote
+To recognize what Elon has accomplished and the extraordinary value he delivered to Tesla and our shareholders, we believe we must take action to honor the bargain that was struck in 2018. After all, “a deal is a deal.” Thus, as evidence that Tesla is committed to honoring its promises in the 2018 CEO Performance Award and intends to compensate its CEO for his future services commensurate with his contributions to our company and shareholders, we have recommended this award as a first step, “good faith” payment to Elon.
+end quote
+
+And (2) keep him from running off with an AI startup:
+
+start quote
+It is imperative to retain and motivate our extraordinary talent, beginning with Elon. The war for AI talent is intensifying, with recent months including multi-billion-dollar acquisitions of companies and nine-figure cash compensation packages for non-founder, individual AI engineers. Even among this group of highly talented individuals, no one matches Elon’s remarkable combination of leadership experience, technical expertise, and, arguably most importantly, decades-long proven track record of building the most revolutionary and profitable businesses across different industries. While we recognize that Elon’s business ventures, interests and other potential demands on his time and attention are extensive and wide-ranging, including his leadership roles at xAI, SpaceX, Neuralink, X Corp., and The Boring Company as well as his other interests, we are confident that this award will incentivize Elon to remain at Tesla and focus his unmatched leadership abilities on further creating shareholder value for Tesla shareholders and attracting and retaining talent at Tesla. To be clear, losing Elon would not only mean the loss of his talents but also the loss of a leader who is a magnet for hiring and retaining talent at Tesla.
+end quote
+
+Fine. But the funniest part of the filing is the section on “accounting consequences.” [Footnote 5: In what percentage of corporate filings is the “accounting consequences” the funniest part? Like, 10%, right?]  The accounting consequences are: none. Tesla argues that this $30 billion award is worth nothing, because Musk is unlikely ever to get the shares;
+
+start quote
+The Company expects to account for the 2025 CEO Interim Award as a grant of restricted stock with a performance condition in accordance with ASC Topic 718, which for purposes of the 2025 CEO Interim Award is based upon the probability of certain conditions being met. Restricted stock with a performance condition is accounted for by recognizing compensation expense over the requisite service period, based on the accounting grant-date fair value, but only if and when the vesting of the award becomes probable....
+
+As of the date of this report, the Company expects that the performance condition of the 2025 CEO Interim Award will not be deemed to be probable of being met. As a result, the Company currently expects that it will not recognize a compensation expense upon the issuance of the award.
+end quote
+
+That is, the performance conditions in the new award are so onerous that they are unlikely to be satisfied, so Musk is unlikely to get these shares, so Tesla doesn’t have to expense them.
+
+Which is weird: These new options are meant to replace the 2018 options; they are meant to reward them for his priorperformance. Putting in onerous new performance conditions seems rough on him. What are these onerous new conditions? Well, there are no operational or financial targets. Tesla doesn’t have to hit a $2 trillion market cap, or sell more cars or develop autonomous robots. The only thing that Musk actually has to do to get the award is:
+
+start quote
+A requirement that Elon serve continuously in a senior leadership role at Tesla during the two-year vesting term.
+end quote
+
+Huh. Tesla is saying it’s so unlikely that Musk will stay for two years, that the options are worth zero?
+
+No, I think I’m kidding; there’s one other requirement:
+
+start quote
+The 2025 CEO Interim Award will be immediately forfeited and returned to the Company if, prior to vesting, there is a final, non-appealable judgment, order or decision of the Delaware courts with respect to the action captioned Tornetta v. Elon Musk et al.... that results in Mr. Musk becoming able to exercise in full the performance-based stock option award he was granted in January 2018.
+end quote
+
+That is, if the Delaware decision gets overturned on appeal and Musk gets his 2018 options back, then these options go away. Perhaps Tesla’s accountants are confident that the decision will be overturned, so they think the probability of him actually getting these options is low.
+
+You don’t have to choose. The point is that the only way Musk gets these options is if:
+
+1. He loses the 2018 options forever, and
+
+2. He stays at Tesla for two more years.
+
+I suppose Tesla’s accountants concluded that the probability of bothof those things happening is low. I suppose they’re right!
+
+
+
+Trend following:
+
+One of the more embarrassing facts in finance is that stuff — stocks, bonds, commodities, etc. — that went up last month will probably go up this month. [Footnote 6: This is extremely not investing advice, and don’t take that time scale too seriously. Antti Ilmanen: “The common empirical finding is a return continuation tendency (momentum bias) except for very short and very long windows (a week or shorter, two to five years) where reversal bias may dominate.” That’s mostly about commodities, though stocks are similar (“a strong multi-month momentum effect sandwiched between short-term and long-term reversal effects”), and “momentum strategies perform well in virtually all asset classes we study,” though not always at the same time scales.]  This is embarrassing because it seems to undermine the idea of efficient markets: “Market prices incorporate all available information, except they always forget whether prices went up last month.” It seems hard to explain except with a story of investor irrationality. On the Money Stuff Podcast, Cliff Asness pointed out that the two main explanations are (1) “investors underreact to news” and (2) “investors overreact to news,” which is additionally embarrassing.
+
+There are people who make a nice living from this embarrassing fact: You buy stuff that went up last month, you short stuff that went down last month, and probably you make money. This is called “trend following.” [Footnote 7: More or less. As Asness also pointed out on that podcast episode, it’s “trend following” in macro and commodities markets, and “momentum” in individual stocks.]  My impression is that most of the hedge funds who make a living from this have more sophisticated models than this but, you know. Something like this.
+
+But this doesn’t alwayswork; it just mostlyworks. It works when markets are somewhat irrational. A medium amount of irrational, at a medium time horizon. I wrote a few months ago that “the current economic policy of the United States is apparently to cause maximum chaos by announcing drastic changes in the global economic order in the morning and then walking them back at lunchtime.” That is a change from the previous economic policy of the US, which was to try to be pretty stable to allow for rational economic planning. When the world is basically stable, the stuff that went up last month will probably go up this month. When the US imposes huge tariffs one month and walks them back the next month, the stuff that went up last month will probably go downthis month. [Footnote 8: Also not investing advice.]  The regime has changed; a new and stronger source of irrationality has been added to the market. It’s hard to make a living following trends when there are no trends. The Wall Street Journal reports:
+
+start quote
+Trend-following hedge funds lost 9.6% in the first half of this year, on track for their worst annual performance since at least 1998, according to the research firm PivotalPath. Meanwhile, hedge funds more broadly returned 4%, net of fees, while the S&P 500 delivered 6.2% to investors, including dividends....
+
+At Man Group, seen as a trend-following pioneer, the flagship AHL Alpha fund is down 7.8% through June....
+
+Because trend-following funds can take days or weeks to fully buy into a change in a market’s direction, they can be left playing catch-up if asset prices quickly reverse. The funds’ signals might instruct them to buy—just before an unexpected catalyst suddenly sends other investors rushing to sell.
+
+This year, Trump’s capricious tariff moves and sudden social-media announcements have stoked volatility across asset classes, including stocks, currencies and commodities. Last week, for instance, U.S. copper prices suddenly plunged after the president surprised traders by unveiling 50% tariffs on copper products, but not on the raw material itself.
+end quote
+
+In general I do not have a ton of sympathy for hedge fund managers who say things like “the market has become too irrational now, so it is hard for me to make money.” That’s not how it’s supposed to work! When the market is irrational, there are lots of opportunities for smart rational hedge fund managers; if it is hard for you to make money using your old tricks, that suggests that the market has become morerational. If I had told you in 2015 that trend following wouldn’t work in 2025, you might have said “ah, yes, as artificial intelligence becomes more sophisticated and hedge funds get more competitive, it should be harder to make money by just buying the stuff that went up last month.” But that is probably not quite what happened.
+
+
+
+SPAC:
+
+Sure. I mean. Sure:
+
+start quote
+Eric Trump and Donald Trump Jr are backing a new blank cheque investment vehicle targeting US manufacturers and looking to benefit from government spending.
+
+The launch of New America Acquisition I Corp marks the latest Trump family foray into public markets. The vehicle will seek to buy a US company that plays “a meaningful role in revitalising domestic manufacturing, expanding innovation ecosystems, and strengthening critical supply chains”, the group said on Monday.
+
+The vehicle’s Securities and Exchange Commission filing said it would target a company “well-positioned to benefit from federal or state-level incentives, such as grants, tax credits, government contracts or preferential procurement programs” and where “the US government has an identifiable economic or security interest”.
+end quote
+
+Of course the presidents’ sons should have a special purpose acquisition company to acquire businesses “well-positioned to benefit from federal or state-level incentives, such as grants, tax credits, government contracts or preferential procurement programs.” What? The Financial Times article doesn’t even bother with the usual routine of calling a spokesperson to say “of course there would never be a conflict of interest.”
+
+Elsewhere:
+
+start quote
+President Donald Trump is bringing in bank leaders to meet with him one by one at the White House. Beyond the economic discussion, there’s a chance at a big payday for their firms.
+
+Trump is asking chief executive officers for their pitches on monetizing mortgage giants Fannie Mae and Freddie Mac, including a major public offering of stock, according to people familiar with the matter.
+
+Last week, Trump invited JPMorgan Chase & Co. CEO Jamie Dimon to meet him at the White House. Goldman Sachs Group Inc. CEO David Solomon was set to meet with Trump on Thursday afternoon, and Bank of America Corp. CEO Brian Moynihan is also expected to meet the president in coming days. Talks are likely to include other banks as well, the people said.
+end quote
+
+I feel like there must have been some tense internal meetings at those banks to figure out how shameless the pitch should be. Like is “just merge them with your sons’ SPAC” obviously the wrong answer, or obviously the right answer?
+
+
+
+Mortgages:
+
+In April 2016, I wrote that “the great inevitability of modern banking is that some bank will always be settling a crisis-era mortgage case with regulators from now until the end of time.” I was, and am, somewhat given to hyperbole, and realistically I do not expect that in 2035 any big banks will be paying nine-digit fines for their 2008 mortgage practices. But in 2025, sure:
+
+start quote
+UBS has agreed to pay $300mn to resolve a legacy Credit Suisse case in the US related to the mis-selling of residential mortgage-backed securities in the run-up to the 2008 financial crisis.
+
+The Swiss lender said on Monday it had reached an agreement with the US Department of Justice to draw a line under a 2017 settlement Credit Suisse made with US authorities over the alleged mis-selling of mortgage-linked investments.
+end quote
+
+The world is in many ways a crazy place right now, so it is soothing that some things never change, like banks paying mortgage settlements.
+
+
+
+Things happen:
+
+Figma’s Pursuit of Long-Term Backers Kept IPO Price in Check. Bridgewater Founder Dalio Sells His Remaining Stake in Firm. The Fate of a Little-Known Company Behind Goldman’s Apple Card Is in Limbo. Tech Giants Are Revising AI Product Claims That Faced Scrutiny. Delta Gets Blowback for Using AI to Set Airfares. McKinsey bots. Iran proposes slashing zeros from currency after decades of decline.
+
+If you'd like to get Money Stuff in handy email form, right in your inbox, pleasesubscribe at this link. Or you can subscribe to Money Stuff and other great Bloomberg newslettershere. Thanks!
