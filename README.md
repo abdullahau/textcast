@@ -31,8 +31,8 @@ matt-levine-TTS/
 ├── html-to-text.ipynb                   # Parses HTML into readable text
 ├── html-to-text-with-summary.ipynb      # Parses HTML + adds Gemini summaries
 ├── text-to-speech.ipynb                 # Converts text to audio using Kokoro
-├── config.py                            # Optional: Hugging Face access token (uses .env)
-├── .env                                 # Optional: stores access token, and gemini API key securely
+├── config.py                            # Optional: Hugging Face access token and Gemini API key (uses .env)
+├── .env                                 # Optional: Stores HF access token and Gemini API key securely
 └── README.md
 ```
 
