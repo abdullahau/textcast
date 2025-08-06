@@ -1,0 +1,31 @@
+Tech venture firms deploy private equity ‘roll-up’ strategy
+
+Thrive Capital’s backing of Savvy Wealth is part of growing effort to fund groups that go on to buy similar companies
+
+Top venture capital firms are borrowing a strategy from the private equity playbook, pumping money into tech start-ups so they can “roll up” rivals to build a sector-dominating conglomerate.
+
+Among those deploying the approach is Thrive Capital, a backer of OpenAI and Stripe, which is involved in a new $72mn funding round for wealth management start-up Savvy Wealth. The investment values the New York-based group at $225mn, according to people with knowledge of the matter. The funding will go towards buying up smaller advisory firms and hiring individual advisers, as well as embedding artificial intelligence into the group’s operations.
+
+General Catalyst, one of Silicon Valley’s largest VCs, has earmarked roughly $750mn to pursue roll-ups in areas from call centres to legal services and property lettings. Other venture capital groups, including Khosla Ventures, Bessemer Venture Partners and 8VC are also exploring roll-ups.
+
+The approach mirrors the strategies long deployed by private equity investors, which have built behemoths in fragmented industries such as healthcare, waste management or building services by agglomerating smaller businesses and centralising operating costs.
+
+It marks a new direction for VCs, which traditionally target fast-growing technology start-ups in nascent industries. The roll-up strategy creates an avenue for VCs to generate liquidity from their portfolios at a time when initial public offerings and dealmaking have slowed.
+
+Where private equity firms typically make heavy use of debt and slash costs in a roll-up, VCs claim improvements to efficiency and margins will come from infusing technology into the companies.
+
+Savvy, for instance, is using AI to take on back office tasks such as pulling data for the half a dozen forms that might be needed for any one transaction.
+
+Kareem Zaki, a partner at Thrive, said Savvy’s approach was made possible by AI, which “is able to handle much more complicated tasks in a much more accurate and complex way. Older technology struggled to provide a very personalised service.”
+
+Ritik Malhotra, founder and chief executive of Savvy, said: “Highly fragmented businesses, like financial advisory or real estate, make sense for roll-ups.”
+
+General Catalyst-backed Dwelly is taking a similar approach to the British property rental market, acquiring three lettings agencies across the UK, and currently manages more than 2,000 properties. It plans to automate the process of matching tenants and landlords, property management and rent collection.
+
+Roll-ups are a departure for VCs during a period where, outside of hot sectors such as AI, many start-ups are struggling to justify high valuations established at the top of the market in 2021 and 2022.
+
+“It’s the best of both worlds, PE and VC: on the venture side it’s an extremely exciting time to be in AI. On the PE side, there’s a lot of consolidation in these industries,” said Marc Bhargava, who leads the strategy at General Catalyst.
+
+Some investors in venture funds are dubious. “I would be sceptical of any strategy that involved transforming a pre-AI business into an AI-based business,” said the head of investment at one US foundation.
+
+“It’s a classic case of the innovator’s dilemma, because it would require the corporate equivalent of a brain transplant, re-architecting everything about the way the business develops, sells and operates. I’m not saying it would be impossible to pull off but it would be very difficult.”
