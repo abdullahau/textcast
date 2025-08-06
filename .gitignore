@@ -4,6 +4,8 @@ __pycache__/
 *.py[cod]
 *$py.class
 *.pyc
+video-resource/audio/*.wav
+video-resource/frames/*.png
 
 # Jupyter Notebook
 .ipynb_checkpoints
