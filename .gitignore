@@ -6,7 +6,7 @@ __pycache__/
 *.pyc
 video-resource/audio/*.wav
 video-resource/frames/*.png
-video-resource/output/*.mp4
+video-resource/output/
 
 # Jupyter Notebook
 .ipynb_checkpoints
