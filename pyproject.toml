@@ -1,0 +1,16 @@
+[project]
+name = "matt-levine-tts"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "beautifulsoup4>=4.13.5",
+    "google-generativeai>=0.8.5",
+    "kokoro>=0.9.4",
+    "nltk>=3.9.1",
+    "numpy>=2.3.3",
+    "pillow>=11.3.0",
+    "requests>=2.32.5",
+    "soundfile>=0.13.1",
+]
