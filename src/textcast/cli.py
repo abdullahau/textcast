@@ -154,6 +154,104 @@ def _default_voice(engine) -> str:
     return voices[0].id if voices else ""
 
 
+def cmd_add(args: argparse.Namespace) -> int:
+    from . import db
+    from .service import ingest
+
+    settings = get_settings()
+    settings.ensure_dirs()
+    db.init(settings.db_path)
+
+    source = args.source
+    kwargs: dict = {"adapter": args.adapter, "build": not args.no_build}
+    if source.startswith(("http://", "https://")):
+        kwargs["url"] = source
+    else:
+        path = Path(source)
+        raw = path.read_bytes()
+        if path.suffix.lower() in (".eml", ".mbox", ".msg"):
+            kwargs["eml"] = raw
+        else:
+            kwargs["html"] = raw.decode("utf-8", errors="replace")
+
+    result = ingest(**kwargs)
+    if result.duplicate:
+        print(f"already stored as #{result.article_id} ({result.slug})")
+        return 0
+
+    series = f"  [{result.series}]" if result.series else ""
+    print(f"#{result.article_id}  {result.title}{series}  {result.word_count} words")
+    if result.job_id:
+        print(f"queued build as job {result.job_id} — run `textcast worker` to process it")
+    return 0
+
+
+def _duration(ms: int) -> str:
+    if not ms:
+        return "-"
+    minutes, seconds = divmod(round(ms / 1000), 60)
+    return f"{minutes}:{seconds:02d}"
+
+
+def cmd_library(args: argparse.Namespace) -> int:
+    from . import db
+
+    db.init(get_settings().db_path)
+    conn = db.connect()
+
+    if args.series:
+        for row in db.list_series(conn):
+            print(f"  {row['name']:<28} {row['issues']:>3} issues  {row['ready']:>3} ready  {_duration(row['audio_ms'] or 0):>7}")
+        return 0
+
+    rows = db.list_articles(conn, series=args.of, status=args.status, limit=args.limit)
+    for row in rows:
+        flag = "*" if row["starred"] else " "
+        print(
+            f"{flag}#{row['id']:<4} {row['status']:<9} {_duration(row['audio_ms']):>7}  "
+            f"{(row['series'] or row['source'])[:16]:<17} {row['title'][:52]}"
+        )
+    summary = db.stats(conn)
+    print(f"\n{summary['articles']} articles, {summary['ready']} ready, {_duration(summary['audio_ms'])} of audio, {summary['audio_bytes'] / 1e6:.0f} MB")
+    return 0
+
+
+def cmd_search(args: argparse.Namespace) -> int:
+    from . import db
+
+    db.init(get_settings().db_path)
+    hits = db.search(args.query, limit=args.limit)
+    if not hits:
+        print("no matches")
+        return 0
+    for hit in hits:
+        where = f"{_duration(hit['start_ms'] or 0)}" if hit["start_ms"] is not None else "-"
+        snippet = hit["snippet"].replace("<mark>", "[").replace("</mark>", "]")
+        print(f"#{hit['article_id']} {hit['block_id']:<8} @{where:>7}  {hit['title'][:38]}")
+        print(f"    {snippet}")
+    return 0
+
+
+def cmd_worker(args: argparse.Namespace) -> int:
+    import logging
+
+    from .jobs import Worker
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    settings = get_settings()
+    settings.ensure_dirs()
+
+    worker = Worker(settings)
+    if args.once:
+        from . import db
+
+        db.init(settings.db_path)
+        return 0 if worker.step() else 0
+
+    worker.run()
+    return 0
+
+
 def cmd_serve(args: argparse.Namespace) -> int:
     import uvicorn
 
@@ -196,6 +294,28 @@ def build_parser() -> argparse.ArgumentParser:
     build.add_argument("--no-footnotes", action="store_true")
     build.add_argument("--no-summaries", action="store_true")
     build.set_defaults(func=cmd_build)
+
+    add = sub.add_parser("add", help="ingest a file, .eml or URL into the library and queue a build")
+    add.add_argument("source")
+    add.add_argument("--adapter")
+    add.add_argument("--no-build", action="store_true", help="store it without queueing audio")
+    add.set_defaults(func=cmd_add)
+
+    library = sub.add_parser("library", help="list stored articles, newest first")
+    library.add_argument("--series", action="store_true", help="list newsletters instead")
+    library.add_argument("--of", help="only this series")
+    library.add_argument("--status", choices=["new", "queued", "building", "ready", "failed"])
+    library.add_argument("--limit", type=int, default=40)
+    library.set_defaults(func=cmd_library)
+
+    find = sub.add_parser("search", help="full-text search every article")
+    find.add_argument("query")
+    find.add_argument("--limit", type=int, default=20)
+    find.set_defaults(func=cmd_search)
+
+    worker = sub.add_parser("worker", help="process queued builds")
+    worker.add_argument("--once", action="store_true", help="run a single job and exit")
+    worker.set_defaults(func=cmd_worker)
 
     serve = sub.add_parser("serve", help="run the web app")
     serve.add_argument("--host", default="127.0.0.1")

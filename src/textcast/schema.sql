@@ -77,7 +77,8 @@ CREATE TRIGGER IF NOT EXISTS block_au AFTER UPDATE OF text ON block BEGIN
 END;
 
 CREATE TABLE IF NOT EXISTS job (
-    id          INTEGER PRIMARY KEY,
+    -- AUTOINCREMENT so a re-queued job never reuses the id a client is polling.
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
     article_id  INTEGER REFERENCES article (id) ON DELETE CASCADE,
     kind        TEXT    NOT NULL DEFAULT 'build',
     -- queued -> running -> done, or failed / cancelled
