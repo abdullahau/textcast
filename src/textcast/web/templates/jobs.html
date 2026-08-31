@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Builds — textcast{% endblock %}
+
+{% block content %}
+<div class="section-head"><h2>Builds</h2></div>
+<table class="plain">
+  <thead><tr><th>Article</th><th>State</th><th>Progress</th><th>Started</th><th>Note</th></tr></thead>
+  <tbody>
+    {% for j in jobs %}
+      <tr>
+        <td>{% if j.slug %}<a href="/a/{{ j.slug }}">{{ j.title }}</a>{% else %}<em>deleted</em>{% endif %}</td>
+        <td><span class="pill {{ j.state }}">{{ j.state }}</span></td>
+        <td>{{ (j.progress * 100)|round|int }}%</td>
+        <td class="mono">{{ j.started_at or j.created_at }}</td>
+        <td class="mono">{{ j.error or j.message }}</td>
+      </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

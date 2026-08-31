@@ -14,6 +14,12 @@ NOISE = [
 ]
 
 
+def _author(tree: Tree) -> str:
+    """The byline block also carries the date and a print link; take the name."""
+    name = first_text(tree, ['[class*="byline"] a', ".n-content-tag--author"])
+    return name.split(" Published ")[0].strip()
+
+
 class FTAdapter:
     name = "ft"
 
@@ -41,6 +47,6 @@ class FTAdapter:
                 sections=blocks_from_dom(container),
                 source="Financial Times",
                 url=url,
-                author=first_text(tree, [".n-content-tag--author", '[class*="byline"]']),
+                author=_author(tree),
             )
         )

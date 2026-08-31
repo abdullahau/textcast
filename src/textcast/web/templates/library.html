@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}textcast{% endblock %}
+
+{% block content %}
+{% if resume %}
+  <div class="section-head"><h2>Continue listening</h2></div>
+  <div class="list">
+    {% for a in resume %}
+      <a class="item" href="/a/{{ a.slug }}">
+        <span class="t">{{ a.title }}</span>
+        <span class="m">
+          {% if a.series %}<span class="pill series">{{ a.series }}</span>{% endif %}
+          <span>{{ a.position_ms|duration }} of {{ a.audio_ms|duration }}</span>
+        </span>
+        <span class="r">{{ ((a.audio_ms - a.position_ms))|duration }} left</span>
+      </a>
+    {% endfor %}
+  </div>
+{% endif %}
+
+{% if series %}
+  <div class="section-head"><h2>Newsletters</h2><a href="/series">Settings</a></div>
+  <div class="chips">
+    {% for s in series %}
+      <a class="chip" href="/series/{{ s.name }}">{{ s.display or s.name }} <b>{{ s.issues }}</b></a>
+    {% endfor %}
+  </div>
+{% endif %}
+
+<div class="section-head">
+  <h2>{{ 'Archive' if archived else 'Library' }}</h2>
+  <span>
+    {% if status %}<a href="/">all</a>{% else %}<a href="/?status=ready">ready</a>{% endif %}
+    &middot;
+    {% if archived %}<a href="/">library</a>{% else %}<a href="/?archived=true">archive</a>{% endif %}
+  </span>
+</div>
+
+{% if jobs %}
+  <div class="card" id="job-strip" style="margin-bottom:1rem">
+    <h2>Building</h2>
+    {% for j in jobs %}
+      <p class="hint" style="margin:.4rem 0 .2rem">{{ j.title }} — <span data-job-message="{{ j.id }}">{{ j.message or j.state }}</span></p>
+      <span class="meter"><i data-job-meter="{{ j.id }}" style="width: {{ (j.progress * 100)|round(1) }}%"></i></span>
+    {% endfor %}
+  </div>
+{% endif %}
+
+{% if articles %}
+  <div class="list">
+    {% for a in articles %}
+      <a class="item" href="/a/{{ a.slug }}">
+        <span class="t">{{ a.title }}</span>
+        <span class="m">
+          {% if a.series %}<span class="pill series">{{ a.series }}</span>
+          {% else %}<span>{{ a.source }}</span>{% endif %}
+          {% if a.status != 'ready' %}<span class="pill {{ a.status }}">{{ a.status }}</span>{% endif %}
+          {% if a.starred %}<span title="Starred">★</span>{% endif %}
+          <span>{{ "{:,}".format(a.word_count) }} words</span>
+          {% if a.published_at %}<span>{{ a.published_at|date }}</span>{% endif %}
+        </span>
+        <span class="r">{{ a.audio_ms|duration or '—' }}</span>
+      </a>
+    {% endfor %}
+  </div>
+{% else %}
+  <p class="empty">Nothing here yet. <a href="/add">Add an article</a> to get started.</p>
+{% endif %}
+
+<p class="stats">
+  <span>{{ stats.articles }} articles</span>
+  <span>{{ stats.ready }} with audio</span>
+  <span>{{ stats.audio_ms|duration or '0:00' }} total</span>
+  <span>{{ "%.0f"|format(stats.audio_bytes / 1e6) }} MB</span>
+  <span>{{ "{:,}".format(stats.words) }} words</span>
+</p>
+{% endblock %}
+
+{% block scripts %}{% if jobs %}<script src="/static/progress.js?v=1" defer></script>{% endif %}{% endblock %}

@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}Add — textcast{% endblock %}
+
+{% block content %}
+<div class="section-head"><h2>Add something to read</h2></div>
+
+{% if error %}<p class="notice error">{{ error }}</p>{% endif %}
+
+<div class="card">
+  <h2>From a link</h2>
+  <p class="hint">Works for anything that is not behind a login.</p>
+  <form method="post" action="/api/ingest">
+    <div class="row">
+      <input type="url" name="url" placeholder="https://…" value="{{ url }}" required autofocus>
+      <button class="narrow" type="submit">Add</button>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  <h2>From a file</h2>
+  <p class="hint">A saved <code>.html</code> page, or a newsletter saved as <code>.eml</code>.</p>
+  <form method="post" action="/api/ingest" enctype="multipart/form-data">
+    <div class="row">
+      <input type="file" name="file" accept=".html,.htm,.eml,.mbox,.msg" required>
+      <button class="narrow" type="submit">Upload</button>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  <h2>Paste the page source</h2>
+  <p class="hint">For paywalled articles: open the page while logged in, view source, paste it here.</p>
+  <form method="post" action="/api/ingest">
+    <textarea name="html" placeholder="&lt;!doctype html&gt;…"></textarea>
+    <div class="row" style="margin-top:.7rem">
+      <select name="adapter">
+        <option value="">Detect the publication</option>
+        <option value="bloomberg">Bloomberg</option>
+        <option value="ft">Financial Times</option>
+        <option value="newsletter">Newsletter</option>
+        <option value="generic">Generic article</option>
+      </select>
+      <button class="narrow" type="submit">Add</button>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  <h2>One-click from any page</h2>
+  <p class="hint">Drag this to your bookmarks bar. On a paywalled article it sends the page you are logged into, so the server never has to get past the wall.</p>
+  <p><a class="btn" id="bookmarklet" href="#">Send to textcast</a></p>
+</div>
+
+<script>
+(function () {
+  var origin = location.origin;
+  var code = "javascript:(function(){var f=document.createElement('form');f.method='POST';f.action='" + origin + "/api/ingest';f.target='_blank';var h=document.createElement('input');h.type='hidden';h.name='html';h.value=document.documentElement.outerHTML;var u=document.createElement('input');u.type='hidden';u.name='url';u.value=location.href;f.appendChild(h);f.appendChild(u);document.body.appendChild(f);f.submit();f.remove();})()";
+  var link = document.getElementById("bookmarklet");
+  link.href = code;
+  link.addEventListener("click", function (e) { e.preventDefault(); alert("Drag this button to your bookmarks bar, do not click it."); });
+})();
+</script>
+{% endblock %}

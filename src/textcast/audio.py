@@ -50,6 +50,8 @@ class SectionAudio:
     title: str
     file: str
     duration_ms: int
+    #: WebVTT metadata track carrying this section's block timings.
+    track: str = ""
     blocks: list[BlockTiming] = field(default_factory=list)
 
 
@@ -123,6 +125,34 @@ def _speak(
     samples.astype(np.float32).tofile(tmp)
     tmp.replace(path)
     return samples
+
+
+def vtt_timestamp(ms: int) -> str:
+    hours, rest = divmod(max(0, ms), 3_600_000)
+    minutes, rest = divmod(rest, 60_000)
+    seconds, millis = divmod(rest, 1000)
+    return f"{hours:02d}:{minutes:02d}:{seconds:02d}.{millis:03d}"
+
+
+def write_vtt(timings: list[BlockTiming], out: Path) -> None:
+    """Write the timing map as a WebVTT metadata track.
+
+    WebVTT is the web standard for text aligned to a media timeline, so the
+    browser does the lookup itself and fires ``cuechange`` as each block starts.
+    That removes the hand-rolled search the player would otherwise need, and
+    with it a whole class of drift and off-by-one bugs.
+
+    The cue id is the block's DOM id, so the player highlights with one lookup.
+    """
+    lines = ["WEBVTT", ""]
+    for timing in timings:
+        lines += [
+            timing.id,
+            f"{vtt_timestamp(timing.start_ms)} --> {vtt_timestamp(timing.start_ms + timing.dur_ms)}",
+            timing.id,
+            "",
+        ]
+    out.write_text("\n".join(lines), encoding="utf-8")
 
 
 def selected_blocks(article: Article, include: set[BlockKind]) -> Iterable[tuple[int, Block]]:
@@ -209,14 +239,16 @@ def render_article(
             cursor += dur_ms
 
         audio = np.concatenate(chunks) if chunks else np.zeros(0, dtype=np.float32)
-        name = f"section-{section.idx:03d}.opus"
-        encode_opus(audio, sample_rate, out_dir / name, bitrate=bitrate)
+        stem = f"section-{section.idx:03d}"
+        encode_opus(audio, sample_rate, out_dir / f"{stem}.opus", bitrate=bitrate)
+        write_vtt(timings, out_dir / f"{stem}.vtt")
 
         manifest.sections.append(
             SectionAudio(
                 idx=section.idx,
                 title=section.title,
-                file=name,
+                file=f"{stem}.opus",
+                track=f"{stem}.vtt",
                 duration_ms=round(len(audio) / sample_rate * 1000),
                 blocks=timings,
             )

@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>{% block title %}textcast{% endblock %}</title>
+<meta name="theme-color" content="#141310" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#fbfaf8" media="(prefers-color-scheme: light)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="textcast">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/static/icon.svg">
+<link rel="stylesheet" href="/static/app.css?v=1">
+</head>
+<body>
+
+<header class="bar">
+  <a class="brand" href="/" aria-label="Library">
+    <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+      <path d="M4 14v-3a8 8 0 0 1 16 0v3"/><path d="M4 14h3v6H5a1 1 0 0 1-1-1z"/><path d="M20 14h-3v6h2a1 1 0 0 0 1-1z"/>
+    </svg>
+    <span>textcast</span>
+  </a>
+
+  <form class="find" action="/search" method="get" role="search">
+    <input type="search" name="q" value="{{ q }}" placeholder="Search everything" aria-label="Search" enterkeyhint="search">
+  </form>
+
+  <nav class="bar-links">
+    <a href="/series">Newsletters</a>
+    <a class="cta" href="/add">Add</a>
+  </nav>
+</header>
+
+<main class="page">
+  {% block content %}{% endblock %}
+</main>
+
+<script>
+if ("serviceWorker" in navigator) {
+  addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));
+}
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

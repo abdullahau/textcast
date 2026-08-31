@@ -116,6 +116,7 @@ JUNK_BLOCKS = {
     "gift this article", "read next", "advertisement", "skip to content",
     "sign up", "follow", "more on this topic", "open in app", "copy link",
     "reuse this content", "explore more", "loading", "see all",
+    "print this page", "comments", "leave a comment",
 }
 
 #: Share rows and link furniture, which survive as ordinary list items.

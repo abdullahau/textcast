@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Newsletters — textcast{% endblock %}
+
+{% block content %}
+<div class="section-head"><h2>Newsletters</h2></div>
+
+{% if not series %}
+  <p class="empty">No newsletters yet. Add an issue and textcast groups it into a series automatically.</p>
+{% else %}
+  <table class="plain">
+    <thead><tr><th>Newsletter</th><th>Issues</th><th>Ready</th><th>Audio</th><th>Latest</th></tr></thead>
+    <tbody>
+      {% for s in series %}
+        <tr>
+          <td><a href="/series/{{ s.name }}">{{ s.display or s.name }}</a></td>
+          <td>{{ s.issues }}</td>
+          <td>{{ s.ready or 0 }}</td>
+          <td>{{ (s.audio_ms or 0)|duration or '—' }}</td>
+          <td class="mono">{{ s.latest|date }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endif %}
+{% endblock %}

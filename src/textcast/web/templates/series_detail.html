@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}{{ series.display or series.name }} — textcast{% endblock %}
+
+{% block content %}
+<div class="section-head"><h2>{{ series.display or series.name }}</h2><a href="/series">All newsletters</a></div>
+
+<div class="card">
+  <h2>Defaults for this newsletter</h2>
+  <p class="hint">Every new issue is built with these settings.</p>
+  <form method="post" action="/api/series/{{ series.name }}">
+    <div class="row">
+      {% if voices %}
+      <div>
+        <label for="voice">Voice</label>
+        <select name="voice" id="voice">
+          <option value="">Use the global default</option>
+          {% for v in voices %}<option value="{{ v }}" {{ 'selected' if v == series.voice }}>{{ v }}</option>{% endfor %}
+        </select>
+      </div>
+      <div>
+        <label for="quote_voice">Quote voice</label>
+        <select name="quote_voice" id="quote_voice">
+          <option value="">Same, with spoken cues</option>
+          {% for v in voices %}<option value="{{ v }}" {{ 'selected' if v == series.quote_voice }}>{{ v }}</option>{% endfor %}
+        </select>
+      </div>
+      {% endif %}
+    </div>
+    <div class="row">
+      <label class="check"><input type="checkbox" name="auto_build" value="true" {{ 'checked' if series.auto_build }}> Build audio automatically on arrival</label>
+      <label class="check"><input type="checkbox" name="skip_footnotes" value="true" {{ 'checked' if series.skip_footnotes }}> Skip footnotes</label>
+    </div>
+    <button type="submit">Save</button>
+  </form>
+</div>
+
+<div class="section-head"><h2>{{ articles|length }} issues</h2></div>
+<div class="list">
+  {% for a in articles %}
+    <a class="item" href="/a/{{ a.slug }}">
+      <span class="t">{{ a.title }}</span>
+      <span class="m">
+        {% if a.status != 'ready' %}<span class="pill {{ a.status }}">{{ a.status }}</span>{% endif %}
+        {% if a.published_at %}<span>{{ a.published_at|date }}</span>{% endif %}
+        <span>{{ "{:,}".format(a.word_count) }} words</span>
+      </span>
+      <span class="r">{{ a.audio_ms|duration or '—' }}</span>
+    </a>
+  {% endfor %}
+</div>
+{% endblock %}

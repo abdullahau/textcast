@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}{{ q }} — textcast{% endblock %}
+
+{% block content %}
+<div class="section-head">
+  <h2>{% if q %}{{ hits|length }} result{{ '' if hits|length == 1 else 's' }} for “{{ q }}”{% else %}Search{% endif %}</h2>
+</div>
+
+{% if not q %}
+  <p class="empty">Search every word of every article you have ever added.</p>
+{% elif not hits %}
+  <p class="empty">Nothing matched “{{ q }}”.</p>
+{% else %}
+  <div class="list">
+    {% for h in hits %}
+      <a class="hit" href="/a/{{ h.slug }}#{{ h.block_id }}">
+        <span class="t">
+          {% if h.series %}<span class="pill series">{{ h.series }}</span>{% endif %}
+          <span>{{ h.title }}</span>
+          {% if h.start_ms is not none %}<span>at {{ h.start_ms|duration }}</span>{% endif %}
+        </span>
+        <span class="s">{{ h.snippet|safe }}</span>
+      </a>
+    {% endfor %}
+  </div>
+{% endif %}
+{% endblock %}

@@ -32,6 +32,9 @@ textcast = "textcast.cli:main"
 dev = [
     "pytest>=8.3",
     "ruff>=0.13.2",
+    # Browser tests for the read-along player; run `playwright install chromium`.
+    "playwright>=1.49",
+    "httpx>=0.28",
 ]
 
 [build-system]
