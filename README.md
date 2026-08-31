@@ -24,7 +24,7 @@ So I built one.
 ### Project Structure
 
 ```
-matt-levine-TTS/
+textcast/
 ├── input/                               # Raw HTML files of newsletters
 ├── output/                              # Clean .txt files with inline footnotes & quotes
 ├── example/                             # Example .wav audio outputs
@@ -41,9 +41,9 @@ matt-levine-TTS/
 
 Run the notebooks in-browser:
 
-[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abdullahau/matt-levine-TTS/blob/main/text-to-speech.ipynb)
+[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abdullahau/textcast/blob/main/text-to-speech.ipynb)
 
-[![Open in Kaggle](https://kaggle.com/static/images/open-in-kaggle.svg)](https://kaggle.com/kernels/welcome?src=https://github.com/abdullahau/matt-levine-TTS/blob/main/text-to-speech.ipynb)
+[![Open in Kaggle](https://kaggle.com/static/images/open-in-kaggle.svg)](https://kaggle.com/kernels/welcome?src=https://github.com/abdullahau/textcast/blob/main/text-to-speech.ipynb)
 
 Choose the platform with available GPU compute (Kaggle offers 30hrs/week of 2 NVIDIA T4 GPUs for free!).
 
