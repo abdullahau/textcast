@@ -1,0 +1,7 @@
+[Unit]
+Description=Fetch newsletters into textcast
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/docker compose -f /home/ubuntu/Developer/textcast/docker-compose.yml run --rm worker textcast mail

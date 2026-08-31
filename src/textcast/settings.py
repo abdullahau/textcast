@@ -44,6 +44,8 @@ class Settings:
 
     # --- worker ---
     workers: int = field(default_factory=lambda: _env_int("WORKERS", 1))
+    #: Minutes between IMAP polls. 0 disables the poller.
+    mail_poll_minutes: int = field(default_factory=lambda: _env_int("MAIL_POLL_MINUTES", 0))
 
     # --- optional summaries ---
     gemini_api_key: str = field(default_factory=lambda: os.environ.get("GEMINI_API_KEY", ""))

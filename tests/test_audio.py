@@ -8,7 +8,7 @@ import pytest
 
 from textcast.audio import encode_opus, render_article
 from textcast.document import Article, Block, BlockKind, Section
-from textcast.tts import ENGINES, available, get_engine
+from textcast.tts import ENGINES, EngineNotAvailable, available, get_engine
 from textcast.tts.base import Clip, TTSEngine
 
 
@@ -108,3 +108,24 @@ def test_block_cache_avoids_resynthesising(tmp_path):
 
     render_article(sample_article(), Counting(), tmp_path / "b", voice="v1", cache_dir=cache)
     assert Counting.calls == first, "second render should be served entirely from cache"
+
+
+def test_availability_probes_the_dependency_not_the_wrapper():
+    """The wrapper module always imports; only the real package tells the truth.
+
+    Its heavy import sits inside ``__init__``, so importing
+    ``textcast.tts.kokoro`` succeeds even with kokoro uninstalled. Probing the
+    wrapper reported every engine as installed.
+    """
+    import importlib
+
+    for spec in ENGINES.values():
+        importlib.import_module(spec.module)  # always succeeds
+        assert spec.requires != spec.module
+
+    have = available()
+    assert have["supertonic"] is True, "the default engine should be installed"
+
+    if not have["kokoro"]:
+        with pytest.raises(EngineNotAvailable, match="uv sync --extra kokoro"):
+            get_engine("kokoro")

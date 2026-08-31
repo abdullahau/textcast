@@ -252,6 +252,17 @@ def cmd_worker(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_mail(args: argparse.Namespace) -> int:
+    import logging
+
+    from .mail import fetch
+
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+    result = fetch(limit=args.limit)
+    print(result)
+    return 0
+
+
 def cmd_serve(args: argparse.Namespace) -> int:
     import uvicorn
 
@@ -316,6 +327,10 @@ def build_parser() -> argparse.ArgumentParser:
     worker = sub.add_parser("worker", help="process queued builds")
     worker.add_argument("--once", action="store_true", help="run a single job and exit")
     worker.set_defaults(func=cmd_worker)
+
+    mail = sub.add_parser("mail", help="fetch unread newsletters from a mailbox over IMAP")
+    mail.add_argument("--limit", type=int, default=50)
+    mail.set_defaults(func=cmd_mail)
 
     serve = sub.add_parser("serve", help="run the web app")
     serve.add_argument("--host", default="127.0.0.1")

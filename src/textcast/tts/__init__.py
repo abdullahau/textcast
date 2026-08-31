@@ -8,6 +8,7 @@ Kokoro pulls PyTorch and spaCy; Supertonic pulls only ONNX Runtime.
 from __future__ import annotations
 
 import importlib
+import importlib.util
 
 from .base import Clip, EngineSpec, TTSEngine, Voice, silence
 
@@ -17,6 +18,7 @@ ENGINES: dict[str, EngineSpec] = {
         module="textcast.tts.supertonic",
         cls="SupertonicEngine",
         extra="supertonic",
+        requires="supertonic",
         description="Supertonic 3 — 99M params, ONNX, 44.1 kHz, no espeak-ng",
         default_voice="M1",
         options={"steps": 4},
@@ -26,6 +28,7 @@ ENGINES: dict[str, EngineSpec] = {
         module="textcast.tts.kokoro",
         cls="KokoroEngine",
         extra="kokoro",
+        requires="kokoro",
         description="Kokoro-82M — StyleTTS2, PyTorch, 24 kHz, needs espeak-ng",
         default_voice="af_heart",
         options={},
@@ -45,28 +48,29 @@ def get_engine(name: str, **options) -> TTSEngine:
         known = ", ".join(sorted(ENGINES))
         raise ValueError(f"Unknown TTS engine {name!r}. Available: {known}") from None
 
-    try:
-        module = importlib.import_module(spec.module)
-    except ImportError as exc:
+    if not is_installed(spec):
         raise EngineNotAvailable(
             f"Engine {name!r} needs its optional dependencies. "
             f"Install them with: uv sync --extra {spec.extra}"
+        )
+
+    module = importlib.import_module(spec.module)
+    merged = {**spec.options, **options}
+    try:
+        return getattr(module, spec.cls)(**merged)
+    except ImportError as exc:
+        raise EngineNotAvailable(
+            f"Engine {name!r} failed to load its dependencies: {exc}"
         ) from exc
 
-    merged = {**spec.options, **options}
-    return getattr(module, spec.cls)(**merged)
+
+def is_installed(spec: EngineSpec) -> bool:
+    return importlib.util.find_spec(spec.requires) is not None
 
 
 def available() -> dict[str, bool]:
     """Which registered engines can actually be built right now."""
-    out = {}
-    for name, spec in ENGINES.items():
-        try:
-            importlib.import_module(spec.module)
-            out[name] = True
-        except ImportError:
-            out[name] = False
-    return out
+    return {name: is_installed(spec) for name, spec in ENGINES.items()}
 
 
 __all__ = [
@@ -78,5 +82,6 @@ __all__ = [
     "Voice",
     "available",
     "get_engine",
+    "is_installed",
     "silence",
 ]

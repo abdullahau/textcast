@@ -61,6 +61,10 @@ class EngineSpec:
     module: str
     cls: str
     extra: str
+    #: Top-level package the engine actually needs. The wrapper module always
+    #: imports, because the heavy import lives inside ``__init__`` — so this,
+    #: not the wrapper, is what "is it installed?" has to test.
+    requires: str
     description: str
     default_voice: str
     options: dict = field(default_factory=dict)

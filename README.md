@@ -1,82 +1,186 @@
-## Bloomberg to Audio: Listen to Matt Levine's *Money Stuff*
+# textcast
 
-This lightweight, personal project converts [Matt Levine’s *Money Stuff*](https://www.bloomberg.com/account/newsletters/money-stuff) newsletter from Bloomberg's HTML webpage into high-quality audio using the efficient and free [Kokoro-82M model](https://huggingface.co/hexgrad/Kokoro-82M).
+Turn newsletters and articles into a private audio reader you can open on your
+phone. Self-hosted, offline-capable, and reachable only on your own tailnet.
 
-This project was born out of frustration: paid TTS services weren’t worth it, Microsoft Outlook removed “Play My Emails” from the iOS, and Apple’s “Speak Screen” made it hard to scrub between sections. I wanted a better way to:
+It reads footnotes **where they are cited**, marks block quotes, groups
+newsletter issues into series, and highlights each paragraph as it is spoken —
+so you can tap any paragraph to jump the audio there.
 
-* Hear **footnotes read inline**
-* Distinguish **block quotes clearly**
-* **Summarize** sections using AI (optional)
-* Listen **offline**, on my commute
+---
 
-So I built one.
+## What it does
 
+1. **Take anything in.** A URL, a saved `.html` page, a `.eml` newsletter, a
+   bookmarklet click on a paywalled article, or the Android share sheet.
+2. **Parse it properly.** Per-publication adapters (Bloomberg, FT) with a
+   content-density fallback for everything else. Footnotes are inlined into the
+   sentence that cites them.
+3. **Speak it.** Supertonic 3 on ONNX, one block at a time, encoded to Opus —
+   one file per section, so playback starts before the whole article is built.
+4. **Read along.** The player highlights the current paragraph and follows it
+   down the page. Tap a paragraph to hear it.
+5. **Take it with you.** Install to the home screen, keep articles offline,
+   control it from the lock screen.
 
-### How It Works
+## Quick start
 
-1. **Save the HTML** of a Bloomberg newsletter.
-2. Run `html-to-text.ipynb` to parse and clean it into a structured `.txt` file.
-3. Optionally Run `html-to-text-with-summary.ipynb` to generate concise **section-by-section summaries** of the newsletter using Google's `gemini-2.5-flash`
-4. Run `text-to-speech.ipynb` to convert it into a `.wav` file using Kokoro TTS.
-5. **Airdrop** the audio to your phone and listen on the go.
-
-
-### Project Structure
-
-```
-textcast/
-├── input/                               # Raw HTML files of newsletters
-├── output/                              # Clean .txt files with inline footnotes & quotes
-├── example/                             # Example .wav audio outputs
-├── html-to-text.ipynb                   # Parses HTML into readable text
-├── html-to-text-with-summary.ipynb      # Parses HTML + adds Gemini summaries
-├── text-to-speech.ipynb                 # Converts text to audio using Kokoro
-├── config.py                            # Optional: Hugging Face access token and Gemini API key (uses .env)
-├── .env                                 # Optional: Stores HF access token and Gemini API key securely
-└── README.md
+```bash
+uv sync --extra supertonic --extra web
+uv run textcast add https://example.com/an-article
+uv run textcast worker --once          # build the audio
+uv run textcast serve                  # http://127.0.0.1:8000
 ```
 
+The first build downloads the model (~400 MB) into `data/`.
 
-### Run This Project Online
+## Commands
 
-Run the notebooks in-browser:
+| Command | What it does |
+| --- | --- |
+| `textcast add <file\|url\|.eml>` | Ingest into the library and queue the audio |
+| `textcast build <file\|url>` | One-shot: parse and synthesise, no database |
+| `textcast parse <file\|url>` | Show what the parser found, without building |
+| `textcast library` | List what you have; `--series` lists newsletters |
+| `textcast search <query>` | Full-text search every article, located in the audio |
+| `textcast worker` | Process queued builds; `--once` runs a single job |
+| `textcast mail` | Fetch unread newsletters over IMAP |
+| `textcast engines` / `voices` | What is installed, and what it can sound like |
+| `textcast serve` | Run the web app |
 
-[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abdullahau/textcast/blob/main/text-to-speech.ipynb)
+## Newsletters
 
-[![Open in Kaggle](https://kaggle.com/static/images/open-in-kaggle.svg)](https://kaggle.com/kernels/welcome?src=https://github.com/abdullahau/textcast/blob/main/text-to-speech.ipynb)
+Newsletters are the main input, so they get their own handling.
 
-Choose the platform with available GPU compute (Kaggle offers 30hrs/week of 2 NVIDIA T4 GPUs for free!).
+- **Series.** Issues are grouped automatically — Bloomberg's own analytics name
+  the newsletter, and `.eml` messages carry a `List-Id`. Each series has its own
+  voice and auto-build settings at `/series/<name>`.
+- **Chrome removal.** "View this email in your browser", tracking pixels,
+  unsubscribe footers and social rows never reach the audio.
+- **By mailbox.** Point `textcast mail` at a dedicated address or a filtered
+  folder and every unread issue becomes a queued article. IMAP only: the app
+  connects outwards, so there is no mail server to run and no spam surface.
 
+```bash
+export TEXTCAST_IMAP_HOST=imap.fastmail.com
+export TEXTCAST_IMAP_USER=you@example.com
+export TEXTCAST_IMAP_PASSWORD=an-app-password
+uv run textcast mail
+```
 
-### Why This Project?
+`deploy/textcast-mail.timer` runs that every 30 minutes under systemd.
 
-Matt Levine’s newsletters are intelligent, footnote-heavy, and full of nuance. Most TTS tools:
+## Choosing a voice engine
 
-* Ignore or defer footnotes
-* Flatten quoted passages
-* Lock you behind paywalls
+Both engines implement the same three-method interface, so switching is one
+environment variable. Measured here on 4 ARM cores with no GPU, against a real
+659-character paragraph:
 
-This tool:
+| Engine | RTF | Speed | Rate | Install |
+| --- | --- | --- | --- | --- |
+| **Supertonic 3** (default, 4 steps) | 0.31 | 3.2× real time | 44.1 kHz | 25 packages, 144 MB |
+| Supertonic 3 (8 steps) | 0.49 | 2.0× | 44.1 kHz | " |
+| Kokoro-82M | 0.65 | 1.5× | 24 kHz | 113 packages, 4.9 GB |
 
-- Reads **footnotes inline**
-- Marks **block quotes with context**
-- Adds **AI-generated summaries** (optional)
-- Produces **clear, natural audio for free**
+Supertonic needs only ONNX Runtime. Kokoro needs PyTorch, spaCy and the
+espeak-ng shared library, and offers 54 voices against Supertonic's 10.
 
+```bash
+uv sync --extra kokoro
+TEXTCAST_TTS_ENGINE=kokoro TEXTCAST_TTS_VOICE=af_heart uv run textcast serve
+```
 
-### Requirements
+`TEXTCAST_TTS_STEPS` trades quality against speed on Supertonic: 2 is fastest,
+8 is the vendor default, 4 is the best trade on a small CPU.
 
-* Python 3.9+
-* `kokoro>=0.9.4`
-* `espeak-ng`
-* `ffmpeg`
-* `soundfile`, `beautifulsoup4`, `lxml`, `torch`, `numpy`, etc.
-* **(Optional)** `google-generativeai` — for summaries
-* GPU runtime (Google Colab or Kaggle recommended)
+## The player
 
+The two hard parts are not hand-written:
 
-### Feedback & Contributions
+- **Sync is WebVTT.** Each section ships a metadata track whose cue ids are
+  block ids, so the browser runs its own timing algorithm and fires `cuechange`
+  as each block starts. No timing map to search, no drift.
+- **Transport is [media-chrome](https://github.com/muxinc/media-chrome)** (MIT,
+  vendored as one 41 KB gzipped file, no build step) — play/pause, seek bar,
+  time display, playback rate, keyboard, ARIA.
 
-Feel free to fork this, adapt it for your needs, or suggest improvements.
+What is custom is what no library provides: highlighting, tap-to-seek, section
+advance, and Media Session for the lock screen.
 
-Pull requests are welcome!
+Both are covered by browser tests in `tests/test_player.py`, driven through
+Chromium rather than asserted by inspection.
+
+## Deploying with Docker
+
+The app never binds a host port. It shares the Tailscale container's network
+namespace, so your tailnet is the only way in.
+
+```bash
+cp .env.example .env      # set TS_AUTHKEY, and IMAP details if you want them
+docker compose up -d --build
+```
+
+Then open `https://textcast.<your-tailnet>.ts.net` from any of your devices and
+add it to the home screen.
+
+Three services: `tailscale` (the network), `app` (web), `worker` (synthesis, CPU
+limited so the web process stays responsive). One volume, `/data`, holds the
+database, the model, the audio and the saved sources.
+
+## Data model
+
+The **block** is the unit — a paragraph, quote, list item, footnote or summary
+is one row with a stable id. Reading, listening, highlighting, seeking and
+search all read the same table, so they cannot drift apart. SQLite in WAL mode,
+with an FTS5 index over block text.
+
+Original sources are kept, so a parser fix can be replayed with **Re-parse**
+without re-fetching. Every synthesised block is cached by content hash, so a
+rebuild after an edit takes seconds rather than minutes.
+
+## Adding a publication
+
+One file and one line:
+
+```python
+# src/textcast/ingest/economist.py
+class EconomistAdapter:
+    name = "economist"
+
+    def matches(self, url, tree):
+        return "economist.com" in url
+
+    def parse(self, tree, url=""):
+        ...
+```
+
+Register it in `ingest/__init__.py` ahead of `GenericAdapter`, which always
+matches and so must stay last.
+
+## Tests
+
+```bash
+uv run pytest                    # 50 tests
+uv run playwright install chromium   # once, for the browser tests
+```
+
+## Layout
+
+```
+src/textcast/
+├── document.py     the block model
+├── ingest/         adapters + the shared DOM walker
+│   ├── dom.py      selectolax helpers
+│   └── extract.py  content-density fallback
+├── tts/            engine registry; supertonic.py, kokoro.py
+├── audio.py        synthesis, Opus encoding, WebVTT
+├── db.py           SQLite, search, jobs, positions
+├── jobs.py         the build worker
+├── service.py      ingestion shared by the CLI and the web app
+├── mail.py         IMAP newsletter fetch
+└── web/            FastAPI, templates, one stylesheet, the player
+```
+
+## Licence
+
+MIT. Supertonic 3's weights are OpenRAIL-M; Kokoro's are Apache-2.0.
