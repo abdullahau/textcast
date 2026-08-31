@@ -10,34 +10,25 @@ from __future__ import annotations
 import re
 from typing import Protocol
 
-from bs4 import BeautifulSoup, Tag
-
 from ..document import Article, Block, BlockKind, Section
+from .dom import Node, Tree, ancestor_tags, children, clean, parse, text_of
 
-#: Space before punctuation, left behind by ``get_text(separator=" ")``.
-_TIGHTEN = re.compile(r"\s+([,.!?;:’'”\)\]])")
-_COLLAPSE = re.compile(r"\s+")
-_BLOCK_TAGS = ["h1", "h2", "h3", "h4", "blockquote", "p", "ol", "ul"]
+BLOCK_SELECTOR = "h1, h2, h3, h4, blockquote, p, ol, ul"
+
+#: Nested inside these, a paragraph belongs to the parent block, not itself.
+_ENCLOSING = {"blockquote", "li"}
 
 
 class Adapter(Protocol):
     name: str
 
-    def matches(self, url: str, soup: BeautifulSoup) -> bool: ...
+    def matches(self, url: str, tree: Tree) -> bool: ...
 
-    def parse(self, soup: BeautifulSoup, url: str = "") -> Article: ...
-
-
-def clean(text: str) -> str:
-    return _TIGHTEN.sub(r"\1", _COLLAPSE.sub(" ", text)).strip()
-
-
-def text_of(node: Tag) -> str:
-    return clean(node.get_text(separator=" ", strip=True))
+    def parse(self, tree: Tree, url: str = "") -> Article: ...
 
 
 def blocks_from_dom(
-    container: Tag,
+    container: Node,
     *,
     heading_tags: tuple[str, ...] = ("h2", "h3"),
     skip: str | None = None,
@@ -50,15 +41,15 @@ def blocks_from_dom(
     """
     sections: list[Section] = []
     current = Section(title="")
-    seen: set[int] = set()
+    headings = set(heading_tags) | {"h1"}
 
-    for elem in container.find_all(_BLOCK_TAGS, recursive=True):
-        # A <p> inside a <blockquote> or <li> is handled by its parent.
-        if elem.find_parent(["blockquote", "li"]):
+    for elem in container.css(BLOCK_SELECTOR):
+        # A <p> inside a <blockquote> or <li> is emitted by its parent.
+        if ancestor_tags(elem, _ENCLOSING, stop=container):
             continue
-        if id(elem) in seen:
+        # A list nested inside another list likewise.
+        if elem.tag in ("ol", "ul") and ancestor_tags(elem, {"ol", "ul"}, stop=container):
             continue
-        seen.add(id(elem))
 
         text = text_of(elem)
         if not text:
@@ -69,19 +60,20 @@ def blocks_from_dom(
         if skip and low.startswith(skip):
             continue
 
-        if elem.name in heading_tags or elem.name == "h1":
+        if elem.tag in headings:
             if current.blocks:
                 sections.append(current)
             current = Section(title=text)
             continue
 
-        if elem.name == "blockquote":
+        if elem.tag == "blockquote":
             current.blocks.append(Block(kind=BlockKind.QUOTE, text=text))
             continue
 
-        if elem.name in ("ol", "ul"):
-            ordered = elem.name == "ol"
-            for n, li in enumerate(elem.find_all("li", recursive=False) or elem.find_all("li"), start=1):
+        if elem.tag in ("ol", "ul"):
+            ordered = elem.tag == "ol"
+            items = children(elem, "li") or elem.css("li")
+            for n, li in enumerate(items, start=1):
                 item = text_of(li)
                 if item:
                     prefix = f"{n}. " if ordered else ""
@@ -95,44 +87,20 @@ def blocks_from_dom(
     return sections
 
 
-def inline_footnotes(soup: BeautifulSoup, footnotes: dict[str, str], link_selector: dict) -> None:
+def inline_footnotes(scope: Node | Tree, footnotes: dict[str, str], selector: str) -> None:
     """Replace each footnote marker with the footnote itself, in place.
 
     This is the feature that started the project: a footnote read where it is
     cited, not collected at the end where it has lost its context.
     """
-    for link in soup.find_all("a", attrs=link_selector):
-        href = link.get("href", "")
+    for link in scope.css(selector):
+        href = link.attributes.get("href") or ""
         match = re.search(r"footnote-(\d+)", href)
         if not match:
             continue
-        num = match.group(1)
-        body = footnotes.get(num, "")
+        body = footnotes.get(match.group(1), "")
         if body:
-            link.replace_with(f" [Footnote {num}: {body}] ")
-
-
-def drop(soup: BeautifulSoup, selectors: list[str]) -> None:
-    for selector in selectors:
-        for node in soup.select(selector):
-            node.decompose()
-
-
-def make_soup(html: str) -> BeautifulSoup:
-    try:
-        return BeautifulSoup(html, "lxml")
-    except Exception:
-        return BeautifulSoup(html, "html.parser")
-
-
-def first_text(soup: BeautifulSoup, selectors: list[str]) -> str:
-    for selector in selectors:
-        node = soup.select_one(selector)
-        if node:
-            text = text_of(node)
-            if text:
-                return text
-    return ""
+            link.replace_with(f" [Footnote {match.group(1)}: {body}] ")
 
 
 #: Whole sections that are site furniture, matched on the section title.
@@ -149,7 +117,6 @@ JUNK_BLOCKS = {
     "sign up", "follow", "more on this topic", "open in app", "copy link",
     "reuse this content", "explore more", "loading", "see all",
 }
-
 
 #: Share rows and link furniture, which survive as ordinary list items.
 JUNK_PATTERNS = re.compile(
@@ -191,3 +158,22 @@ def finish(article: Article) -> Article:
     if article.sections and not article.sections[0].title:
         article.sections[0].title = article.title
     return article.renumber()
+
+
+# Re-exported so adapters import one module.
+make_tree = parse
+__all__ = [
+    "Adapter",
+    "BLOCK_SELECTOR",
+    "JUNK_BLOCKS",
+    "JUNK_PATTERNS",
+    "JUNK_SECTIONS",
+    "blocks_from_dom",
+    "clean",
+    "finish",
+    "inline_footnotes",
+    "is_junk_block",
+    "make_tree",
+    "prune",
+    "text_of",
+]

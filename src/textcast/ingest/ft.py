@@ -2,38 +2,37 @@
 
 from __future__ import annotations
 
-from bs4 import BeautifulSoup
-
 from ..document import Article
-from .base import blocks_from_dom, drop, finish, first_text, text_of
+from .base import blocks_from_dom, finish, text_of
+from .dom import Tree, drop, first_text, root, select_one
+
+NOISE = [
+    "figure", "aside", "nav", "script", "style", "noscript",
+    ".o-ads", ".o-teaser", '[class*="onward"]', '[class*="follow"]',
+    '[class*="share"]', '[class*="Share"]', '[class*="related"]',
+    '[data-trackable="teaser"]',
+]
 
 
 class FTAdapter:
     name = "ft"
 
-    def matches(self, url: str, soup: BeautifulSoup) -> bool:
+    def matches(self, url: str, tree: Tree) -> bool:
         if "ft.com" in url:
             return True
-        return soup.select_one(".o-topper__standfirst, .article__content-body") is not None
+        return select_one(tree, ".o-topper__standfirst, .article__content-body") is not None
 
-    def parse(self, soup: BeautifulSoup, url: str = "") -> Article:
-        h1 = soup.find("h1")
-        title = text_of(h1) if h1 else "Untitled"
-        subtitle = first_text(soup, [".o-topper__standfirst", "[class*=standfirst]"])
+    def parse(self, tree: Tree, url: str = "") -> Article:
+        title = text_of(select_one(tree, "h1")) or "Untitled"
+        subtitle = first_text(tree, [".o-topper__standfirst", '[class*="standfirst"]'])
 
         container = (
-            soup.select_one(".article__content-body")
-            or soup.select_one("article")
-            or soup.find("main")
-            or soup.body
-            or soup
+            select_one(tree, ".article__content-body")
+            or select_one(tree, "article")
+            or select_one(tree, "main")
+            or root(tree)
         )
-        drop(container, [
-            "figure", "aside", "nav", "script", "style", "noscript",
-            ".o-ads", ".o-teaser", "[class*=onward]", "[class*=follow]",
-            "[class*=share]", "[class*=Share]",
-            "[class*=related]", "[data-trackable=teaser]",
-        ])
+        drop(container, NOISE)
 
         return finish(
             Article(
@@ -42,6 +41,6 @@ class FTAdapter:
                 sections=blocks_from_dom(container),
                 source="Financial Times",
                 url=url,
-                author=first_text(soup, [".n-content-tag--author", "[class*=byline]"]),
+                author=first_text(tree, [".n-content-tag--author", '[class*="byline"]']),
             )
         )

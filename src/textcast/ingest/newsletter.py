@@ -13,15 +13,15 @@ from __future__ import annotations
 
 import email
 import email.policy
+import email.utils
 import re
 from dataclasses import dataclass
 from email.message import EmailMessage
 from email.utils import parsedate_to_datetime
 
-from bs4 import BeautifulSoup
-
 from ..document import Article, Block, BlockKind, Section
-from .base import blocks_from_dom, clean, drop, finish, make_soup, text_of
+from .base import blocks_from_dom, finish, text_of
+from .dom import Tree, clean, drop, parse, root, select_one
 
 #: Once a line starts with one of these, the article is over.
 CUTOFFS = (
@@ -61,11 +61,11 @@ NOISE = (
     "terms of service",
 )
 
-_EMAIL_NOISE = [
+EMAIL_NOISE = [
     "script", "style", "head", "title",
-    "img[width='1']", "img[height='1']",
-    "[class*=unsubscribe]", "[class*=footer]", "[id*=footer]",
-    "[class*=preheader]", "[class*=social]", "[class*=tracking]",
+    'img[width="1"]', 'img[height="1"]',
+    '[class*="unsubscribe"]', '[class*="footer"]', '[id*="footer"]',
+    '[class*="preheader"]', '[class*="social"]', '[class*="tracking"]',
 ]
 
 _LIST_ID = re.compile(r"<([^>]+)>")
@@ -104,7 +104,8 @@ def parse_eml(raw: bytes | str) -> tuple[str, MailMeta]:
     if body is None:
         text_part = msg.get_body(preferencelist=("plain",))
         plain = text_part.get_content() if text_part else ""
-        html = "<html><body>" + "".join(f"<p>{line}</p>" for line in plain.splitlines() if line.strip()) + "</body></html>"
+        paragraphs = "".join(f"<p>{line}</p>" for line in plain.splitlines() if line.strip())
+        html = f"<html><body>{paragraphs}</body></html>"
     else:
         html = body.get_content()
 
@@ -162,7 +163,7 @@ def strip_chrome(sections: list[Section]) -> list[Section]:
     return out
 
 
-def _table_fallback(container: BeautifulSoup) -> list[Section]:
+def _table_fallback(container) -> list[Section]:
     """Read leaf table cells and divs as paragraphs.
 
     Newsletters often put prose straight into a <td> with no <p> around it,
@@ -170,9 +171,9 @@ def _table_fallback(container: BeautifulSoup) -> list[Section]:
     """
     section = Section(title="")
     seen: set[str] = set()
-    for node in container.find_all(["td", "div", "span"]):
+    for node in container.css("td, div, span"):
         # Only leaf-ish nodes, or we would emit every ancestor's text too.
-        if node.find(["td", "div", "table", "p"]):
+        if node.css_first("td, div, table, p") is not None:
             continue
         text = text_of(node)
         if len(text) < 25 or text in seen:
@@ -187,40 +188,36 @@ class NewsletterAdapter:
 
     name = "newsletter"
 
-    def matches(self, url: str, soup: BeautifulSoup) -> bool:
-        if soup.find("table", attrs={"class": re.compile("(body|wrapper|container)", re.I)}):
+    def matches(self, url: str, tree: Tree) -> bool:
+        if select_one(tree, 'table[class*="body"], table[class*="wrapper"], table[class*="container"]'):
             return True
-        text = soup.get_text(" ", strip=True).lower()[:6000]
+        text = root(tree).text(separator=" ", strip=True)[:6000].lower()
         return "unsubscribe" in text and "view this email" in text
 
-    def parse(self, soup: BeautifulSoup, url: str = "", meta: MailMeta | None = None) -> Article:
-        drop(soup, _EMAIL_NOISE)
-        container = soup.body or soup
+    def parse(self, tree: Tree, url: str = "", meta: MailMeta | None = None) -> Article:
+        drop(tree, EMAIL_NOISE)
+        container = root(tree)
 
         sections = blocks_from_dom(container, heading_tags=("h1", "h2", "h3"))
         if sum(len(s.blocks) for s in sections) < 3:
             sections = _table_fallback(container)
         sections = strip_chrome(sections)
 
-        title = meta.subject if meta else self._title(soup)
-        article = Article(
-            title=title,
-            subtitle="",
-            sections=sections,
-            source=(meta.sender_name if meta else "") or "Newsletter",
-            url=url,
-            series=meta.series if meta else None,
-            published_at=meta.date if meta else None,
+        title = meta.subject if meta else self._title(tree)
+        return finish(
+            Article(
+                title=title,
+                subtitle="",
+                sections=sections,
+                source=(meta.sender_name if meta else "") or "Newsletter",
+                url=url,
+                series=meta.series if meta else None,
+                published_at=meta.date if meta else None,
+            )
         )
-        return finish(article)
 
-    def _title(self, soup: BeautifulSoup) -> str:
-        h1 = soup.find("h1")
-        if h1:
-            return text_of(h1)
-        if soup.title and soup.title.string:
-            return clean(soup.title.string)
-        return "Untitled"
+    def _title(self, tree: Tree) -> str:
+        return text_of(select_one(tree, "h1")) or clean(text_of(select_one(tree, "title"))) or "Untitled"
 
 
 def article_from_eml(raw: bytes | str, url: str = "") -> Article:
@@ -228,14 +225,13 @@ def article_from_eml(raw: bytes | str, url: str = "") -> Article:
     from . import parse_html  # local import keeps the registry the single source
 
     html, meta = parse_eml(raw)
-    soup = make_soup(html)
 
     # A publication with a real adapter (Bloomberg's web version arrives by
     # email too) parses better with that adapter; only its metadata comes
     # from the message headers.
-    article = parse_html(html, url=url, prefer=None, soup=soup)
+    article = parse_html(html, url=url)
     if article.word_count < 120:
-        article = NewsletterAdapter().parse(make_soup(html), url=url, meta=meta)
+        article = NewsletterAdapter().parse(parse(html), url=url, meta=meta)
 
     article.series = article.series or meta.series
     article.published_at = article.published_at or meta.date

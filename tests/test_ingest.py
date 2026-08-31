@@ -7,7 +7,8 @@ import pytest
 
 from textcast.document import Article, BlockKind
 from textcast.ingest import parse_html, pick_adapter
-from textcast.ingest.base import is_junk_block, make_soup
+from textcast.ingest.base import is_junk_block
+from textcast.ingest.dom import parse as parse_tree
 from textcast.ingest.newsletter import article_from_eml, is_cutoff, parse_eml
 
 CORPUS = Path(__file__).resolve().parents[1] / "raw-html-pages"
@@ -42,7 +43,7 @@ def test_block_ids_are_unique_and_stable():
 def test_bloomberg_adapter_is_chosen_and_finds_money_stuff():
     page = next(p for p in PAGES if "Bloomberg" in p.name)
     html = page.read_text(encoding="utf-8", errors="replace")
-    assert pick_adapter("", make_soup(html)).name == "bloomberg"
+    assert pick_adapter("", parse_tree(html)).name == "bloomberg"
     assert load(page).series == "Money Stuff"
 
 
@@ -135,3 +136,36 @@ def test_cutoff_detection():
     assert is_cutoff("You received this message because you signed up")
     assert is_cutoff("Copyright © 2026 Bloomberg")
     assert not is_cutoff("The company received a message from its auditor")
+
+
+@pytest.mark.skipif(not PAGES, reason="corpus not present")
+def test_money_stuff_issues_are_grouped_into_a_series():
+    """Every /newsletters/ issue is detected; the 2019 column is not one."""
+    by_name = {p.stem: load(p).series for p in PAGES}
+    issues = [name for name, series in by_name.items() if series == "Money Stuff"]
+    assert len(issues) >= 5
+
+    column = next((n for n in by_name if "Deals on the Train" in n), None)
+    if column:
+        assert by_name[column] is None, "an /opinion/articles/ column is not a newsletter issue"
+
+
+@pytest.mark.skipif(not PAGES, reason="corpus not present")
+def test_adapter_is_recorded_on_the_article():
+    assert {load(p).adapter for p in PAGES} <= {"bloomberg", "ft", "newsletter", "generic"}
+
+
+def test_generic_extractor_finds_the_body_and_drops_the_rails():
+    prose = "The market moved sharply today, and traders had opinions about why. " * 4
+    html = f"""
+    <html><body>
+      <nav><a href="/a">Home</a><a href="/b">Markets</a><a href="/c">Opinion</a></nav>
+      <div class="sidebar"><a href="/1">Teaser one</a><a href="/2">Teaser two</a></div>
+      <div class="article-content"><p>{prose}</p><p>{prose}</p><p>{prose}</p></div>
+      <footer><a href="/x">Privacy</a></footer>
+    </body></html>
+    """
+    article = parse_html(html, prefer="generic")
+    texts = [b.text for _s, b in article.blocks()]
+    assert len(texts) == 3
+    assert all("moved sharply" in t for t in texts)

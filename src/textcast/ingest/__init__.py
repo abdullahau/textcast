@@ -7,11 +7,10 @@ one file plus one line here.
 
 from __future__ import annotations
 
-from bs4 import BeautifulSoup
-
 from ..document import Article
-from .base import Adapter, make_soup
+from .base import Adapter
 from .bloomberg import BloombergAdapter
+from .dom import Tree, parse
 from .ft import FTAdapter
 from .generic import GenericAdapter
 from .newsletter import NewsletterAdapter
@@ -26,26 +25,28 @@ ADAPTERS: list[Adapter] = [
 _BY_NAME = {a.name: a for a in ADAPTERS}
 
 
-def pick_adapter(url: str, soup: BeautifulSoup) -> Adapter:
+def pick_adapter(url: str, tree: Tree) -> Adapter:
     for adapter in ADAPTERS:
         try:
-            if adapter.matches(url, soup):
+            if adapter.matches(url, tree):
                 return adapter
         except Exception:
             continue
     return _BY_NAME["generic"]
 
 
-def parse_html(
-    html: str,
-    url: str = "",
-    prefer: str | None = None,
-    soup: BeautifulSoup | None = None,
-) -> Article:
-    """Parse a page into an Article, choosing the adapter automatically."""
-    soup = soup if soup is not None else make_soup(html)
-    adapter = _BY_NAME[prefer] if prefer in _BY_NAME else pick_adapter(url, soup)
-    article = adapter.parse(soup, url=url)
+def parse_html(html: str, url: str = "", prefer: str | None = None) -> Article:
+    """Parse a page into an Article, choosing the adapter automatically.
+
+    The tree is parsed once per attempt because adapters mutate it in place
+    (dropping noise, inlining footnotes).
+    """
+    adapter = _BY_NAME.get(prefer) if prefer else None
+    if adapter is None:
+        adapter = pick_adapter(url, parse(html))
+
+    article = adapter.parse(parse(html), url=url)
+    article.adapter = adapter.name
     if not article.source:
         article.source = adapter.name
     return article

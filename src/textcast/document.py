@@ -71,6 +71,8 @@ class Article:
     published_at: str | None = None
     #: Set for newsletter issues so the library can group them into a series.
     series: str | None = None
+    #: Which ingest adapter produced this, for debugging a bad parse.
+    adapter: str = ""
 
     def renumber(self) -> Article:
         """Assign section and block indices, making every block id stable."""
