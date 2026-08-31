@@ -1,0 +1,227 @@
+"""Synthesis and encoding.
+
+Audio is built one block at a time and encoded one file per *section*. Three
+things follow from that: playback can start on section one while section four
+is still rendering, a failed block re-renders in seconds, and every block's
+duration comes back from the engine for free — which is the timing map the
+read-along player needs, with no forced aligner.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import shutil
+import subprocess
+from collections.abc import Callable, Iterable
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
+
+import numpy as np
+
+from .document import OPTIONAL_KINDS, Article, Block, BlockKind
+from .tts import TTSEngine, silence
+
+ProgressFn = Callable[[int, int, str], None]
+
+
+class EncodeError(RuntimeError):
+    pass
+
+
+@dataclass
+class BlockTiming:
+    """Where one block sits inside its section's audio file.
+
+    ``dur_ms`` includes the pause that follows the block, so the timeline has
+    no gaps and the player can find the current block with one bisect.
+    """
+
+    id: str
+    kind: str
+    start_ms: int
+    dur_ms: int
+    speech_ms: int
+
+
+@dataclass
+class SectionAudio:
+    idx: int
+    title: str
+    file: str
+    duration_ms: int
+    blocks: list[BlockTiming] = field(default_factory=list)
+
+
+@dataclass
+class AudioManifest:
+    engine: str
+    voice: str
+    sample_rate: int
+    bitrate: str
+    total_ms: int
+    sections: list[SectionAudio] = field(default_factory=list)
+    included_kinds: list[str] = field(default_factory=list)
+
+    def to_json(self) -> str:
+        return json.dumps(asdict(self), ensure_ascii=False, separators=(",", ":"))
+
+
+def ffmpeg_path() -> str:
+    path = shutil.which("ffmpeg")
+    if not path:
+        raise EncodeError("ffmpeg is not on PATH; it is required to encode Opus")
+    return path
+
+
+def encode_opus(samples: np.ndarray, sample_rate: int, out: Path, bitrate: str = "32k") -> None:
+    """Encode mono float32 to Opus in an Ogg container, via a pipe."""
+    out.parent.mkdir(parents=True, exist_ok=True)
+    cmd = [
+        ffmpeg_path(), "-hide_banner", "-loglevel", "error", "-y",
+        "-f", "f32le", "-ar", str(sample_rate), "-ac", "1", "-i", "pipe:0",
+        "-c:a", "libopus", "-b:a", bitrate, "-vbr", "on",
+        "-application", "audio", "-frame_duration", "60",
+        str(out),
+    ]
+    proc = subprocess.run(cmd, input=np.ascontiguousarray(samples, dtype=np.float32).tobytes(), capture_output=True)
+    if proc.returncode != 0:
+        raise EncodeError(proc.stderr.decode(errors="replace").strip() or "ffmpeg failed")
+
+
+def _cache_key(text: str, engine: str, voice: str, extra: str) -> str:
+    h = hashlib.sha256(f"{engine}\x00{voice}\x00{extra}\x00{text}".encode())
+    return h.hexdigest()
+
+
+def _speak(
+    engine: TTSEngine,
+    text: str,
+    voice: str,
+    lang: str,
+    cache_dir: Path | None,
+    extra: str,
+) -> np.ndarray:
+    """Synthesise one block, reusing a cached render when the text is unchanged.
+
+    A 30-minute article takes minutes to build. Caching per block means a crash,
+    a voice tweak on one section, or a re-run after an edit costs seconds.
+    """
+    if cache_dir is None:
+        return engine.synthesize(text, voice=voice, lang=lang).samples
+
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    path = cache_dir / f"{_cache_key(text, engine.name, voice, extra)}.f32"
+    if path.exists():
+        try:
+            return np.fromfile(path, dtype=np.float32)
+        except OSError:
+            pass
+
+    samples = engine.synthesize(text, voice=voice, lang=lang).samples
+    tmp = path.with_suffix(".part")
+    samples.astype(np.float32).tofile(tmp)
+    tmp.replace(path)
+    return samples
+
+
+def selected_blocks(article: Article, include: set[BlockKind]) -> Iterable[tuple[int, Block]]:
+    for section in article.sections:
+        for block in section.blocks:
+            if block.kind in OPTIONAL_KINDS and block.kind not in include:
+                continue
+            yield section.idx, block
+
+
+def render_article(
+    article: Article,
+    engine: TTSEngine,
+    out_dir: Path,
+    *,
+    voice: str,
+    quote_voice: str | None = None,
+    bitrate: str = "32k",
+    gap_ms: int = 350,
+    heading_gap_ms: int = 700,
+    include: set[BlockKind] | None = None,
+    cache_dir: Path | None = None,
+    progress: ProgressFn | None = None,
+) -> AudioManifest:
+    """Render an article to one Opus file per section, plus a timing map."""
+    include = include if include is not None else set(BlockKind)
+    article.renumber()
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    work = list(selected_blocks(article, include))
+    total = len(work)
+    if not total:
+        raise ValueError("Article has no blocks to synthesise")
+
+    extra = f"{getattr(engine, 'steps', '')}"
+    sample_rate = engine.sample_rate
+    manifest = AudioManifest(
+        engine=engine.name,
+        voice=voice,
+        sample_rate=sample_rate,
+        bitrate=bitrate,
+        total_ms=0,
+        included_kinds=sorted(str(k) for k in include),
+    )
+
+    done = 0
+    for section in article.sections:
+        blocks = [b for s_idx, b in work if s_idx == section.idx]
+        if not blocks:
+            continue
+
+        chunks: list[np.ndarray] = []
+        timings: list[BlockTiming] = []
+        cursor = 0
+
+        for block in blocks:
+            done += 1
+            if progress:
+                progress(done, total, block.id)
+
+            # A quote in a second voice reads better than saying "start quote".
+            use_quote_voice = block.kind is BlockKind.QUOTE and quote_voice
+            block_voice = quote_voice if use_quote_voice else voice
+            text = block.spoken(quote_markers=not use_quote_voice)
+
+            samples = _speak(engine, text, block_voice, article.lang, cache_dir, extra)
+            speech_ms = round(len(samples) / sample_rate * 1000)
+
+            pause = heading_gap_ms if block.kind is BlockKind.HEADING else gap_ms
+            tail = silence(sample_rate, pause)
+
+            chunks.append(samples)
+            chunks.append(tail)
+            dur_ms = speech_ms + pause
+            timings.append(
+                BlockTiming(
+                    id=block.id,
+                    kind=str(block.kind),
+                    start_ms=cursor,
+                    dur_ms=dur_ms,
+                    speech_ms=speech_ms,
+                )
+            )
+            cursor += dur_ms
+
+        audio = np.concatenate(chunks) if chunks else np.zeros(0, dtype=np.float32)
+        name = f"section-{section.idx:03d}.opus"
+        encode_opus(audio, sample_rate, out_dir / name, bitrate=bitrate)
+
+        manifest.sections.append(
+            SectionAudio(
+                idx=section.idx,
+                title=section.title,
+                file=name,
+                duration_ms=round(len(audio) / sample_rate * 1000),
+                blocks=timings,
+            )
+        )
+
+    manifest.total_ms = sum(s.duration_ms for s in manifest.sections)
+    (out_dir / "manifest.json").write_text(manifest.to_json(), encoding="utf-8")
+    return manifest

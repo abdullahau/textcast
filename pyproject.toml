@@ -1,31 +1,55 @@
 [project]
 name = "textcast"
-version = "0.1.0"
-description = "Add your description here"
+version = "0.2.0"
+description = "Turn newsletters and articles into a private, self-hosted audio reader"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.12"
+license = { file = "LICENSE" }
 dependencies = [
     "beautifulsoup4>=4.13.5",
-    "google-generativeai>=0.8.5",
-    "ipykernel>=6.30.1",
-    "kokoro>=0.9.4",
-    "nltk>=3.9.1",
-    "numpy>=2.3.3",
-    "pillow>=11.3.0",
+    "lxml>=5.3.0",
+    "numpy>=2.1",
+    "python-dotenv>=1.0.1",
+    "readability-lxml>=0.8.1",
     "requests>=2.32.5",
-    "ruff>=0.13.2",
-    "soundfile>=0.13.1",
-    "ty>=0.0.1a21",
-    "uv>=0.8.22",
 ]
+
+[project.optional-dependencies]
+# The default engine. ONNX Runtime only — no PyTorch, no espeak-ng.
+supertonic = ["supertonic>=0.3.0"]
+# The alternative engine. Pulls PyTorch and spaCy; needs espeak-ng installed.
+kokoro = ["kokoro>=0.9.4"]
+web = [
+    "fastapi>=0.115",
+    "jinja2>=3.1.4",
+    "python-multipart>=0.0.18",
+    "uvicorn[standard]>=0.32",
+]
+summaries = ["google-genai>=1.0.0"]
+
+[project.scripts]
+textcast = "textcast.cli:main"
 
 [dependency-groups]
 dev = [
+    "pytest>=8.3",
     "ruff>=0.13.2",
-    "ty>=0.0.1a21",
-    "uv>=0.8.22",
 ]
 
-[tool.ty.environment]
-python = "./.venv"
-root = ["."]
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/textcast"]
+
+[tool.ruff]
+line-length = 110
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
