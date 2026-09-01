@@ -30,6 +30,8 @@
   <nav class="bar-links">
     <a href="/tags">Tags</a>
     <a href="/pronunciations">Voice</a>
+    <a href="/summaries">Summaries</a>
+    {% if auth_on %}<form method="post" action="/logout" class="narrow" style="display:inline"><button class="link" type="submit">Sign out</button></form>{% endif %}
     <a class="btn sm" href="/add">Add</a>
   </nav>
 </header>

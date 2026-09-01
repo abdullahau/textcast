@@ -3,16 +3,24 @@
  * Two jobs: keep the shell fast, and hold whole articles offline so a commute
  * with no signal still works. That is what AirDropping a WAV used to buy.
  */
-/* Bump BUILD on any release that changes a static asset. The cache names
-   carry it, so `install` re-runs and `activate` drops the old caches —
-   otherwise a stale stylesheet survives every deploy. */
-const BUILD = "0.2.0";
+/* The cache names carry BUILD, so a new value makes `install` re-run and
+   `activate` drop the old caches. The server rewrites this line with the
+   package version as it serves the file: bumping it by hand was forgotten
+   once, and a stale stylesheet survived the deploy. The literal below is only
+   what you get if you open this file directly from /static/. */
+const BUILD = "dev";
 const SHELL = `textcast-shell-${BUILD}`;
 const OFFLINE = `textcast-offline-${BUILD}`;
 
 /* No query strings here: the pages decide their own cache-busting suffix, and
    a hardcoded one here would pin an old version forever. */
-const SHELL_FILES = ["/static/app.css", "/static/player.js", "/static/tags.js", "/static/icon.svg"];
+const SHELL_FILES = [
+  "/static/app.css",
+  "/static/player.js",
+  "/static/progress.js",
+  "/static/tags.js",
+  "/static/icon.svg",
+];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(SHELL).then((c) => c.addAll(SHELL_FILES)).then(() => self.skipWaiting()));

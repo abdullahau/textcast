@@ -16,6 +16,36 @@
       {% if row.audio_ms %}<span>{{ row.audio_ms|duration }} audio</span>{% endif %}
       {% if row.url %}<a href="{{ row.url }}" rel="noreferrer">original</a>{% endif %}
     </div>
+
+    <div class="shelf">
+      <form method="post" action="/api/articles/{{ row.id }}/flag">
+        <input type="hidden" name="field" value="starred">
+        <input type="hidden" name="value" value="{{ 'false' if row.starred else 'true' }}">
+        <button class="chip" type="submit" aria-pressed="{{ 'true' if row.starred else 'false' }}"
+                title="{{ 'Remove from starred' if row.starred else 'Keep this one to hand' }}">
+          <svg class="star" viewBox="0 0 24 24" fill="{{ 'currentColor' if row.starred else 'none' }}"
+               stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true">
+            <path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1 6.2-5.5-2.9-5.5 2.9 1-6.2L3 9.6l6.2-.9z"/>
+          </svg>
+          {{ 'Starred' if row.starred else 'Star' }}
+        </button>
+      </form>
+
+      <form method="post" action="/api/articles/{{ row.id }}/flag">
+        <input type="hidden" name="field" value="archived">
+        <input type="hidden" name="value" value="{{ 'false' if row.archived else 'true' }}">
+        <button class="chip" type="submit" aria-pressed="{{ 'true' if row.archived else 'false' }}"
+                title="{{ 'Put it back in the library' if row.archived else 'Shelve it. The text and the audio are kept.' }}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+               stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="3" y="4" width="18" height="4" rx="1"/>
+            <path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8"/>
+            <path d="M10 12h4"/>
+          </svg>
+          {{ 'Archived' if row.archived else 'Archive' }}
+        </button>
+      </form>
+    </div>
   </header>
 
   {% if row.status != 'ready' %}
@@ -73,21 +103,25 @@
           </select>
         </div>
         <div>
-          <label for="quote_voice">Quote voice</label>
+          <div class="titled">
+            <label for="quote_voice">Quote voice</label>
+            <span class="tip"><button type="button" class="q" aria-label="What the quote voice and the reading pace do">?</button><span class="tip-body" role="tooltip">A block quote needs a mark, or it runs into the sentence before it. <b>Spoken cues</b> means the reader says “Start quote” and “End quote” aloud. Pick a second voice instead and the change of voice does that job, with no extra words. <b>Reading pace</b> is baked into the audio; the player’s speed control is separate and changes nothing on disk.</span></span>
+          </div>
           <select name="quote_voice" id="quote_voice">
             <option value="">Same voice, spoken cues</option>
             {% for v in voices %}<option value="{{ v.id }}" {{ 'selected' if v.id == build.get('quote_voice') }}>{{ v.name }} · {{ v.gender }}</option>{% endfor %}
           </select>
         </div>
         <div>
-          <label for="engine">Engine</label>
-          <select name="engine" id="engine">
-            {% for e in engines %}<option value="{{ e }}" {{ 'selected' if e == (build.get('engine') or active_engine) }}>{{ e }}</option>{% endfor %}
+          <label for="speed">Reading pace</label>
+          <select name="speed" id="speed">
+            {% for s in speeds %}<option value="{{ s }}" {{ 'selected' if s == selected_speed }}>{{ s }}×{{ ' (normal)' if s == '1.0' else '' }}</option>{% endfor %}
           </select>
         </div>
       </div>
       <div class="row" style="margin-top:.7rem">
         <label class="check"><input type="checkbox" name="skip_footnotes" value="true" {{ 'checked' if build.get('skip_footnotes') }}> Skip footnotes</label>
+        <label class="check"><input type="checkbox" name="skip_summaries" value="true" {{ 'checked' if build.get('skip_summaries') }}> Skip summaries</label>
       </div>
       <div class="row" style="margin-top:.9rem">
         <button class="narrow" type="submit">{{ 'Rebuild' if row.status == 'ready' else 'Build' }}</button>
@@ -96,22 +130,19 @@
   </div>
 
   <div class="card">
-    <div class="row" style="margin:0">
-      <form method="post" action="/api/articles/{{ row.id }}/flag" class="narrow">
-        <input type="hidden" name="field" value="starred">
-        <input type="hidden" name="value" value="{{ 'false' if row.starred else 'true' }}">
-        <button class="ghost" type="submit">{{ 'Unstar' if row.starred else 'Star' }}</button>
-      </form>
-      <form method="post" action="/api/articles/{{ row.id }}/flag" class="narrow">
-        <input type="hidden" name="field" value="archived">
-        <input type="hidden" name="value" value="{{ 'false' if row.archived else 'true' }}">
-        <button class="ghost" type="submit">{{ 'Unarchive' if row.archived else 'Archive' }}</button>
-      </form>
+    <div class="titled">
+      <h2>Modify article</h2>
+      <span class="tip"><button type="button" class="q" aria-label="What these buttons do">?</button><span class="tip-body" role="tooltip">Re-parse reads the saved original again, after a parser fix. Summarise asks the model for a summary of each section and then rebuilds. Delete removes the article, its text and its audio, and cannot be undone — to put an article aside without losing it, archive it instead.</span></span>
+    </div>
+    <div class="row" style="margin:.9rem 0 0">
       <form method="post" action="/api/articles/{{ row.id }}/reparse" class="narrow">
         <button class="ghost" type="submit" title="Re-run the parser over the saved source">Re-parse</button>
       </form>
+      <form method="post" action="/api/articles/{{ row.id }}/summarize" class="narrow">
+        <button class="ghost" type="submit" title="Summarise each section, then rebuild the audio">Summarise</button>
+      </form>
       <form method="post" action="/api/articles/{{ row.id }}/delete" class="narrow"
-            onsubmit="return confirm('Delete this article and its audio?')">
+            onsubmit="return confirm('Delete this article and its audio? Archive it instead to keep it.')">
         <button class="danger" type="submit">Delete</button>
       </form>
     </div>
@@ -154,7 +185,7 @@
     <div class="toggles">
       <label class="check"><input type="checkbox" id="opt-footnotes" checked> Show footnotes</label>
       <label class="check"><input type="checkbox" id="opt-summaries" checked> Show summaries</label>
-      <label class="check"><input type="checkbox" id="opt-sleep"> Sleep at end of section</label>
+      <label class="check"><input type="checkbox" id="opt-sleep"> Stop at end of section</label>
       <label class="check"><input type="checkbox" id="opt-offline"> Keep offline</label>
       <label class="check"><input type="checkbox" id="opt-tap"> Tap text to seek</label>
     </div>

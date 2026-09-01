@@ -1,10 +1,14 @@
 {% extends "base.html" %}
-{% block title %}Pronunciation — textcast<script>
+{% block title %}Voice — textcast{% endblock %}
+
+{% block scripts %}
+<script>
 (function () {
   var go = document.getElementById("say-go");
   var field = document.getElementById("say-text");
   var out = document.getElementById("say-out");
   var err = document.getElementById("say-error");
+  var fired = document.getElementById("say-fired");
 
   function say() {
     var text = field.value.trim();
@@ -15,85 +19,181 @@
     var body = new FormData();
     body.append("text", text);
     body.append("apply_rules", document.getElementById("say-rules").checked ? "true" : "false");
+    body.append("voice", document.getElementById("say-voice").value);
+    body.append("speed", document.getElementById("say-speed").value);
 
     fetch("/api/say", { method: "POST", body: body })
       .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
       .then(function (res) {
         if (!res.ok) throw new Error(res.d.error || "could not synthesise");
-        document.getElementById("say-phonemes").textContent = res.d.phonemes || "(engine gives no phonemes)";
         document.getElementById("say-spoken").textContent = res.d.spoken;
+        document.getElementById("say-phonemes").textContent =
+          res.d.phonemes || "(press Speak it once more — the engine is loading)";
+
+        fired.textContent = "";
+        if (!res.d.hits.length) {
+          var none = document.createElement("p");
+          none.className = "hint";
+          none.style.margin = "0";
+          none.textContent = "No word rules fired. The structural rules for money, percentages and dates always run.";
+          fired.appendChild(none);
+        } else {
+          var list = document.createElement("ul");
+          list.className = "fired";
+          res.d.hits.forEach(function (h) {
+            var li = document.createElement("li");
+            var code = document.createElement("code");
+            code.textContent = h.pattern;
+            var said = document.createElement("b");
+            said.textContent = h.replacement;
+            li.append(code, " matched " + h.matched.join(", ") + " → ", said);
+            list.appendChild(li);
+          });
+          fired.appendChild(list);
+        }
+
         var audio = document.getElementById("say-audio");
         audio.src = res.d.audio;
         out.hidden = false;
         audio.play().catch(function () { /* the controls are right there */ });
       })
       .catch(function (e) { err.textContent = e.message; err.hidden = false; })
-      .finally(function () { go.disabled = false; go.textContent = "Say it"; });
+      .finally(function () { go.disabled = false; go.textContent = "Speak it"; });
   }
 
   go.addEventListener("click", say);
-  field.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); say(); } });
 })();
 </script>
 {% endblock %}
 
 {% block content %}
 <div class="section-head">
-  <h1>Pronunciation</h1>
-  <span class="muted">{{ rows|length }} rules · {{ enabled_count }} on</span>
+  <h1>Voice</h1>
+  <span class="muted">{{ chosen.voice or 'af_heart' }} · {{ chosen.speed_label }}× · {{ enabled_count }} of {{ rows|length }} rules on</span>
 </div>
 
 {% if error %}<p class="notice error">{{ error }}</p>{% endif %}
 {% if message %}<p class="notice ok">{{ message }}</p>{% endif %}
+{% if saved %}<p class="notice ok">Saved. New builds use this voice; nothing was queued.</p>{% endif %}
+{% if queued %}<p class="notice ok">Queued {{ queued }} article{{ '' if queued == 1 else 's' }} for a rebuild.</p>{% endif %}
+
+{% if affected %}
+<div class="card">
+  <h2>Rebuild what this changes</h2>
+  <p class="hint">
+    Changing a rule does not touch audio that already exists.
+    {{ affected|length }} built article{{ '' if affected|length == 1 else 's' }}
+    contain{{ 's' if affected|length == 1 else '' }} <code>{{ changed_pattern }}</code>.
+  </p>
+  <ul class="fired">
+    {% for a in affected[:8] %}<li><a href="/a/{{ a.slug }}">{{ a.title }}</a></li>{% endfor %}
+    {% if affected|length > 8 %}<li class="hint">and {{ affected|length - 8 }} more</li>{% endif %}
+  </ul>
+  <form method="post" action="/pronunciations/rebuild">
+    <input type="hidden" name="kind" value="{{ changed_kind }}">
+    <input type="hidden" name="pattern" value="{{ changed_pattern }}">
+    <div class="row" style="margin-top:.8rem">
+      <button class="narrow" type="submit">Rebuild {{ affected|length }}</button>
+    </div>
+  </form>
+</div>
+{% endif %}
 
 <div class="card">
-  <h2>Listen</h2>
-  <p class="hint">Type a word or a respelling and hear it. This is how you tell whether <code>ee bitda</code> beats <code>ebitda</code> without knowing any IPA.</p>
-  <div class="row">
-    <input type="text" id="say-text" placeholder="EBITDA   or   ee bitda" value="EBITDA">
-    <button class="narrow" type="button" id="say-go">Say it</button>
+  <div class="titled">
+    <h2>Default voice</h2>
+    <span class="tip">
+      <button type="button" class="q" aria-label="What the default voice does">?</button>
+      <span class="tip-body" role="tooltip">Used by every article that does not choose its own, on its
+      next build. Saving this queues nothing and changes no audio that already exists — an article keeps
+      the voice it was made with until you rebuild it.</span>
+    </span>
   </div>
-  <label class="check" style="margin-top:.6rem"><input type="checkbox" id="say-rules" checked> Apply the rules below first</label>
-  <div id="say-out" class="tryout" hidden>
-    <p class="label">Phonemes</p>
-    <p class="after mono" id="say-phonemes">—</p>
-    <p class="label">Spoken as</p>
-    <p class="after" id="say-spoken">—</p>
-    <audio id="say-audio" controls style="width:100%;margin-top:.7rem"></audio>
-  </div>
-  <p class="notice error" id="say-error" hidden></p>
+  <form method="post" action="/pronunciations/defaults">
+    <div class="row">
+      <div>
+        <label for="voice">Voice</label>
+        <select name="voice" id="voice">
+          {% for v in voices %}<option value="{{ v.id }}" {{ 'selected' if v.id == chosen.voice }}>{{ v.name }} · {{ v.gender }}</option>{% endfor %}
+        </select>
+      </div>
+      <div>
+        <div class="titled">
+          <label for="quote_voice">Quote voice</label>
+          <span class="tip">
+            <button type="button" class="q" aria-label="What the quote voice does">?</button>
+            <span class="tip-body" role="tooltip">A block quote needs a mark, or it runs into the
+            sentence before it. <b>Spoken cues</b> means the reader says “Start quote” and “End quote”
+            aloud. Pick a second voice instead and the change of voice does that job, with no extra
+            words.</span>
+          </span>
+        </div>
+        <select name="quote_voice" id="quote_voice">
+          <option value="">Same voice, spoken cues</option>
+          {% for v in voices %}<option value="{{ v.id }}" {{ 'selected' if v.id == chosen.quote_voice }}>{{ v.name }} · {{ v.gender }}</option>{% endfor %}
+        </select>
+      </div>
+      <div>
+        <div class="titled">
+          <label for="speed">Reading pace</label>
+          <span class="tip">
+            <button type="button" class="q" aria-label="What the reading pace does">?</button>
+            <span class="tip-body" role="tooltip">Baked into the audio, so it takes effect on the next
+            build. The player’s speed control is separate and changes nothing on disk.</span>
+          </span>
+        </div>
+        <select name="speed" id="speed">
+          {% for sp in speeds %}<option value="{{ sp }}" {{ 'selected' if sp == chosen.speed_label }}>{{ sp }}×{{ ' (normal)' if sp == '1.0' else '' }}</option>{% endfor %}
+        </select>
+      </div>
+    </div>
+    <div class="row" style="margin-top:.9rem"><button class="narrow" type="submit">Save defaults</button></div>
+  </form>
 </div>
 
 <div class="card">
-  <h2>Try it</h2>
-  <p class="hint">Paste a sentence to see what the engine will actually be given, and which rules fired.</p>
-  <form method="post" action="/pronunciations/test">
-    <textarea name="sample" style="min-height:5rem">{{ sample }}</textarea>
-    <div class="row" style="margin-top:.7rem"><button class="narrow" type="submit">Test</button></div>
-  </form>
-
-  {% if tested %}
-    <div class="tryout">
-      <p class="label">On screen</p>
-      <p class="before">{{ sample }}</p>
-      <p class="label">Spoken</p>
-      <p class="after">{{ spoken }}</p>
-      {% if phonemes %}
-        <p class="label">Phonemes Kokoro will use</p>
-        <p class="after mono">{{ phonemes }}</p>
-      {% endif %}
-      <p class="label">Rules that fired ({{ hits|length }})</p>
-      {% if hits %}
-        <ul class="fired">
-          {% for h in hits %}
-            <li><code>{{ h.pattern }}</code> matched {{ h.matched|join(', ') }} → <b>{{ h.replacement }}</b></li>
-          {% endfor %}
-        </ul>
-      {% else %}
-        <p class="hint" style="margin:0">None. The structural rules for money, percentages and dates always run.</p>
-      {% endif %}
+  <h2>Test the voice</h2>
+  <p class="hint">
+    Type a word, a respelling or a whole sentence and hear it. This is where a rule is judged:
+    <code>ee bitda</code> against <code>EBITDA</code>, with no phonetic alphabet needed. It shows what
+    the engine is actually given and which rules fired on the way.
+  </p>
+  <div class="row">
+    <div>
+      <label for="say-text">Sample</label>
+      <textarea id="say-text" style="min-height:4.5rem">{{ sample }}</textarea>
     </div>
-  {% endif %}
+  </div>
+  <div class="row" style="margin-top:.7rem">
+    <div>
+      <label for="say-voice">Voice</label>
+      <select id="say-voice">
+        <option value="">Default ({{ chosen.voice or 'af_heart' }})</option>
+        {% for v in voices %}<option value="{{ v.id }}">{{ v.name }} · {{ v.gender }}</option>{% endfor %}
+      </select>
+    </div>
+    <div>
+      <label for="say-speed">Reading pace</label>
+      <select id="say-speed">
+        {% for sp in speeds %}<option value="{{ sp }}" {{ 'selected' if sp == chosen.speed_label }}>{{ sp }}×</option>{% endfor %}
+      </select>
+    </div>
+    <div class="narrow" style="align-self:end">
+      <button type="button" id="say-go">Speak it</button>
+    </div>
+  </div>
+  <label class="check" style="margin-top:.6rem"><input type="checkbox" id="say-rules" checked> Apply the rules below first</label>
+
+  <div id="say-out" class="tryout" hidden>
+    <p class="label">Spoken as</p>
+    <p class="after" id="say-spoken">—</p>
+    <p class="label">Phonemes the engine gets</p>
+    <p class="after mono" id="say-phonemes">—</p>
+    <p class="label">Rules that fired</p>
+    <div id="say-fired"></div>
+    <audio id="say-audio" controls style="width:100%;margin-top:.7rem"></audio>
+  </div>
+  <p class="notice error" id="say-error" hidden></p>
 </div>
 
 <div class="card">
@@ -181,40 +281,4 @@
     </tbody>
   </table>
 </div>
-<script>
-(function () {
-  var go = document.getElementById("say-go");
-  var field = document.getElementById("say-text");
-  var out = document.getElementById("say-out");
-  var err = document.getElementById("say-error");
-
-  function say() {
-    var text = field.value.trim();
-    if (!text) return;
-    go.disabled = true; go.textContent = "…";
-    err.hidden = true;
-
-    var body = new FormData();
-    body.append("text", text);
-    body.append("apply_rules", document.getElementById("say-rules").checked ? "true" : "false");
-
-    fetch("/api/say", { method: "POST", body: body })
-      .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
-      .then(function (res) {
-        if (!res.ok) throw new Error(res.d.error || "could not synthesise");
-        document.getElementById("say-phonemes").textContent = res.d.phonemes || "(engine gives no phonemes)";
-        document.getElementById("say-spoken").textContent = res.d.spoken;
-        var audio = document.getElementById("say-audio");
-        audio.src = res.d.audio;
-        out.hidden = false;
-        audio.play().catch(function () { /* the controls are right there */ });
-      })
-      .catch(function (e) { err.textContent = e.message; err.hidden = false; })
-      .finally(function () { go.disabled = false; go.textContent = "Say it"; });
-  }
-
-  go.addEventListener("click", say);
-  field.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); say(); } });
-})();
-</script>
 {% endblock %}

@@ -40,7 +40,6 @@ CREATE TABLE IF NOT EXISTS section (
     article_id  INTEGER NOT NULL REFERENCES article (id) ON DELETE CASCADE,
     idx         INTEGER NOT NULL,
     title       TEXT    NOT NULL DEFAULT '',
-    summary     TEXT,
     file        TEXT,
     duration_ms INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (article_id, idx)

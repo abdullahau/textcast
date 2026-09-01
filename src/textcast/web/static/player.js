@@ -96,16 +96,49 @@
       audio.load();
     }
 
-    if (atMs != null) seekWithin(atMs);
-    if (autoplay) audio.play().catch(function () { /* needs a gesture */ });
+    if (atMs != null) seekWithin(atMs, autoplay);
+    else if (autoplay) audio.play().catch(function () { /* needs a gesture */ });
 
     $("now-title").textContent = section.title || "";
     markChapters();
     updateMediaSession();
   }
 
-  function seekWithin(ms) {
-    var apply = function () { audio.currentTime = Math.max(0, ms) / 1000; };
+  /* Pause, seek, then play again once the seek has landed.
+     Setting currentTime on a playing element lets the already-buffered output
+     finish first, so you hear a fragment of where you just were. Starting
+     playback before a deferred seek has applied does the same from the top of
+     the section.
+
+     The resume checks where it ended up, because `seeked` is asynchronous: if
+     something else moves the playhead first, that event is not ours and
+     resuming on it would start playback somewhere nobody asked for. */
+  function seekWithin(ms, autoplay) {
+    var CLOSE_ENOUGH_MS = 250;
+
+    var apply = function () {
+      var target = Math.max(0, ms);
+      var resume = autoplay || !audio.paused;
+      if (!audio.paused) audio.pause();
+
+      var landed = function () { return Math.abs(audio.currentTime * 1000 - target) < CLOSE_ENOUGH_MS; };
+      var play = function () { audio.play().catch(function () { /* needs a gesture */ }); };
+
+      if (landed()) {
+        audio.currentTime = target / 1000;
+        if (resume) play();
+        return;
+      }
+      if (resume) {
+        var onSeeked = function () {
+          audio.removeEventListener("seeked", onSeeked);
+          if (landed()) play();
+        };
+        audio.addEventListener("seeked", onSeeked);
+      }
+      audio.currentTime = target / 1000;
+    };
+
     if (audio.readyState >= 1) apply();
     else audio.addEventListener("loadedmetadata", apply, { once: true });
   }
@@ -261,12 +294,22 @@
      opt-in, and even then a click that ends a selection is left alone. */
   var tapToSeek = store("tap", "0") === "1";
 
+  /* A section with no audio is left out of the payload, so its position in
+     this array is not the index the page marked the block with. */
+  function positionOf(sectionIdx) {
+    for (var i = 0; i < sections.length; i++) {
+      if (sections[i].idx === sectionIdx) return i;
+    }
+    return -1;
+  }
+
   function seekToBlock(blockId, sectionIdx) {
-    var blocks = sections[sectionIdx] && sections[sectionIdx].blocks;
+    var at = positionOf(sectionIdx);
+    var blocks = at >= 0 && sections[at].blocks;
     if (!blocks) return;
     for (var i = 0; i < blocks.length; i++) {
       if (blocks[i][0] === blockId) {
-        loadSection(sectionIdx, blocks[i][1], true);
+        loadSection(at, blocks[i][1], true);
         highlight(blockId);
         return;
       }

@@ -4,24 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from textcast import db, pronounce
+from textcast import db
 from textcast.normalize import normalize
 from textcast.pronounce import Rule, apply, builtin_rules, month_pattern, preview
-
-
-@pytest.fixture
-def conn(tmp_path, monkeypatch):
-    monkeypatch.setenv("TEXTCAST_DATA_DIR", str(tmp_path))
-    from textcast.settings import get_settings
-
-    settings = get_settings(refresh=True)
-    settings.ensure_dirs()
-    db.close()
-    pronounce.invalidate()
-    connection = db.init(settings.db_path)
-    yield connection
-    db.close()
-    pronounce.invalidate()
 
 
 def say(text: str) -> str:

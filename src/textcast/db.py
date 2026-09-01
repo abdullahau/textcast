@@ -139,8 +139,8 @@ def save_article(article: Article, conn: sqlite3.Connection | None = None) -> in
         article_id = int(cursor.lastrowid)
 
         conn.executemany(
-            "INSERT INTO section (article_id, idx, title, summary) VALUES (?,?,?,?)",
-            [(article_id, s.idx, s.title, s.summary) for s in article.sections],
+            "INSERT INTO section (article_id, idx, title) VALUES (?,?,?)",
+            [(article_id, s.idx, s.title) for s in article.sections],
         )
         conn.executemany(
             """
@@ -164,6 +164,36 @@ def save_article(article: Article, conn: sqlite3.Connection | None = None) -> in
     return article_id
 
 
+def replace_blocks(article_id: int, article: Article, conn: sqlite3.Connection | None = None) -> None:
+    """Swap in a new set of blocks for an article that is already stored.
+
+    Inserting or removing a block moves every id after it, so the audio that
+    exists no longer lines up. The timings go with the old rows and the audio
+    counters are cleared; the caller queues a build.
+    """
+    conn = conn or connect()
+    article.renumber()
+    with transaction(conn):
+        conn.execute("DELETE FROM block WHERE article_id = ?", (article_id,))
+        conn.executemany(
+            """
+            INSERT INTO block (article_id, section_idx, idx, block_id, kind, text, footnote_ref)
+            VALUES (?,?,?,?,?,?,?)
+            """,
+            [
+                (article_id, b.section_idx, b.idx, b.id, str(b.kind), b.text, b.footnote_ref)
+                for _s, b in article.blocks()
+            ],
+        )
+        conn.execute(
+            "UPDATE article SET word_count = ?, audio_ms = 0, audio_bytes = 0 WHERE id = ?",
+            (article.word_count, article_id),
+        )
+        conn.execute(
+            "UPDATE section SET file = NULL, duration_ms = 0 WHERE article_id = ?", (article_id,)
+        )
+
+
 def get_article(article_id: int, conn: sqlite3.Connection | None = None) -> sqlite3.Row | None:
     conn = conn or connect()
     return conn.execute("SELECT * FROM article WHERE id = ?", (article_id,)).fetchone()
@@ -182,13 +212,17 @@ def load_article(article_id: int, conn: sqlite3.Connection | None = None) -> Art
         return None
 
     sections = {
-        s["idx"]: Section(title=s["title"], summary=s["summary"], idx=s["idx"])
+        s["idx"]: Section(title=s["title"], idx=s["idx"])
         for s in conn.execute(
-            "SELECT * FROM section WHERE article_id = ? ORDER BY idx", (article_id,)
+            "SELECT idx, title FROM section WHERE article_id = ? ORDER BY idx", (article_id,)
         )
     }
     for b in conn.execute(
-        "SELECT * FROM block WHERE article_id = ? ORDER BY section_idx, idx", (article_id,)
+        """
+        SELECT section_idx, idx, kind, text, footnote_ref
+          FROM block WHERE article_id = ? ORDER BY section_idx, idx
+        """,
+        (article_id,),
     ):
         section = sections.setdefault(b["section_idx"], Section(title="", idx=b["section_idx"]))
         section.blocks.append(
@@ -747,6 +781,65 @@ def delete_pronunciation(rule_id: int, conn: sqlite3.Connection | None = None) -
     conn = conn or connect()
     conn.execute("DELETE FROM pronunciation WHERE id = ?", (rule_id,))
     invalidate()
+
+
+def summarisable(conn: sqlite3.Connection | None = None, limit: int = 200) -> list[sqlite3.Row]:
+    """Articles with no summary blocks yet, newest first."""
+    conn = conn or connect()
+    return conn.execute(
+        """
+        SELECT a.id, a.slug, a.title
+          FROM article a
+         WHERE a.archived = 0
+           AND NOT EXISTS (
+               SELECT 1 FROM block b
+                WHERE b.article_id = a.id AND b.kind = 'summary'
+           )
+         ORDER BY a.added_at DESC
+         LIMIT ?
+        """,
+        (limit,),
+    ).fetchall()
+
+
+def articles_matching(rule, conn: sqlite3.Connection | None = None, limit: int = 500) -> list[sqlite3.Row]:
+    """Built articles whose text the rule would change.
+
+    Editing one rule invalidates only the articles that use the word, so the
+    page can offer to rebuild exactly those. The scan runs in Python because a
+    rule may be a regular expression, which SQLite cannot match.
+    """
+    pattern = rule.compile()
+    if pattern is None:
+        return []
+
+    conn = conn or connect()
+    hits: list[int] = []
+    seen: set[int] = set()
+    for row in conn.execute(
+        """
+        SELECT b.article_id, b.text
+          FROM block b JOIN article a ON a.id = b.article_id
+         WHERE a.status = 'ready' AND a.archived = 0
+         ORDER BY b.article_id
+        """
+    ):
+        article_id = row["article_id"]
+        if article_id in seen:
+            continue
+        if pattern.search(row["text"]):
+            seen.add(article_id)
+            hits.append(article_id)
+            if len(hits) >= limit:
+                break
+
+    if not hits:
+        return []
+    placeholders = ",".join("?" * len(hits))
+    return conn.execute(
+        f"SELECT id, slug, title FROM article WHERE id IN ({placeholders}) ORDER BY added_at DESC",
+        hits,
+    ).fetchall()
 
 
 def seed_pronunciations(conn: sqlite3.Connection | None = None, force: bool = False) -> int:

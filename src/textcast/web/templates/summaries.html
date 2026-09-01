@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% block title %}Summaries — textcast{% endblock %}
+
+{% block content %}
+<div class="section-head">
+  <h1>Summaries</h1>
+  <span class="muted">{{ cfg.model if cfg.ready else 'not configured' }}</span>
+</div>
+
+{% if error %}<p class="notice error">{{ error }}</p>{% endif %}
+{% if queued %}<p class="notice ok">Queued {{ queued }} article{{ '' if queued == 1 else 's' }}.</p>{% endif %}
+
+{% if not installed %}
+  <p class="notice error">
+    The <code>openai</code> package is not installed. Run
+    <code>uv sync --extra summaries</code> and restart.
+  </p>
+{% endif %}
+
+<div class="card">
+  <h2>What this does</h2>
+  <p class="hint">
+    A summary of each section is written as a block at the top of that section,
+    so it is read aloud before the section itself, highlighted like any other
+    paragraph, and searchable. Turn it off per article with <b>Show summaries</b>
+    in the player, or skip it in the audio with <b>Skip summaries</b>.
+  </p>
+  <p class="hint">
+    Any endpoint that speaks the OpenAI protocol works, so the model is yours to
+    choose. Summarising queues a rebuild, because a new block moves the
+    paragraphs after it.
+  </p>
+</div>
+
+<div class="card">
+  <h2>Model</h2>
+  <form method="post" action="/summaries">
+    <div class="row">
+      <div>
+        <label for="base_url">Endpoint</label>
+        <input type="url" name="base_url" id="base_url" value="{{ cfg.base_url }}" list="provider-urls">
+        <datalist id="provider-urls">
+          {% for name, url, _model in providers %}<option value="{{ url }}">{{ name }}</option>{% endfor %}
+        </datalist>
+      </div>
+      <div>
+        <label for="model">Model</label>
+        <input type="text" name="model" id="model" value="{{ cfg.model }}" list="provider-models">
+        <datalist id="provider-models">
+          {% for name, _url, model in providers %}<option value="{{ model }}">{{ name }}</option>{% endfor %}
+        </datalist>
+      </div>
+    </div>
+    <div class="row" style="margin-top:.7rem">
+      <div>
+        <label for="api_key">API key</label>
+        <input type="password" name="api_key" id="api_key" autocomplete="off"
+               placeholder="{{ '•••••••• stored' if cfg.api_key else 'not set' }}">
+        <p class="hint" style="margin-top:.35rem">
+          Kept in the database on this machine. Leave blank to keep the one already stored.
+          <code>TEXTCAST_SUMMARY_API_KEY</code> or <code>GEMINI_API_KEY</code> supplies it
+          when nothing is stored.
+        </p>
+      </div>
+    </div>
+    <input type="hidden" name="keep_key" value="true">
+    <div class="row" style="margin-top:.7rem">
+      <div>
+        <label for="prompt">Prompt</label>
+        <textarea name="prompt" id="prompt" style="min-height:9rem">{{ cfg.prompt }}</textarea>
+        <p class="hint" style="margin-top:.35rem">
+          <code>{text}</code> is where the section goes. It is written for the ear:
+          no markdown, no bullets, nothing a voice would read out as punctuation.
+        </p>
+      </div>
+    </div>
+    <div class="row" style="margin-top:.9rem"><button class="narrow" type="submit">Save</button></div>
+  </form>
+</div>
+
+<div class="card">
+  <h2>Try it</h2>
+  <p class="hint">One paragraph in, one summary out. The cheapest way to check a key and a model name.</p>
+  <form method="post" action="/summaries/test">
+    <textarea name="sample" style="min-height:6rem">{{ sample or "" }}</textarea>
+    <div class="row" style="margin-top:.7rem"><button class="narrow" type="submit">Summarise it</button></div>
+  </form>
+  {% if tested %}
+    <div class="tryout">
+      <p class="label">Summary</p>
+      <p class="after">{{ result }}</p>
+    </div>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>Articles without a summary</h2>
+  {% if pending %}
+    <p class="hint">{{ pending|length }} of them. Each one costs a call per section and a rebuild.</p>
+    <ul class="fired">
+      {% for a in pending[:10] %}<li><a href="/a/{{ a.slug }}">{{ a.title }}</a></li>{% endfor %}
+      {% if pending|length > 10 %}<li class="hint">and {{ pending|length - 10 }} more</li>{% endif %}
+    </ul>
+    {% if cfg.ready %}
+      <form method="post" action="/summaries/run-all"
+            onsubmit="return confirm('Summarise {{ pending|length }} articles? Each one calls the model once per section.')">
+        <div class="row" style="margin-top:.8rem">
+          <button class="ghost narrow" type="submit">Summarise all {{ pending|length }}</button>
+        </div>
+      </form>
+    {% endif %}
+  {% else %}
+    <p class="hint">None. Every article has one.</p>
+  {% endif %}
+</div>
+{% endblock %}

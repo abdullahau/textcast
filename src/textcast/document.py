@@ -1,7 +1,8 @@
 """The document model.
 
 One idea carries the whole app: the *block* is the unit. A paragraph, a quote,
-a list item, a footnote and a summary are each one block with a stable id.
+a list item, a footnote and a generated summary are each one block with a
+stable id.
 Reading, listening, highlighting, seeking and search all read the same blocks,
 so they cannot drift apart.
 """
@@ -60,7 +61,6 @@ class Block:
 class Section:
     title: str
     blocks: list[Block] = field(default_factory=list)
-    summary: str | None = None
     idx: int = 0
 
 
@@ -115,7 +115,6 @@ class Article:
         sections = [
             Section(
                 title=s.get("title", ""),
-                summary=s.get("summary"),
                 idx=s.get("idx", i),
                 blocks=[
                     Block(

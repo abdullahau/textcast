@@ -46,9 +46,69 @@ def test_fake_engine_satisfies_the_protocol():
     assert isinstance(FakeEngine(), TTSEngine)
 
 
+class PaddedEngine:
+    """Like Kokoro: silence, then a second of speech, then more silence."""
+
+    name = "padded"
+    sample_rate = 24000
+    LEAD_MS, SPEECH_MS, TRAIL_MS = 300, 1000, 500
+
+    def voices(self):
+        from textcast.tts.base import Voice
+
+        return [Voice(id="v1", name="One")]
+
+    def synthesize(self, text, voice=None, speed=1.0, lang="en"):
+        sr = self.sample_rate
+        lead = np.zeros(round(sr * self.LEAD_MS / 1000), dtype=np.float32)
+        trail = np.zeros(round(sr * self.TRAIL_MS / 1000), dtype=np.float32)
+        n = round(sr * self.SPEECH_MS / 1000)
+        speech = (0.4 * np.sin(np.linspace(0, 220 * 2 * np.pi, n))).astype(np.float32)
+        return Clip(samples=np.concatenate([lead, speech, trail]), sample_rate=sr)
+
+
+def test_a_block_starts_on_its_first_word():
+    """Kokoro pads every clip, and the padding used to land inside the timing.
+
+    Seeking to a block then began about 300 ms before it said anything, and
+    the pause between two blocks ran past a second when 350 ms was asked for.
+    """
+    from textcast.audio import SILENCE_MARGIN_MS, trim_silence
+
+    engine = PaddedEngine()
+    clip = engine.synthesize("anything")
+    trimmed = trim_silence(clip.samples, engine.sample_rate)
+
+    kept_ms = round(len(trimmed) / engine.sample_rate * 1000)
+    assert abs(kept_ms - (engine.SPEECH_MS + 2 * SILENCE_MARGIN_MS)) <= 5
+    assert abs(trimmed[0]) < 0.05, "a margin is left, so the first sound is not clipped"
+
+
+def test_a_block_that_is_quiet_all_through_is_kept_whole():
+    """Better a long pause than a block that disappears from the article."""
+    from textcast.audio import trim_silence
+
+    quiet = np.full(2400, 0.001, dtype=np.float32)
+
+    assert len(trim_silence(quiet, 24000)) == len(quiet)
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not installed")
+def test_the_gap_between_blocks_is_the_gap_that_was_asked_for(tmp_path):
+    manifest = render_article(
+        sample_article(), PaddedEngine(), tmp_path, voice="v1", gap_ms=350, heading_gap_ms=350
+    )
+    timings = manifest.sections[0].blocks
+
+    speech = timings[0].speech_ms
+    between = timings[1].start_ms - (timings[0].start_ms + speech)
+    assert between == 350, f"expected the configured pause, got {between} ms"
+    assert speech < 1200, f"the model's own silence is still in the block: {speech} ms"
+
+
 def test_registry_reports_and_rejects():
-    assert set(ENGINES) == {"supertonic", "kokoro"}
-    assert set(available()) == {"supertonic", "kokoro"}
+    assert set(ENGINES) == {"kokoro"}
+    assert set(available()) == {"kokoro"}
     with pytest.raises(ValueError, match="Unknown TTS engine"):
         get_engine("nope")
 
@@ -110,6 +170,17 @@ def test_block_cache_avoids_resynthesising(tmp_path):
     assert Counting.calls == first, "second render should be served entirely from cache"
 
 
+def test_voices_are_listed_without_building_an_engine():
+    """A page with a voice picker must not wait for 82M parameters to load."""
+    from textcast.tts import catalogue, loaded_engine
+
+    listed = catalogue("kokoro")
+
+    assert [v.id for v in listed][:1] == ["af_alloy"]
+    assert all(v.lang == "en-us" for v in listed)
+    assert loaded_engine("kokoro") is None, "listing must not have loaded the model"
+
+
 def test_availability_probes_the_dependency_not_the_wrapper():
     """The wrapper module always imports; only the real package tells the truth.
 
@@ -123,10 +194,7 @@ def test_availability_probes_the_dependency_not_the_wrapper():
         importlib.import_module(spec.module)  # always succeeds
         assert spec.requires != spec.module
 
-    have = available()
-    assert have["supertonic"] is True, "the default engine should be installed"
-
-    if not have["kokoro"]:
+    if not available()["kokoro"]:
         with pytest.raises(EngineNotAvailable, match="uv sync --extra kokoro"):
             get_engine("kokoro")
 

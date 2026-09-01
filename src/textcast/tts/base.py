@@ -40,9 +40,9 @@ class Clip:
 class TTSEngine(Protocol):
     """Implemented by every engine in this package.
 
-    Engine-specific knobs (Kokoro's voice blending, Supertonic's step count)
-    belong in the constructor, never in ``synthesize``. That keeps this call
-    signature identical across engines so callers stay engine-agnostic.
+    Engine-specific knobs belong in the constructor, never in ``synthesize``.
+    That keeps this call signature identical across engines, so callers stay
+    engine-agnostic and a second engine can be added without touching them.
     """
 
     name: str

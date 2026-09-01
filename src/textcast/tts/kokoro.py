@@ -1,7 +1,11 @@
-"""Kokoro-82M — the default engine.
+"""Kokoro-82M — the engine.
 
-Slower than Supertonic on CPU (RTF 0.65 against 0.31 here), but steadier: no
-volume dips or glitching on long paragraphs, and 54 voices instead of 10.
+StyleTTS2 over PyTorch, 24 kHz output. The v1.0 pack holds 28 English voices;
+the pipeline loads one accent at a time, so ``lang_code='a'`` offers 20 of them
+and ``'b'`` the other 8. It measures RTF 0.65
+on a 4-core Neoverse-N1 with no GPU. A faster ONNX engine was tried and
+dropped: it was about twice the speed, but its delivery drifted in volume and
+glitched on long paragraphs.
 
 Its one deployment hazard is espeak-ng. Kokoro reaches it through
 ``espeakng-loader``, whose bundled data path is frequently wrong, and the
@@ -99,6 +103,24 @@ def _configure_espeak() -> None:
         )
 
 
+def voices(lang_code: str = "a") -> list[Voice]:
+    """The voice list, without loading anything.
+
+    Kokoro's voices are a fixed table, so a page with a voice picker has no
+    business constructing an 82M-parameter model to read it.
+    """
+    return [
+        Voice(
+            id=v,
+            name=v.split("_", 1)[1].title(),
+            gender="female" if v[1] == "f" else "male",
+            lang=_LANGS.get(v[0], "en-us"),
+        )
+        for v in _VOICES
+        if v[0] == lang_code
+    ]
+
+
 class KokoroEngine:
     name = "kokoro"
     sample_rate = 24000
@@ -127,16 +149,17 @@ class KokoroEngine:
         self._lock = threading.Lock()
 
     def voices(self) -> list[Voice]:
-        return [
-            Voice(
-                id=v,
-                name=v.split("_", 1)[1].title(),
-                gender="female" if v[1] == "f" else "male",
-                lang=_LANGS.get(v[0], "en-us"),
+        return voices(self.lang_code)
+
+    def phonemes(self, text: str, voice: str | None = None) -> str:
+        """What the model will actually be given, for the pronunciation page.
+
+        Exposed here so the web layer never reaches into the pipeline itself.
+        """
+        with self._lock:
+            return " ".join(
+                ps for _gs, ps, _audio in self._pipeline(text, voice=voice or "af_heart") if ps
             )
-            for v in _VOICES
-            if v[0] == self.lang_code
-        ]
 
     def synthesize(
         self,

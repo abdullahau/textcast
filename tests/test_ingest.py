@@ -171,17 +171,9 @@ def test_generic_extractor_finds_the_body_and_drops_the_rails():
     assert all("moved sharply" in t for t in texts)
 
 
-def test_a_short_pasted_note_is_accepted(tmp_path, monkeypatch):
+def test_a_short_pasted_note_is_accepted(conn):
     """The paywall guard is for web pages, not for text you typed yourself."""
-    monkeypatch.setenv("TEXTCAST_DATA_DIR", str(tmp_path))
-    from textcast import db
     from textcast.service import IngestError, ingest
-    from textcast.settings import get_settings
-
-    settings = get_settings(refresh=True)
-    settings.ensure_dirs()
-    db.close()
-    db.init(settings.db_path)
 
     result = ingest(
         text="A short note.\n\nOnly a couple of lines, but worth keeping.",
@@ -195,4 +187,3 @@ def test_a_short_pasted_note_is_accepted(tmp_path, monkeypatch):
     # Whitespace-only reads as "you gave me nothing", which is the truth.
     with pytest.raises(IngestError, match="give a url, some text"):
         ingest(text="   ", build=False)
-    db.close()

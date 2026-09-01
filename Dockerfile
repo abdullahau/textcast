@@ -19,20 +19,18 @@ WORKDIR /app
 # Dependencies first: this layer survives every source-only change.
 COPY pyproject.toml uv.lock README.md LICENSE ./
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-install-project --no-dev --extra kokoro --extra web --extra documents
+    uv sync --frozen --no-install-project --no-dev --extra kokoro --extra web --extra documents --extra summaries
 
 COPY src/ ./src/
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev --extra kokoro --extra web --extra documents
+    uv sync --frozen --no-dev --extra kokoro --extra web --extra documents --extra summaries
 
 # --- warm the model cache into the image -----------------------------------
 ARG BAKE_MODEL=1
-ARG TEXTCAST_TTS_ENGINE=kokoro
-ENV HF_HOME=/opt/models/huggingface \
-    SUPERTONIC_HOME=/opt/models/supertonic
+ENV HF_HOME=/opt/models/huggingface
 COPY docker/bake_model.py /tmp/bake_model.py
 RUN if [ "$BAKE_MODEL" = "1" ]; then \
-      /app/.venv/bin/python /tmp/bake_model.py "$TEXTCAST_TTS_ENGINE"; \
+      /app/.venv/bin/python /tmp/bake_model.py; \
     fi && rm -f /tmp/bake_model.py
 
 
@@ -50,12 +48,12 @@ COPY --from=build --chown=textcast:textcast /app /app
 # Read-only at runtime: the weights are part of the image, not of your data.
 COPY --from=build --chown=textcast:textcast /opt/models /opt/models
 
+# ESPEAK_DATA_PATH is deliberately not set: it was pinned to the arm64 path,
+# which is wrong on an amd64 image. tts/kokoro.py probes both.
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
     TEXTCAST_DATA_DIR=/data \
     HF_HOME=/opt/models/huggingface \
-    SUPERTONIC_HOME=/opt/models/supertonic \
-    ESPEAK_DATA_PATH=/usr/lib/aarch64-linux-gnu \
     TEXTCAST_HOST=0.0.0.0
 
 # Create /data owned by the app user *before* declaring the volume: Docker

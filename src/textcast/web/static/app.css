@@ -137,8 +137,14 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
 .find input:focus { border-color: var(--border-hi); background: var(--surface); }
 
 .bar-links { display: flex; align-items: center; gap: .4rem; flex: none; font-size: .85rem; }
-.bar-links a:not(.cta) { color: var(--muted); padding: 0 .3rem; }
-.bar-links a:not(.cta):hover { color: var(--fg); text-decoration: none; }
+/* Nav links go muted; the Add button keeps its own colours. The exclusion
+   used to name .cta, which nothing carries, so this rule greyed the button's
+   label against its dark fill. */
+.bar-links a:not(.btn) { color: var(--muted); padding: 0 .3rem; }
+.bar-links a:not(.btn):hover { color: var(--fg); text-decoration: none; }
+/* A form is the only honest way to sign out, so its button has to read as a link. */
+button.link { background: none; border: 0; padding: 0 .3rem; font: inherit; color: var(--muted); cursor: pointer; }
+button.link:hover { color: var(--fg); }
 
 @media (max-width: 34rem) {
   .brand span { display: none; }
@@ -212,6 +218,58 @@ button.danger { background: transparent; color: var(--bad); border-color: color-
 button.danger:hover { background: color-mix(in srgb, var(--bad) 10%, transparent); opacity: 1; }
 
 button.sm, .btn.sm { height: 1.8rem; padding: 0 .6rem; font-size: .78rem; }
+
+/* ---------- hint buttons ---------- */
+
+/* Shown on hover, and on focus so a tap or the keyboard works too. A details
+   element expanded on click instead, which on a phone meant two taps and a
+   panel that stayed open. */
+.tip { position: relative; display: inline-flex; }
+button.q {
+  width: 1.15rem;
+  height: 1.15rem;
+  min-width: 1.15rem;
+  padding: 0;
+  border: 1px solid var(--border-hi);
+  border-radius: 50%;
+  background: transparent;
+  font-size: .7rem;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--muted);
+}
+button.q:hover, button.q:focus-visible { color: var(--fg); border-color: var(--fg-soft); opacity: 1; }
+
+.tip .tip-body {
+  position: absolute;
+  top: 1.6rem;
+  left: 0;
+  z-index: 30;
+  display: none;
+  width: max-content;
+  max-width: min(26rem, calc(100vw - 3rem));
+  margin: 0;
+  padding: .7rem .8rem;
+  background: var(--raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 8px 24px rgb(0 0 0 / .12);
+  font-size: .8rem;
+  line-height: 1.55;
+  font-weight: 400;
+  color: var(--fg-soft);
+  white-space: normal;
+  text-align: left;
+}
+.tip:hover .tip-body, .tip:focus-within .tip-body { display: block; }
+
+/* Near the right edge there is no room to open leftwards. */
+.tip.right .tip-body { left: auto; right: 0; }
+
+/* A heading or a field label with its hint button beside it. */
+.titled { display: flex; align-items: center; gap: .45rem; }
+.titled h2 { margin: 0; }
+.titled label { margin-bottom: 0; }
 
 /* ---------- article list ---------- */
 
@@ -428,6 +486,23 @@ input[type=file] { font-size: .82rem; color: var(--muted); padding: .35rem; }
 .doc-head h1 { font-family: var(--serif); font-size: clamp(1.55rem, 5vw, 2rem); font-weight: 600; letter-spacing: -.02em; }
 .doc-head .dek { font-family: var(--serif); font-size: 1.02rem; color: var(--fg-soft); margin: .6rem 0 0; }
 .doc-head .m { margin-top: .9rem; display: flex; flex-wrap: wrap; gap: .35rem .6rem; align-items: center; font-size: .76rem; color: var(--muted); }
+.doc-head .shelf { margin-top: .9rem; display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
+.doc-head .shelf form { margin: 0; }
+
+/* Star and archive read as state, not as commands, so they show what is on
+   rather than what a press would do. */
+button.chip {
+  height: 1.9rem;
+  padding: 0 .65rem;
+  font-size: .78rem;
+  background: transparent;
+  color: var(--fg-soft);
+  border-color: var(--border);
+}
+button.chip:hover { background: var(--sunk); color: var(--fg); opacity: 1; }
+button.chip svg { width: 14px; height: 14px; }
+button.chip[aria-pressed="true"] { border-color: var(--border-hi); color: var(--fg); background: var(--sunk); }
+button.chip[aria-pressed="true"] .star { fill: var(--warn); stroke: var(--warn); }
 
 .doc {
   font-family: var(--serif);
@@ -493,6 +568,8 @@ input[type=file] { font-size: .82rem; color: var(--muted); padding: .35rem; }
 .b.quote.on { border-left-color: var(--accent); }
 .b.list_item { padding-left: 1.6rem; text-indent: -.85rem; }
 .b.footnote { font-size: .9rem; color: var(--muted); }
+/* A summary is not the author's text. It sits apart so nobody mistakes the
+   machine's words for theirs. */
 .b.summary { font-size: .95rem; color: var(--fg-soft); background: var(--sunk); padding: .75rem .85rem; border-left-color: var(--accent); border-radius: var(--radius-sm); }
 
 body.hide-footnotes .b.footnote { display: none; }

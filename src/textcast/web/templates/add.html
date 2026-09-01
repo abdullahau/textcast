@@ -14,15 +14,26 @@
         </select>
       </div>
       <div>
-        <label for="{{ prefix }}quote_voice">Quote voice</label>
+        <div class="titled">
+          <label for="{{ prefix }}quote_voice">Quote voice</label>
+          <span class="tip"><button type="button" class="q" aria-label="What the quote voice and the reading pace do">?</button><span class="tip-body" role="tooltip">A block quote needs a mark, or it runs into the sentence before it. <b>Spoken cues</b> means the reader says “Start quote” and “End quote” aloud. Pick a second voice instead and the change of voice does that job, with no extra words. <b>Reading pace</b> is baked into the audio; the player’s speed control is separate and changes nothing on disk.</span></span>
+        </div>
         <select name="quote_voice" id="{{ prefix }}quote_voice">
           <option value="">Same voice, spoken cues</option>
           {% for v in voices %}<option value="{{ v.id }}">{{ v.name }} · {{ v.gender }}</option>{% endfor %}
         </select>
       </div>
+      <div>
+        <label for="{{ prefix }}speed">Reading pace</label>
+        <select name="speed" id="{{ prefix }}speed">
+          {% for s in speeds %}<option value="{{ s }}" {{ 'selected' if s == default_speed }}>{{ s }}×{{ ' (normal)' if s == '1.0' else '' }}</option>{% endfor %}
+        </select>
+      </div>
     </div>
+
     <div class="row" style="margin-top:.7rem">
       <label class="check"><input type="checkbox" name="skip_footnotes" value="true"> Skip footnotes</label>
+      <label class="check"><input type="checkbox" name="summarize" value="true"> Summarise each section</label>
       <label class="check"><input type="checkbox" name="build" value="true" checked> Build audio now</label>
     </div>
   </div>
@@ -113,6 +124,25 @@
     {{ build_options('html-') }}
     <div class="row" style="margin-top:.9rem"><button class="narrow" type="submit">Add source</button></div>
   </form>
+</div>
+
+<div class="card">
+  <h2>From the iPhone share sheet</h2>
+  <p class="hint">
+    Android posts straight to this app once you install it. iOS has no share target,
+    so it needs a Shortcut. Build it once:
+  </p>
+  <ol class="hint" style="padding-left:1.1rem;line-height:1.7">
+    <li>Open Shortcuts, make a new shortcut, and add <b>Get Contents of URL</b>.</li>
+    <li>Set the URL to <code>{{ request.base_url }}api/ingest</code>.</li>
+    <li>Set Method to <b>POST</b> and Request Body to <b>Form</b>.</li>
+    <li>Add a field <code>kind</code> with the value <code>url</code>.</li>
+    <li>Add a field <code>url</code> and set its value to <b>Shortcut Input</b>.</li>
+    <li>If you turned on access control, add a header
+        <code>x-textcast-token</code> holding your token.</li>
+    <li>In the shortcut details, turn on <b>Show in Share Sheet</b> and accept URLs.</li>
+  </ol>
+  <p class="hint">Share any page to it and the article is queued before you put the phone down.</p>
 </div>
 
 <div class="card">

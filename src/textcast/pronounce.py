@@ -20,6 +20,7 @@ import logging
 import re
 import threading
 from dataclasses import dataclass
+from functools import lru_cache
 
 log = logging.getLogger("textcast.pronounce")
 
@@ -39,17 +40,7 @@ class Rule:
 
     def compile(self) -> re.Pattern | None:
         """Build the matching pattern, or None when it cannot be compiled."""
-        flags = re.IGNORECASE if self.ignore_case else 0
-        try:
-            if self.kind == "regex":
-                return re.compile(self.pattern, flags)
-            if self.kind == "word":
-                # A word rule should not fire inside a longer word.
-                return re.compile(rf"(?<![\w']){re.escape(self.pattern)}(?![\w'])", flags)
-            return re.compile(re.escape(self.pattern), flags)
-        except re.error as exc:
-            log.warning("skipping rule %r: %s", self.pattern, exc)
-            return None
+        return _compiled(self.kind, self.pattern, self.ignore_case)
 
     def substitution(self) -> str:
         r"""What to put in place of a match.
@@ -61,6 +52,26 @@ class Rule:
             ipa = self.replacement.strip().strip("/")
             return rf"[\g<0>](/{ipa}/)"
         return self.replacement
+
+
+@lru_cache(maxsize=2048)
+def _compiled(kind: str, pattern: str, ignore_case: bool) -> re.Pattern | None:
+    """Compile once per rule, not once per block.
+
+    A build applies every rule to every block, so recompiling here dominated
+    the cost of normalising a long article.
+    """
+    flags = re.IGNORECASE if ignore_case else 0
+    try:
+        if kind == "regex":
+            return re.compile(pattern, flags)
+        if kind == "word":
+            # A word rule should not fire inside a longer word.
+            return re.compile(rf"(?<![\w']){re.escape(pattern)}(?![\w'])", flags)
+        return re.compile(re.escape(pattern), flags)
+    except re.error as exc:
+        log.warning("skipping rule %r: %s", pattern, exc)
+        return None
 
 
 def apply(text: str, rules: list[Rule]) -> str:

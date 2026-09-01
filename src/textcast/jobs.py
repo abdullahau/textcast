@@ -3,6 +3,11 @@
 One worker thread polling a SQLite table. A broker for a single-user app is
 machinery you would have to maintain; a table you already back up is not.
 
+Two kinds of job. A ``build`` renders the audio. A ``summarise`` asks a
+language model for a summary of each section, writes those in as blocks, and
+then queues the build itself — because inserting a block moves every id after
+it, so the audio has to follow the text, never the other way round.
+
 The engine is loaded once and kept, because loading it costs more than a short
 article's synthesis.
 """
@@ -18,8 +23,9 @@ from pathlib import Path
 from . import db
 from .audio import render_article
 from .document import BlockKind
+from .prefs import voice_defaults
 from .settings import Settings, get_settings
-from .tts import TTSEngine, get_engine
+from .tts import ENGINES, TTSEngine, get_engine, publish_engine
 
 log = logging.getLogger("textcast.jobs")
 
@@ -31,7 +37,7 @@ class Worker:
         self.settings = settings or get_settings()
         self.poll_seconds = poll_seconds
         self._engines: list[TTSEngine] = []
-        self._engine_key: tuple[str, int, int] | None = None
+        self._engine_key: tuple[str, int] | None = None
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -73,20 +79,18 @@ class Worker:
 
     # -- work --------------------------------------------------------------
 
-    def engines_for(self, name: str, steps: int) -> list[TTSEngine]:
+    def engines_for(self, name: str) -> list[TTSEngine]:
         """A pool of instances, kept between jobs because loading is slow.
 
         The pipelines are not safe to share, so parallelism means one instance
         per worker rather than one instance driven by several threads.
         """
         count = self.settings.build_concurrency()
-        key = (name, steps, count)
+        key = (name, count)
         if self._engines and self._engine_key == key:
             return self._engines
 
         options = dict(self.settings.engine_options())
-        if name == "supertonic":
-            options["steps"] = steps
         if count > 1:
             # Each instance takes one core; the pool provides the parallelism.
             options["threads"] = 1
@@ -94,6 +98,9 @@ class Worker:
         log.info("loading %d %s instance(s) %s", count, name, options)
         self._engines = [get_engine(name, **options) for _ in range(count)]
         self._engine_key = key
+        # Web requests in this process reuse the first one rather than paying
+        # to load a second copy of the model.
+        publish_engine(self._engines[0])
         return self._engines
 
     def step(self) -> bool:
@@ -105,7 +112,10 @@ class Worker:
 
         article_id = job["article_id"]
         try:
-            self._build(conn, job)
+            if job["kind"] == "summarise":
+                self._summarise(conn, job)
+            else:
+                self._build(conn, job)
             db.update_job(job["id"], conn, state="done", progress=1.0, finished_at=db.now(), message="")
         except Exception as exc:
             log.exception("build failed for article %s", article_id)
@@ -114,6 +124,33 @@ class Worker:
             )
             db.set_status(article_id, "failed", conn)
         return True
+
+    def _summarise(self, conn, job) -> None:
+        """Ask the model for a summary of each section, then queue the build."""
+        from .summarize import config, summarize_article
+
+        article_id = job["article_id"]
+        article = db.load_article(article_id, conn)
+        if article is None:
+            raise ValueError(f"article {article_id} is gone")
+
+        cfg = config(conn)
+        if not cfg.ready:
+            raise ValueError("summaries are not configured: set a model and an API key")
+
+        def progress(done: int, total: int) -> None:
+            db.update_job(job["id"], conn, progress=done / total, message=f"section {done} of {total}")
+
+        added = summarize_article(article, cfg, progress=progress)
+        if added:
+            db.replace_blocks(article_id, article, conn)
+        log.info("summarised %d section(s) of article %s", added, article_id)
+
+        # The build is queued rather than run here, so a summary failure never
+        # costs the audio and a rebuild never re-runs the model.
+        options = json.loads(job["options"] or "{}")
+        options.pop("summarize", None)
+        db.enqueue(article_id, options=options or None, conn=conn)
 
     def _build(self, conn, job) -> None:
         article_id = job["article_id"]
@@ -130,16 +167,21 @@ class Worker:
 
         settings = self.settings
         engine_name = options.get("engine") or settings.engine
-        steps = int(options.get("steps") or settings.steps)
-        voice = options.get("voice") or settings.voice
-        quote_voice = options.get("quote_voice") or settings.quote_voice
+        if engine_name not in ENGINES:
+            # An article saved against an engine that no longer ships still
+            # builds, with the engine that does.
+            log.warning("article %s asks for engine %r; using %s",
+                        article_id, engine_name, settings.engine)
+            engine_name = settings.engine
+        # Three layers again: this article's own choice, the saved default,
+        # then whatever the engine ships with.
+        chosen = voice_defaults(conn, settings)
+        voice = options.get("voice") or chosen.voice or ENGINES[engine_name].default_voice
+        quote_voice = options.get("quote_voice") or chosen.quote_voice
+        speed = float(options.get("speed") or chosen.speed or 1.0)
 
-        engines = self.engines_for(engine_name, steps)
+        engines = self.engines_for(engine_name)
         engine = engines[0]
-        if not voice:
-            from .tts import ENGINES
-
-            voice = ENGINES[engine_name].default_voice
 
         include = set(BlockKind)
         if options.get("skip_footnotes"):
@@ -151,15 +193,23 @@ class Worker:
         out_dir.mkdir(parents=True, exist_ok=True)
 
         last_write = [0.0]
+        throttle = threading.Lock()
 
         def progress(done: int, total: int, block_id: str) -> None:
             # Throttle: a write per block would be thousands of transactions.
             now = time.monotonic()
-            if now - last_write[0] < 1.0 and done != total:
-                return
-            last_write[0] = now
+            with throttle:
+                if now - last_write[0] < 1.0 and done != total:
+                    return
+                last_write[0] = now
+            # The render pool calls this, not the worker thread, and a sqlite3
+            # connection may only be used by the thread that opened it.
+            # db.connect hands back this thread's own.
             db.update_job(
-                job["id"], conn, progress=done / total, message=f"block {done} of {total}"
+                job["id"],
+                db.connect(self.settings.db_path),
+                progress=done / total,
+                message=f"block {done} of {total}",
             )
 
         manifest = render_article(
@@ -169,6 +219,7 @@ class Worker:
             pool=engines[1:],
             voice=voice,
             quote_voice=quote_voice or None,
+            speed=speed,
             bitrate=settings.bitrate,
             gap_ms=settings.gap_ms,
             heading_gap_ms=settings.heading_gap_ms,

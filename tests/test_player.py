@@ -127,14 +127,26 @@ def live(tmp_path_factory):
 
 
 @pytest.fixture(scope="module")
-def page(live):
-    base, slug, _ = live
+def browser():
+    """One browser for the module.
+
+    Sync Playwright allows a single running instance per thread, so every test
+    that needs a page takes a context from this one rather than starting its
+    own.
+    """
     try:
         pw = sync_playwright().start()
-        browser = pw.chromium.launch(args=["--autoplay-policy=no-user-gesture-required"])
+        launched = pw.chromium.launch(args=["--autoplay-policy=no-user-gesture-required"])
     except Exception as exc:
         pytest.skip(f"chromium unavailable: {exc}")
+    yield launched
+    launched.close()
+    pw.stop()
 
+
+@pytest.fixture(scope="module")
+def page(live, browser):
+    base, slug, _ = live
     p = browser.new_page()
     p.errors = []
     p.on("pageerror", lambda e: p.errors.append(str(e)))
@@ -146,8 +158,7 @@ def page(live):
         timeout=20000,
     )
     yield p
-    browser.close()
-    pw.stop()
+    p.close()
 
 
 def active_id(page):
@@ -253,6 +264,12 @@ def test_blocks_are_paragraphs_not_buttons(page):
 
 
 def test_moving_to_the_next_section_loads_its_own_track(page):
+    # The next button carries playback across only if it was already playing,
+    # and the highlight below needs cuechange, which needs the clock running.
+    # The page fixture is shared, so say so rather than inherit it by luck.
+    page.evaluate("document.getElementById('audio').play()")
+    page.wait_for_function("() => !document.getElementById('audio').paused", timeout=8000)
+
     page.evaluate("document.getElementById('next').click()")
     # Loading a section fetches and decodes a second audio file and its track,
     # so this is the slowest step in the suite on a loaded machine.
@@ -331,3 +348,88 @@ def test_no_javascript_errors(page):
 def test_threading_is_not_required():
     """Guard against the worker being started by the test app."""
     assert threading.active_count() >= 1
+
+
+# --------------------------------------------------------------------------
+# offline
+# --------------------------------------------------------------------------
+
+
+def test_keeping_an_article_offline_survives_losing_the_network(live, browser):
+    """The whole point of the service worker, and previously untested.
+
+    A context of its own, because this registers a worker, fills a cache and
+    then pulls the network out from under the page.
+    """
+    base, slug, manifest = live
+    context = browser.new_context()
+    page = context.new_page()
+    try:
+        page.goto(f"{base}/a/{slug}", wait_until="networkidle")
+        # The worker claims its clients on activation, but not instantly.
+        page.wait_for_function(
+            "() => navigator.serviceWorker && navigator.serviceWorker.controller",
+            timeout=20000,
+        )
+
+        page.click("#menu")
+        page.check("#opt-offline")
+
+        audio_url = f"/media/{slug}/{manifest.sections[0].file}"
+        page.wait_for_function(
+            "async (url) => !!(await caches.match(new Request(url)))",
+            arg=audio_url,
+            timeout=20000,
+        )
+
+        # The page itself is cached in the same write as the audio, but ask for
+        # it by name: it is what the reload below has to find.
+        page.wait_for_function(
+            "async (url) => !!(await caches.match(url))",
+            arg=f"/a/{slug}",
+            timeout=20000,
+        )
+
+        context.set_offline(True)
+        page.reload(wait_until="domcontentloaded")
+
+        assert page.locator("#doc .b").count() > 0, "the reader did not come back offline"
+        cached = page.evaluate(
+            "async (url) => (await fetch(url)).ok",
+            audio_url,
+        )
+        assert cached, "the audio was not served from the cache"
+    finally:
+        context.set_offline(False)
+        context.close()
+
+
+def test_clicking_a_block_starts_at_that_block_and_nowhere_else(page, live):
+    """Seeking while playing used to let the buffered tail of the old position out."""
+    _base, _slug, manifest = live
+    target = manifest.sections[0].blocks[3]
+
+    page.evaluate("document.getElementById('audio').currentTime = 0")
+    page.click(f"#{target.id} [data-seek]")
+    page.wait_for_function(
+        f"() => {{ const a = document.getElementById('audio');"
+        f" return !a.seeking && Math.abs(a.currentTime * 1000 - {target.start_ms}) < 250; }}",
+        timeout=8000,
+    )
+
+    at = page.evaluate("document.getElementById('audio').currentTime") * 1000
+    assert abs(at - target.start_ms) < 250, f"landed at {at:.0f}ms, wanted {target.start_ms}ms"
+    page.evaluate("document.getElementById('audio').pause()")
+
+
+def test_a_stray_seek_does_not_start_playback(page, live):
+    """`seeked` is asynchronous; an armed resume must not fire on someone else's seek."""
+    _base, _slug, manifest = live
+    target = manifest.sections[0].blocks[2]
+
+    page.evaluate("document.getElementById('audio').pause()")
+    page.evaluate(f"document.getElementById('audio').currentTime = {target.start_ms / 1000}")
+    page.evaluate("document.getElementById('audio').currentTime = 0")
+    page.wait_for_timeout(300)
+
+    assert page.evaluate("document.getElementById('audio').paused")

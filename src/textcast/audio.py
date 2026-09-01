@@ -93,8 +93,11 @@ def encode_opus(samples: np.ndarray, sample_rate: int, out: Path, bitrate: str =
         raise EncodeError(proc.stderr.decode(errors="replace").strip() or "ffmpeg failed")
 
 
-def _cache_key(text: str, engine: str, voice: str, extra: str) -> str:
-    h = hashlib.sha256(f"{engine}\x00{voice}\x00{extra}\x00{text}".encode())
+def _cache_key(text: str, engine: str, voice: str, speed: float = 1.0) -> str:
+    # Speed leaves the field empty at 1.0, so everything cached before the
+    # setting existed is still a hit.
+    rate = "" if speed == 1.0 else f"{speed:g}"
+    h = hashlib.sha256(f"{engine}\x00{voice}\x00{rate}\x00{text}".encode())
     return h.hexdigest()
 
 
@@ -104,7 +107,7 @@ def _speak(
     voice: str,
     lang: str,
     cache_dir: Path | None,
-    extra: str,
+    speed: float = 1.0,
 ) -> np.ndarray:
     """Synthesise one block, reusing a cached render when the text is unchanged.
 
@@ -112,21 +115,58 @@ def _speak(
     a voice tweak on one section, or a re-run after an edit costs seconds.
     """
     if cache_dir is None:
-        return engine.synthesize(text, voice=voice, lang=lang).samples
+        return engine.synthesize(text, voice=voice, speed=speed, lang=lang).samples
 
     cache_dir.mkdir(parents=True, exist_ok=True)
-    path = cache_dir / f"{_cache_key(text, engine.name, voice, extra)}.f32"
+    path = cache_dir / f"{_cache_key(text, engine.name, voice, speed)}.f32"
     if path.exists():
         try:
             return np.fromfile(path, dtype=np.float32)
         except OSError:
             pass
 
-    samples = engine.synthesize(text, voice=voice, lang=lang).samples
+    samples = engine.synthesize(text, voice=voice, speed=speed, lang=lang).samples
     tmp = path.with_suffix(".part")
     samples.astype(np.float32).tofile(tmp)
     tmp.replace(path)
     return samples
+
+
+#: Anything below this counts as silence. Kokoro's noise floor sits far under
+#: it, and real speech sits far above.
+SILENCE_LEVEL = 0.01
+
+#: Left at each end after trimming, so the first consonant keeps its attack.
+SILENCE_MARGIN_MS = 40
+
+
+def trim_silence(
+    samples: np.ndarray,
+    sample_rate: int,
+    level: float = SILENCE_LEVEL,
+    margin_ms: int = SILENCE_MARGIN_MS,
+) -> np.ndarray:
+    """Cut the model's own lead-in and run-out off one block.
+
+    Kokoro returns about 300 ms of silence before the first word and 500 ms
+    after the last. Left in, they land inside the block's own timing: seeking
+    to a block gave you a third of a second of dead air before it spoke, and
+    the pause between two blocks was over a second when 350 ms was asked for.
+
+    Trimming here rather than in the engine keeps the cache holding exactly
+    what the model produced, so changing these numbers costs no synthesis.
+    """
+    if not len(samples):
+        return samples
+    loud = np.flatnonzero(np.abs(samples) > level)
+    if not len(loud):
+        # A block that is quiet all through is kept whole; better a long pause
+        # than a block that vanishes.
+        return samples
+    margin = round(sample_rate * margin_ms / 1000)
+    start = max(0, int(loud[0]) - margin)
+    end = min(len(samples), int(loud[-1]) + margin + 1)
+    return samples[start:end]
 
 
 def vtt_timestamp(ms: int) -> str:
@@ -173,6 +213,7 @@ def render_article(
     voice: str,
     pool: Sequence[TTSEngine] = (),
     quote_voice: str | None = None,
+    speed: float = 1.0,
     bitrate: str = "32k",
     gap_ms: int = 350,
     heading_gap_ms: int = 700,
@@ -181,6 +222,9 @@ def render_article(
     progress: ProgressFn | None = None,
 ) -> AudioManifest:
     """Render an article to one Opus file per section, plus a timing map.
+
+    ``speed`` is the reading pace baked into the audio, which is not the same
+    thing as the player's speed control: this one changes the file.
 
     ``pool`` gives extra engine instances to synthesise blocks in parallel.
     Measured on 4 ARM cores, four single-threaded instances beat one
@@ -192,12 +236,16 @@ def render_article(
     article.renumber()
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    work = list(selected_blocks(article, include))
-    total = len(work)
+    # Grouped once. Filtering the whole list per section was quadratic, which
+    # a long article notices.
+    by_section: dict[int, list[Block]] = {}
+    total = 0
+    for section_idx, block in selected_blocks(article, include):
+        by_section.setdefault(section_idx, []).append(block)
+        total += 1
     if not total:
         raise ValueError("Article has no blocks to synthesise")
 
-    extra = f"{getattr(engine, 'steps', '')}"
     sample_rate = engine.sample_rate
     manifest = AudioManifest(
         engine=engine.name,
@@ -211,7 +259,7 @@ def render_article(
     done = 0
     counter = threading.Lock()
     for section in article.sections:
-        blocks = [b for s_idx, b in work if s_idx == section.idx]
+        blocks = by_section.get(section.idx)
         if not blocks:
             continue
 
@@ -224,7 +272,9 @@ def render_article(
 
             # One engine per worker: the pipelines are not safe to share.
             worker = engines[index % len(engines)] if len(engines) > 1 else engine
-            samples = _speak(worker, text, block_voice, article.lang, cache_dir, extra)
+            samples = _speak(worker, text, block_voice, article.lang, cache_dir, speed)
+            # The block starts on its first word, so seeking to it does too.
+            samples = trim_silence(samples, sample_rate)
 
             nonlocal done
             with counter:

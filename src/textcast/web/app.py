@@ -10,9 +10,11 @@ from __future__ import annotations
 import json
 import logging
 import mimetypes
+import re
 from contextlib import asynccontextmanager
 from functools import lru_cache
 from pathlib import Path
+from urllib.parse import quote, urlencode
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
@@ -22,9 +24,13 @@ from fastapi.templating import Jinja2Templates
 from .. import __version__, db
 from ..document import BlockKind
 from ..jobs import Worker
-from ..service import IngestError, ingest, rebuild, reparse
+from ..prefs import save_voice_defaults, voice_defaults
+
+# summarize is renamed: the ingest form has a field of the same name.
+from ..service import IngestError, ingest, rebuild, rebuild_many, reparse
+from ..service import summarize as queue_summary
 from ..settings import get_settings
-from ..tts import ENGINES, get_engine
+from ..tts import catalogue, default_voice, loaded_engine, shared_engine
 
 log = logging.getLogger("textcast.web")
 
@@ -71,19 +77,78 @@ templates = Jinja2Templates(directory=str(TEMPLATES))
 # --------------------------------------------------------------------------
 
 
+COOKIE = "textcast_token"
+
+
+def signed_in(request: Request) -> bool:
+    token = request.cookies.get(COOKIE) or request.headers.get("x-textcast-token")
+    return bool(settings.auth_token) and token == settings.auth_token
+
+
 def require_auth(request: Request) -> None:
     """Off by default, which suits a private network.
 
     Set TEXTCAST_REQUIRE_AUTH=1 and a token for anything internet-facing.
+    A browser is sent to the sign-in page; anything else gets a plain 401.
     """
-    if not settings.require_auth:
+    if not settings.require_auth or signed_in(request):
         return
-    token = request.cookies.get("textcast_token") or request.headers.get("x-textcast-token")
-    if token != settings.auth_token or not settings.auth_token:
-        raise HTTPException(status_code=401, detail="unauthorised")
+    if _wants_html(request):
+        target = request.url.path
+        if request.url.query:
+            target = f"{target}?{request.url.query}"
+        raise HTTPException(
+            status_code=303, headers={"Location": f"/login?next={quote(target, safe='')}"}
+        )
+    raise HTTPException(status_code=401, detail="unauthorised")
 
 
 Auth = Depends(require_auth)
+
+
+@app.get("/login", response_class=HTMLResponse, include_in_schema=False)
+def login_page(request: Request, next: str = "/"):
+    if not settings.require_auth or signed_in(request):
+        return RedirectResponse(_safe_next(next), status_code=303)
+    return render(
+        request,
+        "login.html",
+        next=_safe_next(next),
+        unconfigured=not settings.auth_token,
+    )
+
+
+@app.post("/login", include_in_schema=False)
+def login(request: Request, token: str = Form(default=""), next: str = Form(default="/")):
+    target = _safe_next(next)
+    if not settings.auth_token or token.strip() != settings.auth_token:
+        return render(request, "login.html", next=target, error="That token does not match.")
+    response = RedirectResponse(target, status_code=303)
+    response.set_cookie(
+        COOKIE,
+        settings.auth_token,
+        max_age=31536000,
+        httponly=True,
+        samesite="lax",
+        # Only over TLS when the page itself came over TLS, or the cookie is
+        # dropped on a plain-HTTP tailnet address.
+        secure=request.url.scheme == "https",
+    )
+    return response
+
+
+@app.post("/logout", include_in_schema=False)
+def logout():
+    response = RedirectResponse("/login", status_code=303)
+    response.delete_cookie(COOKIE)
+    return response
+
+
+def _safe_next(target: str) -> str:
+    """Only ever redirect inside this app, never to another host."""
+    if not target.startswith("/") or target.startswith("//"):
+        return "/"
+    return target
 
 
 def duration(ms: int | None) -> str:
@@ -105,10 +170,11 @@ def short_date(value: str | None) -> str:
 
 templates.env.filters["duration"] = duration
 templates.env.filters["date"] = short_date
-templates.env.globals["engines"] = list(ENGINES)
-# One cache-busting suffix for every static asset, so they cannot drift apart.
-# Keep it in step with BUILD in static/sw.js.
+# One cache-busting suffix for every static asset. The service worker is
+# stamped with the same version when it is served, so the two cannot drift.
 templates.env.globals["assets"] = __version__
+# The sign-out control only makes sense when there is something to sign out of.
+templates.env.globals["auth_on"] = settings.require_auth
 
 
 def render(request: Request, name: str, **context) -> HTMLResponse:
@@ -213,6 +279,8 @@ def reader(request: Request, slug: str):
     job = conn.execute(
         "SELECT * FROM job WHERE article_id = ? ORDER BY id DESC LIMIT 1", (row["id"],)
     ).fetchone()
+    options = db.get_build_options(row["id"], conn)
+    chosen = voice_defaults(conn)
 
     return render(
         request,
@@ -224,10 +292,12 @@ def reader(request: Request, slug: str):
         job=job,
         tags=db.tags_for(row["id"], conn),
         all_tags=db.list_tags(conn),
-        build=db.get_build_options(row["id"], conn),
+        build=options,
         voices=_voices(),
-        default_voice=settings.voice or "default",
-        active_engine=settings.engine,
+        default_voice=chosen.voice or "default",
+        default_quote_voice=chosen.quote_voice,
+        speeds=SPEEDS,
+        selected_speed=_speed_label(options.get("speed") or chosen.speed),
     )
 
 
@@ -239,6 +309,7 @@ def search_page(request: Request, q: str = ""):
 @app.get("/add", response_class=HTMLResponse, dependencies=[Auth])
 def add_page(request: Request, url: str = "", title: str = "", text: str = ""):
     # The share target lands here on a GET from some clients.
+    chosen = voice_defaults()
     return render(
         request,
         "add.html",
@@ -246,7 +317,10 @@ def add_page(request: Request, url: str = "", title: str = "", text: str = ""):
         shared_title=title,
         all_tags=db.list_tags(),
         voices=_voices(),
-        default_voice=settings.voice or "default",
+        default_voice=chosen.voice or "default",
+        default_quote_voice=chosen.quote_voice,
+        speeds=SPEEDS,
+        default_speed=chosen.speed_label,
     )
 
 
@@ -255,11 +329,15 @@ def jobs_page(request: Request):
     return render(request, "jobs.html", jobs=db.recent_jobs(limit=40))
 
 
-@lru_cache(maxsize=4)
+@lru_cache(maxsize=2)
 def _voices_cached(engine: str) -> tuple:
-    """Voices for an engine. Cached: building one loads the whole model."""
+    """Voices for an engine, read from its table rather than from a model.
+
+    Every article page carries a voice picker. Building an engine to fill it
+    made the first page load after a restart wait for the weights.
+    """
     try:
-        return tuple(get_engine(engine, **settings.engine_options()).voices())
+        return tuple(catalogue(engine))
     except Exception:
         log.warning("could not list voices for %s", engine, exc_info=True)
         return ()
@@ -287,24 +365,84 @@ STRUCTURAL_EXAMPLES = [
 
 def _pronunciation_page(request: Request, **extra):
     rows = db.pronunciation_rows()
+    kind = extra.pop("changed_kind", "")
+    pattern = extra.pop("changed_pattern", "")
+    chosen = voice_defaults()
     return render(
         request,
         "pronunciations.html",
         rows=rows,
         enabled_count=sum(1 for r in rows if r["enabled"]),
         structural=STRUCTURAL_EXAMPLES,
-        sample=extra.pop("sample", ""),
-        tested=extra.pop("tested", False),
-        spoken=extra.pop("spoken", ""),
-        phonemes=extra.pop("phonemes", ""),
-        hits=extra.pop("hits", []),
+        sample=extra.pop("sample", SAMPLE_TEXT),
+        voices=_voices(),
+        speeds=SPEEDS,
+        chosen=chosen,
+        changed_kind=kind,
+        changed_pattern=pattern,
+        affected=_affected(kind, pattern),
+        queued=extra.pop("queued", 0),
+        saved=extra.pop("saved", False),
         **extra,
     )
 
 
+def _affected(kind: str, pattern: str) -> list:
+    """Built articles the rule just edited would read differently.
+
+    Changing a rule does not change the audio already on disk. Naming the
+    articles it touches turns "rebuild each one by hand" into one button.
+    """
+    if not pattern:
+        return []
+    from ..pronounce import Rule
+
+    return db.articles_matching(Rule(kind=kind or "word", pattern=pattern, replacement=""))
+
+
 @app.get("/pronunciations", response_class=HTMLResponse, dependencies=[Auth])
-def pronunciations(request: Request):
-    return _pronunciation_page(request, sample=SAMPLE_TEXT)
+def pronunciations(
+    request: Request,
+    kind: str = "",
+    pattern: str = "",
+    queued: int = 0,
+    saved: bool = False,
+):
+    return _pronunciation_page(
+        request,
+        changed_kind=kind,
+        changed_pattern=pattern,
+        queued=queued,
+        saved=saved,
+    )
+
+
+@app.post("/pronunciations/defaults", dependencies=[Auth])
+def pronunciations_defaults(
+    voice: str = Form(default=""),
+    quote_voice: str = Form(default=""),
+    speed: str = Form(default=""),
+):
+    """The voice every future build uses unless an article names its own.
+
+    Nothing is queued. Existing audio keeps the voice it was made with until
+    you rebuild it.
+    """
+    save_voice_defaults(voice=voice, quote_voice=quote_voice, speed=speed)
+    return RedirectResponse("/pronunciations?saved=1", status_code=303)
+
+
+def _changed(kind: str, pattern: str) -> RedirectResponse:
+    """Back to the rules, carrying what changed so the page can offer a rebuild."""
+    query = urlencode({"kind": kind, "pattern": pattern})
+    return RedirectResponse(f"/pronunciations?{query}", status_code=303)
+
+
+@app.post("/pronunciations/rebuild", dependencies=[Auth])
+def pronunciations_rebuild(kind: str = Form(default=""), pattern: str = Form(default="")):
+    rows = _affected(kind, pattern)
+    queued = rebuild_many([r["id"] for r in rows])
+    return RedirectResponse(f"/pronunciations?queued={queued}", status_code=303)
 
 
 SAMPLE_TEXT = (
@@ -313,55 +451,45 @@ SAMPLE_TEXT = (
 )
 
 
-@app.post("/pronunciations/test", response_class=HTMLResponse, dependencies=[Auth])
-def pronunciations_test(request: Request, sample: str = Form(default="")):
-    from ..normalize import normalize
-    from ..pronounce import active, preview
-
-    rules = active()
-    spoken = normalize(sample)
-    hits = [
-        {"pattern": r.pattern, "matched": m, "replacement": r.replacement}
-        for r, m in preview(normalize_structural_only(sample), rules)
-    ]
-    return _pronunciation_page(
-        request,
-        sample=sample,
-        tested=True,
-        spoken=spoken,
-        phonemes=_phonemes_for(spoken),
-        hits=hits,
-    )
-
-
-def normalize_structural_only(text: str) -> str:
-    """The text as the word rules see it, after the shape transforms have run."""
-    from ..normalize import normalize
-
-    return normalize(text, rules=[])
-
-
 @app.post("/api/say", dependencies=[Auth])
-def api_say(text: str = Form(...), apply_rules: bool = Form(default=True)):
-    """Speak a word or phrase and hand back the audio and its phonemes.
+def api_say(
+    text: str = Form(...),
+    apply_rules: bool = Form(default=True),
+    voice: str = Form(default=""),
+    speed: str = Form(default=""),
+):
+    """Speak a sample and report what the rules did to it on the way.
 
-    This is the whole point of the settings page: you can hear whether a
-    respelling worked instead of guessing from the IPA.
+    One call answers the whole question the Voice page asks: what will be
+    spoken, which rules fired, what phonemes the engine gets, and how it
+    sounds. Hearing it is the only way to judge a respelling.
     """
     import base64
 
     from ..audio import encode_opus_bytes
     from ..normalize import normalize
+    from ..pronounce import active, preview
 
-    raw = (text or "").strip()[:300]
+    raw = (text or "").strip()[:600]
     if not raw:
         return JSONResponse({"error": "nothing to say"}, status_code=400)
 
+    chosen = voice_defaults()
     spoken = normalize(raw) if apply_rules else raw
+    # Word rules see the text after the shape transforms have run, so preview
+    # has to start from the same place they do.
+    hits = [
+        {"pattern": r.pattern, "matched": m, "replacement": r.replacement}
+        for r, m in preview(normalize(raw, rules=[]), active())
+    ] if apply_rules else []
+
     try:
-        engine = get_engine(settings.engine, **settings.engine_options())
-        voice = settings.voice or ENGINES[settings.engine].default_voice
-        clip = engine.synthesize(spoken, voice=voice)
+        engine = shared_engine(settings.engine, **settings.engine_options())
+        clip = engine.synthesize(
+            spoken,
+            voice=voice or chosen.voice or default_voice(settings.engine),
+            speed=_as_speed(speed, chosen.speed),
+        )
     except Exception as exc:
         log.warning("preview synthesis failed", exc_info=True)
         return JSONResponse({"error": f"could not synthesise: {exc}"}, status_code=500)
@@ -388,24 +516,32 @@ def api_say(text: str = Form(...), apply_rules: bool = Form(default=True)):
 
     return {
         "spoken": spoken,
-        "phonemes": _phonemes_for(spoken),
+        "phonemes": _phonemes_for(spoken, voice or chosen.voice),
+        "hits": hits,
         "seconds": round(clip.duration_s, 2),
         "audio": f"data:{media};base64,{base64.b64encode(audio).decode()}",
     }
 
 
-def _phonemes_for(text: str) -> str:
-    """What Kokoro will actually pronounce, when Kokoro is the active engine.
+def _as_speed(value: str, fallback: float) -> float:
+    try:
+        return min(2.0, max(0.5, float(value)))
+    except (TypeError, ValueError):
+        return fallback
 
-    Costs nothing extra: the worker in this process has the pipeline loaded.
+
+def _phonemes_for(text: str, voice: str = "") -> str:
+    """What the engine will actually pronounce, if one is already loaded.
+
+    Never builds an engine. A phoneme line is a nicety, and loading the model
+    inside a request would stall a web-only process for seconds. Press Say
+    once and the engine is resident, so the line appears from then on.
     """
-    if settings.engine != "kokoro":
+    engine = loaded_engine(settings.engine)
+    if engine is None or not hasattr(engine, "phonemes"):
         return ""
     try:
-        engine = get_engine("kokoro", **settings.engine_options())
-        pipeline = engine._pipeline
-        voice = settings.voice or "af_heart"
-        return " ".join(ps for _gs, ps, _audio in pipeline(text[:400], voice=voice) if ps)
+        return engine.phonemes(text[:400], voice=voice or voice_defaults().voice or None)
     except Exception:
         log.debug("could not produce a phoneme preview", exc_info=True)
         return ""
@@ -428,24 +564,124 @@ def pronunciations_add(
         )
     except ValueError as exc:
         return _pronunciation_page(request, error=str(exc), sample=SAMPLE_TEXT)
-    return RedirectResponse("/pronunciations", status_code=303)
+    return _changed(kind, pattern)
 
 
 @app.post("/pronunciations/{rule_id}/toggle", dependencies=[Auth])
 def pronunciations_toggle(rule_id: int):
     row = db.connect().execute(
-        "SELECT enabled FROM pronunciation WHERE id = ?", (rule_id,)
+        "SELECT kind, pattern, enabled FROM pronunciation WHERE id = ?", (rule_id,)
     ).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="no such rule")
     db.update_pronunciation(rule_id, enabled=0 if row["enabled"] else 1)
-    return RedirectResponse("/pronunciations", status_code=303)
+    return _changed(row["kind"], row["pattern"])
 
 
 @app.post("/pronunciations/{rule_id}/delete", dependencies=[Auth])
 def pronunciations_delete(rule_id: int):
+    row = db.connect().execute(
+        "SELECT kind, pattern FROM pronunciation WHERE id = ?", (rule_id,)
+    ).fetchone()
     db.delete_pronunciation(rule_id)
-    return RedirectResponse("/pronunciations", status_code=303)
+    if row is None:
+        return RedirectResponse("/pronunciations", status_code=303)
+    return _changed(row["kind"], row["pattern"])
+
+
+# --------------------------------------------------------------------------
+# summaries
+# --------------------------------------------------------------------------
+
+#: Endpoints that speak the OpenAI protocol, offered so nobody has to look one
+#: up. Anything else that speaks it works too — including a local Ollama.
+PROVIDERS = [
+    ("Google Gemini", "https://generativelanguage.googleapis.com/v1beta/openai/", "gemini-2.5-flash"),
+    ("OpenAI", "https://api.openai.com/v1/", "gpt-4.1-mini"),
+    ("OpenRouter", "https://openrouter.ai/api/v1/", "google/gemini-2.5-flash"),
+    ("Groq", "https://api.groq.com/openai/v1/", "llama-3.3-70b-versatile"),
+    ("Ollama, on this machine", "http://127.0.0.1:11434/v1/", "llama3.2"),
+]
+
+
+def _summaries_page(request: Request, **extra):
+    from .. import summarize as summaries
+
+    cfg = summaries.config()
+    return render(
+        request,
+        "summaries.html",
+        cfg=cfg,
+        installed=summaries.is_installed(),
+        default_prompt=summaries.DEFAULT_PROMPT,
+        providers=PROVIDERS,
+        pending=db.summarisable(),
+        **extra,
+    )
+
+
+@app.get("/summaries", response_class=HTMLResponse, dependencies=[Auth])
+def summaries_page(request: Request):
+    return _summaries_page(request)
+
+
+@app.post("/summaries", dependencies=[Auth])
+def summaries_save(
+    request: Request,
+    model: str = Form(default=""),
+    base_url: str = Form(default=""),
+    api_key: str = Form(default=""),
+    prompt: str = Form(default=""),
+    keep_key: bool = Form(default=False),
+):
+    from .. import summarize as summaries
+
+    # An untouched password field posts blank. Saving that would wipe the key
+    # every time the model was changed.
+    summaries.save_config(
+        model=model,
+        base_url=base_url,
+        api_key=None if (keep_key and not api_key.strip()) else api_key,
+        prompt=prompt,
+    )
+    return RedirectResponse("/summaries", status_code=303)
+
+
+@app.post("/summaries/test", response_class=HTMLResponse, dependencies=[Auth])
+def summaries_test(request: Request, sample: str = Form(default="")):
+    """Summarise one paragraph, so a key and a model name can be checked."""
+    from ..summarize import SummaryError, config, summarize_text
+
+    try:
+        result = summarize_text(sample, config())
+    except SummaryError as exc:
+        return _summaries_page(request, sample=sample, error=str(exc))
+    return _summaries_page(request, sample=sample, tested=True, result=result)
+
+
+@app.post("/api/articles/{article_id}/summarize", dependencies=[Auth])
+def api_summarize(request: Request, article_id: int):
+    try:
+        job_id = queue_summary(article_id)
+    except IngestError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if _wants_html(request):
+        row = db.get_article(article_id)
+        return RedirectResponse(f"/a/{row['slug']}", status_code=303)
+    return {"job": job_id}
+
+
+@app.post("/summaries/run-all", dependencies=[Auth])
+def summaries_run_all():
+    """Summarise every article that has none yet."""
+    queued = 0
+    for row in db.summarisable():
+        try:
+            queue_summary(row["id"])
+            queued += 1
+        except IngestError:
+            break
+    return RedirectResponse(f"/summaries?queued={queued}", status_code=303)
 
 
 # --------------------------------------------------------------------------
@@ -457,16 +693,46 @@ def _parse_tags(raw: str | None) -> list[str]:
     return [t.strip() for t in (raw or "").split(",") if t.strip()]
 
 
-def _build_options(voice: str, quote_voice: str, engine: str, skip_footnotes: bool) -> dict:
+#: What the reading-pace picker offers. Kokoro takes anything, but far outside
+#: this the delivery stops sounding like speech.
+SPEEDS = ["0.8", "0.9", "1.0", "1.1", "1.2", "1.3"]
+
+
+def _speed_label(value: float | str | None) -> str:
+    """One decimal place, always, so it can match an entry in SPEEDS.
+
+    Formatting with %g wrote 1.0 as "1", which matched no option, so the
+    browser fell back to the first one and the picker opened at 0.8x.
+    """
+    try:
+        return f"{float(value):.1f}"
+    except (TypeError, ValueError):
+        return "1.0"
+
+
+def _build_options(
+    voice: str,
+    quote_voice: str,
+    skip_footnotes: bool,
+    summarize: bool = False,
+    skip_summaries: bool = False,
+    speed: str = "",
+) -> dict:
     """Only what was actually chosen; blanks mean "use the default"."""
-    options = {
-        "voice": voice.strip(),
-        "quote_voice": quote_voice.strip(),
-        "engine": engine.strip(),
-    }
+    options = {"voice": voice.strip(), "quote_voice": quote_voice.strip()}
     options = {k: v for k, v in options.items() if v}
+    try:
+        # A pace of 1.0 is the default, so storing it would only be noise.
+        if speed and 0.5 <= float(speed) <= 2.0 and float(speed) != 1.0:
+            options["speed"] = float(speed)
+    except ValueError:
+        pass
     if skip_footnotes:
         options["skip_footnotes"] = True
+    if skip_summaries:
+        options["skip_summaries"] = True
+    if summarize:
+        options["summarize"] = True
     return options
 
 
@@ -482,8 +748,9 @@ async def api_ingest(
     tags: str | None = Form(default=None),
     voice: str = Form(default=""),
     quote_voice: str = Form(default=""),
-    engine: str = Form(default=""),
     skip_footnotes: bool = Form(default=False),
+    summarize: bool = Form(default=False),
+    speed: str = Form(default=""),
     build: bool = Form(default=True),
     file: UploadFile | None = None,
 ):
@@ -531,7 +798,7 @@ async def api_ingest(
             adapter=adapter,
             build=build,
             tags=_parse_tags(tags),
-            options=_build_options(voice, quote_voice, engine, skip_footnotes),
+            options=_build_options(voice, quote_voice, skip_footnotes, summarize, speed=speed),
         )
     except IngestError as exc:
         return _ingest_error(request, str(exc))
@@ -565,7 +832,10 @@ def _ingest_error(request: Request, message: str):
             error=message,
             all_tags=db.list_tags(),
             voices=_voices(),
-            default_voice=settings.voice or "default",
+            default_voice=voice_defaults().voice or "default",
+            default_quote_voice=voice_defaults().quote_voice,
+            speeds=SPEEDS,
+            default_speed=voice_defaults().speed_label,
         )
     return JSONResponse({"error": message}, status_code=400)
 
@@ -602,10 +872,13 @@ def api_rebuild(
     article_id: int,
     voice: str = Form(default=""),
     quote_voice: str = Form(default=""),
-    engine: str = Form(default=""),
     skip_footnotes: bool = Form(default=False),
+    skip_summaries: bool = Form(default=False),
+    speed: str = Form(default=""),
 ):
-    options = _build_options(voice, quote_voice, engine, skip_footnotes)
+    options = _build_options(
+        voice, quote_voice, skip_footnotes, skip_summaries=skip_summaries, speed=speed
+    )
     # Remember the choice, so a later rebuild does not silently revert.
     db.set_build_options(article_id, options)
     job_id = rebuild(article_id, options=options)
@@ -767,11 +1040,29 @@ def webmanifest():
     )
 
 
+@lru_cache(maxsize=1)
+def _service_worker_source() -> str:
+    """The worker with this release's version stamped into it.
+
+    Its cache names carry BUILD, so a stale one has to be bumped with every
+    static asset change. Doing that by hand was forgotten once and a stale
+    stylesheet survived the deploy; taking it from ``__version__`` means the
+    page and the worker cannot disagree.
+    """
+    source = (STATIC / "sw.js").read_text(encoding="utf-8")
+    stamped, count = re.subn(
+        r'const BUILD = "[^"]*"', f'const BUILD = "{__version__}"', source, count=1
+    )
+    if not count:
+        log.error("sw.js has no BUILD line to stamp; caches will not be versioned")
+    return stamped
+
+
 @app.get("/sw.js", include_in_schema=False)
 def service_worker():
     """Served from the root so its scope covers the whole app."""
-    return FileResponse(
-        STATIC / "sw.js",
+    return Response(
+        _service_worker_source(),
         media_type="application/javascript",
         headers={"Cache-Control": "no-cache", "Service-Worker-Allowed": "/"},
     )
@@ -785,9 +1076,14 @@ def health():
 @app.get("/api/blocks/{article_id}", dependencies=[Auth])
 def api_blocks(article_id: int, kinds: str = Query(default="")):
     """Block text, for the offline cache to store alongside the audio."""
-    wanted = {k for k in kinds.split(",") if k} or {str(k) for k in BlockKind}
+    wanted = sorted({k for k in kinds.split(",") if k} or {str(k) for k in BlockKind})
+    placeholders = ",".join("?" * len(wanted))
     rows = db.connect().execute(
-        "SELECT block_id, kind, text FROM block WHERE article_id = ? ORDER BY section_idx, idx",
-        (article_id,),
+        f"""
+        SELECT block_id, kind, text FROM block
+         WHERE article_id = ? AND kind IN ({placeholders})
+         ORDER BY section_idx, idx
+        """,
+        (article_id, *wanted),
     ).fetchall()
-    return {"blocks": [dict(r) for r in rows if r["kind"] in wanted]}
+    return {"blocks": [dict(r) for r in rows]}

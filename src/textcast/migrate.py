@@ -6,6 +6,7 @@ the database is current, so ``init`` can run it on every start.
 
 from __future__ import annotations
 
+import json
 import logging
 import sqlite3
 
@@ -29,6 +30,8 @@ def has_table(conn: sqlite3.Connection, name: str) -> bool:
 def run(conn: sqlite3.Connection) -> None:
     _add_build_options(conn)
     _series_become_tags(conn)
+    _drop_retired_engine(conn)
+    _drop_section_summary(conn)
     _seed_pronunciations(conn)
 
 
@@ -73,6 +76,50 @@ def _series_become_tags(conn: sqlite3.Connection) -> None:
             (name, name),
         )
     log.info("migrated %d series into tags", len(moved))
+
+
+def _drop_retired_engine(conn: sqlite3.Connection) -> None:
+    """Forget an engine choice the app no longer ships.
+
+    A stored ``{"engine": "supertonic"}`` would otherwise sit in the article's
+    build options for ever, asking on every rebuild for something gone.
+    """
+    from .tts import ENGINES
+
+    rows = conn.execute(
+        "SELECT id, build_options FROM article WHERE build_options LIKE '%\"engine\"%'"
+    ).fetchall()
+    changed = 0
+    for row in rows:
+        try:
+            options = json.loads(row["build_options"] or "{}")
+        except json.JSONDecodeError:
+            continue
+        if options.get("engine") in ENGINES or "engine" not in options:
+            continue
+        options.pop("engine")
+        conn.execute(
+            "UPDATE article SET build_options = ? WHERE id = ?", (json.dumps(options), row["id"])
+        )
+        changed += 1
+    if changed:
+        log.info("cleared a retired engine from %d article(s)", changed)
+
+
+def _drop_section_summary(conn: sqlite3.Connection) -> None:
+    """Remove the column the retired summary blocks used.
+
+    Nothing ever wrote it: the kind was plumbed end to end but never produced.
+    """
+    if "summary" not in columns(conn, "section"):
+        return
+    try:
+        conn.execute("ALTER TABLE section DROP COLUMN summary")
+    except sqlite3.Error as exc:
+        # Older SQLite cannot drop a column. An unused nullable one is harmless.
+        log.debug("leaving section.summary in place: %s", exc)
+    else:
+        log.info("dropped section.summary")
 
 
 def _seed_pronunciations(conn: sqlite3.Connection) -> None:

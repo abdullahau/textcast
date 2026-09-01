@@ -7,18 +7,6 @@ from textcast.audio import AudioManifest, BlockTiming, SectionAudio
 from textcast.document import Article, Block, BlockKind, Section
 
 
-@pytest.fixture
-def conn(tmp_path, monkeypatch):
-    monkeypatch.setenv("TEXTCAST_DATA_DIR", str(tmp_path))
-    from textcast.settings import get_settings
-
-    get_settings(refresh=True)
-    db.close()
-    connection = db.init(tmp_path / "test.db")
-    yield connection
-    db.close()
-
-
 def make_article(title: str = "A Drug-Trial Stock Sale", series: str | None = "Money Stuff") -> Article:
     return Article(
         title=title,

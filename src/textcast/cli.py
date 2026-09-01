@@ -121,6 +121,7 @@ def cmd_build(args: argparse.Namespace) -> int:
         out_dir,
         voice=voice,
         quote_voice=args.quote_voice or settings.quote_voice or None,
+        speed=args.speed or settings.speed,
         bitrate=settings.bitrate,
         gap_ms=settings.gap_ms,
         heading_gap_ms=settings.heading_gap_ms,
@@ -314,6 +315,7 @@ def build_parser() -> argparse.ArgumentParser:
     build.add_argument("--engine")
     build.add_argument("--voice")
     build.add_argument("--quote-voice", help="second voice for block quotes")
+    build.add_argument("--speed", type=float, default=0, help="reading pace; 1.0 is the model's own")
     build.add_argument("--out")
     build.add_argument("--no-footnotes", action="store_true")
     build.add_argument("--no-summaries", action="store_true")

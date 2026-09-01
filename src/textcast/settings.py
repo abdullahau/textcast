@@ -22,6 +22,13 @@ def _env_int(key: str, default: int) -> int:
         return default
 
 
+def _env_float(key: str, default: float) -> float:
+    try:
+        return float(_env(key, str(default)))
+    except ValueError:
+        return default
+
+
 def _env_bool(key: str, default: bool) -> bool:
     return _env(key, "1" if default else "0").strip().lower() in {"1", "true", "yes", "on"}
 
@@ -34,8 +41,10 @@ class Settings:
     engine: str = field(default_factory=lambda: _env("TTS_ENGINE", "kokoro"))
     voice: str = field(default_factory=lambda: _env("TTS_VOICE", "af_heart"))
     quote_voice: str = field(default_factory=lambda: _env("TTS_QUOTE_VOICE", ""))
-    steps: int = field(default_factory=lambda: _env_int("TTS_STEPS", 4))
     threads: int = field(default_factory=lambda: _env_int("TTS_THREADS", 0))
+    #: How fast the voice reads. 1.0 is the model's own pace. This changes
+    #: the audio itself, unlike the player's speed control.
+    speed: float = field(default_factory=lambda: _env_float("TTS_SPEED", 1.0))
 
     # --- encoding ---
     bitrate: str = field(default_factory=lambda: _env("AUDIO_BITRATE", "32k"))
@@ -50,10 +59,6 @@ class Settings:
     concurrency: int = field(default_factory=lambda: _env_int("CONCURRENCY", 0))
     #: Minutes between IMAP polls. 0 disables the poller.
     mail_poll_minutes: int = field(default_factory=lambda: _env_int("MAIL_POLL_MINUTES", 0))
-
-    # --- optional summaries ---
-    gemini_api_key: str = field(default_factory=lambda: os.environ.get("GEMINI_API_KEY", ""))
-    gemini_model: str = field(default_factory=lambda: _env("GEMINI_MODEL", "gemini-2.5-flash"))
 
     # --- access ---
     # Off by default, which suits a private network. Turn it on in .env for
@@ -80,17 +85,11 @@ class Settings:
         return self.data_dir / "sources"
 
     def engine_options(self) -> dict:
-        opts: dict = {}
-        if self.engine == "supertonic":
-            opts["steps"] = self.steps
-        if self.threads:
-            opts["threads"] = self.threads
-        return opts
+        """Constructor arguments for the engine, from the environment."""
+        return {"threads": self.threads} if self.threads else {}
 
     def build_concurrency(self) -> int:
         """How many engines to render with. Capped so it cannot thrash."""
-        import os
-
         if self.concurrency > 0:
             return min(self.concurrency, 8)
         return max(1, min(os.cpu_count() or 1, 4))

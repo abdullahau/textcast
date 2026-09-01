@@ -13,11 +13,12 @@ it is read — with a handle beside every paragraph to jump the audio there.
 
 1. **Take anything in.** Pasted text or Markdown, a URL, a PDF, a Word file, a
    saved `.html` page, a `.eml` newsletter, a bookmarklet click on a paywalled
-   article, or the Android share sheet.
+   article, the Android share sheet, or an iOS Shortcut.
 2. **Parse it properly.** Per-publication adapters (Bloomberg, FT) with a
    content-density fallback for everything else. Footnotes are inlined into the
    sentence that cites them.
-3. **Speak it.** Kokoro by default, one block at a time, encoded to Opus — one
+3. **Speak it.** Optionally summarise each section first, then Kokoro reads
+   it one block at a time, encoded to Opus — one
    file per section, so playback starts before the whole article is built.
 4. **Read along.** The player highlights the current paragraph and follows it
    down the page. The text stays selectable, so you can still copy from it.
@@ -27,7 +28,7 @@ it is read — with a handle beside every paragraph to jump the audio there.
 ## Quick start
 
 ```bash
-uv sync --extra kokoro --extra web --extra documents
+uv sync --extra kokoro --extra web --extra documents --extra summaries
 uv run textcast add https://example.com/an-article --tag Reading
 uv run textcast worker --once          # build the audio
 uv run textcast serve                  # http://127.0.0.1:8000
@@ -50,6 +51,22 @@ usual places. The first build downloads the model into `data/`.
 | `textcast mail` | Fetch unread newsletters over IMAP |
 | `textcast engines` / `voices` | What is installed, and what it can sound like |
 | `textcast serve` | Run the web app |
+
+## Sharing to it from a phone
+
+Android reads the web app manifest, so installing textcast to the home screen
+puts it in the share sheet. iOS has no Web Share Target, so it needs a Shortcut.
+Build it once:
+
+1. Open Shortcuts, make a new shortcut, and add **Get Contents of URL**.
+2. Set the URL to `https://your-host/api/ingest`.
+3. Set Method to **POST** and Request Body to **Form**.
+4. Add a field `kind` with the value `url`.
+5. Add a field `url` and set its value to **Shortcut Input**.
+6. If access control is on, add a header `x-textcast-token` holding your token.
+7. In the shortcut details, turn on **Show in Share Sheet** and accept URLs.
+
+The same steps are on the Add page, with your host filled in.
 
 ## Tags
 
@@ -89,34 +106,60 @@ rewritten on the way to the engine, and never on screen:
 
 `src/textcast/normalize.py` holds the tables; add to them freely.
 
-## Choosing a voice engine
+## Summaries
 
-Both engines implement the same three-method interface, so switching is one
-environment variable. Measured here on 4 ARM cores with no GPU, against a real
-659-character paragraph:
+Optional, off unless you ask for it. Each section gets a two or three sentence
+summary written **as a block** at the top of that section, so it is read aloud
+before the section itself, highlighted like any other paragraph, searchable,
+and hideable from the player.
+
+The endpoint is OpenAI-compatible, which every provider now speaks. Point it
+wherever you like on the **Summaries** page — the model, the endpoint, the key
+and the prompt are all editable there, and the key is stored on your machine:
+
+| Provider | Endpoint |
+| --- | --- |
+| Google Gemini (default) | `https://generativelanguage.googleapis.com/v1beta/openai/` |
+| OpenAI | `https://api.openai.com/v1/` |
+| OpenRouter | `https://openrouter.ai/api/v1/` |
+| Groq | `https://api.groq.com/openai/v1/` |
+| Ollama, on this machine | `http://127.0.0.1:11434/v1/` |
+
+`TEXTCAST_SUMMARY_MODEL`, `TEXTCAST_SUMMARY_BASE_URL` and
+`TEXTCAST_SUMMARY_API_KEY` (or `GEMINI_API_KEY`) supply the defaults; what you
+save on the page wins over them, so the settings always take effect.
+
+Summarising queues a rebuild, because a new block moves every paragraph after
+it. That is also why it is its own job: the model runs once, the audio follows.
+
+## The voice
+
+Kokoro-82M reads everything. Measured here on 4 ARM cores with no GPU, against
+a real 659-character paragraph:
 
 | Engine | RTF | Speed | Rate | Install |
 | --- | --- | --- | --- | --- |
-| **Kokoro-82M** (default, `af_heart`) | 0.65 | 1.5× real time | 24 kHz | 113 packages, 4.9 GB |
-| Supertonic 3 (4 steps) | 0.31 | 3.2× | 44.1 kHz | 25 packages, 144 MB |
-| Supertonic 3 (8 steps) | 0.49 | 2.0× | 44.1 kHz | " |
+| **Kokoro-82M** (`af_heart`) | 0.65 | 1.5× real time | 24 kHz | 113 packages, 4.9 GB |
 
-Supertonic is roughly twice as fast and needs only ONNX Runtime, but its
-delivery is thinner — volume drifts and long paragraphs can glitch. Kokoro is
-the default because it sounds steadier, and it offers 54 voices against
-Supertonic's 10.
+A faster ONNX engine shipped alongside it for a while and was dropped. It was
+about twice the speed, but its delivery was thinner: volume drifted and long
+paragraphs glitched. Carrying two engines cost a registry, a build option, a
+second set of weights and a second licence, and the second one was never the
+one worth listening to.
 
-```bash
-uv sync --extra supertonic
-TEXTCAST_TTS_ENGINE=supertonic TEXTCAST_TTS_VOICE=M1 uv run textcast serve
-```
+`textcast voices` lists the 20 American voices the default pipeline loads;
+8 British ones ship too. Set the default with `TEXTCAST_TTS_VOICE`. Voice,
+quote voice, reading pace and footnote handling are then set **per article** —
+when you add it, or on its page afterwards. Nothing is inherited from a folder
+or a feed.
 
-Voice, quote voice, engine and footnote handling are set **per article** — when
-you add it, or on its page afterwards. Nothing is inherited from a folder or a
-feed.
+**Quote voice.** A block quote needs a mark or it runs into the sentence before
+it. Left blank, the reader says "Start quote" and "End quote" aloud — the
+*spoken cues*. Give quotes a second voice and the change of voice does that job
+instead, with no extra words.
 
-`TEXTCAST_TTS_STEPS` trades quality against speed on Supertonic: 2 is fastest,
-8 is the vendor default, 4 is the best trade on a small CPU.
+**Reading pace** is baked into the audio, so changing it rebuilds. The player's
+speed control is a separate thing and changes nothing on disk.
 
 ## The player
 
@@ -151,15 +194,18 @@ process), and one volume `/data` holding the database, the model, the audio and
 the saved sources.
 
 textcast takes no view on how you reach it. Put a reverse proxy, a VPN or a
-tailnet in front, or nothing at all on a private LAN. Auth is off by default,
-which suits a private network; set `TEXTCAST_REQUIRE_AUTH=1` and a token for
-anything internet-facing. `TEXTCAST_HOST` and `TEXTCAST_PORT` control where it
-listens.
+tailnet in front, or nothing at all on a private LAN. `TEXTCAST_HOST` and
+`TEXTCAST_PORT` control where it listens.
+
+Access control is off by default, which suits a private network. For anything
+internet-facing set `TEXTCAST_REQUIRE_AUTH=1` and `TEXTCAST_AUTH_TOKEN`. A
+browser is then sent to `/login`, which takes the token and keeps it in a
+cookie; scripts send it as an `x-textcast-token` header instead.
 
 ## Data model
 
-The **block** is the unit — a paragraph, quote, list item, footnote or summary
-is one row with a stable id. Reading, listening, highlighting, seeking and
+The **block** is the unit — a paragraph, quote, list item, footnote or
+generated summary is one row with a stable id. Reading, listening, highlighting, seeking and
 search all read the same table, so they cannot drift apart. SQLite in WAL mode,
 with an FTS5 index over block text.
 
@@ -199,11 +245,12 @@ uv run playwright install chromium   # once, for the browser tests
 src/textcast/
 ├── document.py     the block model
 ├── normalize.py    money, abbreviations and initialisms for speech
+├── summarize.py    section summaries from any OpenAI-compatible endpoint
 ├── ingest/         adapters + the shared DOM walker
 │   ├── dom.py      selectolax helpers
 │   ├── extract.py  content-density fallback
 │   └── documents.py text, Markdown, PDF and DOCX readers
-├── tts/            engine registry; supertonic.py, kokoro.py
+├── tts/            engine registry and kokoro.py
 ├── audio.py        synthesis, Opus encoding, WebVTT
 ├── db.py           SQLite, search, tags, jobs, positions
 ├── migrate.py      schema migrations, run on every start
@@ -215,5 +262,5 @@ src/textcast/
 
 ## Licence
 
-MIT. Kokoro's weights are Apache-2.0; Supertonic 3's are OpenRAIL-M.
+MIT. Kokoro's weights are Apache-2.0.
 Bundles [media-chrome](https://github.com/muxinc/media-chrome) (MIT).

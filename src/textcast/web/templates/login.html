@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Sign in — textcast{% endblock %}
+
+{% block content %}
+<div class="section-head"><h1>Sign in</h1></div>
+
+{% if error %}<p class="notice error">{{ error }}</p>{% endif %}
+
+{% if unconfigured %}
+  <div class="card">
+    <h2>No token is set</h2>
+    <p class="hint">
+      Access control is on, but <code>TEXTCAST_AUTH_TOKEN</code> is empty, so nothing
+      can sign in. Set it in <code>.env</code> and restart, or set
+      <code>TEXTCAST_REQUIRE_AUTH=0</code> if this server is only reachable over a
+      private network.
+    </p>
+  </div>
+{% else %}
+  <div class="card">
+    <p class="hint">Paste the token from your <code>.env</code>. It is kept in a cookie on this device.</p>
+    <form method="post" action="/login">
+      <input type="hidden" name="next" value="{{ next }}">
+      <div class="row">
+        <input type="password" name="token" autocomplete="current-password" placeholder="Token" required autofocus>
+        <button class="narrow" type="submit">Sign in</button>
+      </div>
+    </form>
+  </div>
+{% endif %}
+{% endblock %}
