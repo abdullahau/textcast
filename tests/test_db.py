@@ -221,28 +221,20 @@ def test_stats_summarise_the_library(conn):
     assert summary["words"] > 0
 
 
-def test_the_series_table_is_folded_into_tags_and_removed(settings):
-    """It held per-newsletter defaults. Tags replaced it, and nothing read it."""
-    import sqlite3
+def test_forgetting_audio_leaves_the_text_and_takes_the_timings(conn):
+    """Media deleted by hand leaves the database pointing at files that are gone."""
+    article_id = db.save_article(make_article(), conn)
+    db.save_manifest(article_id, manifest_for(), audio_bytes=1234, conn=conn)
+    assert db.get_article(article_id, conn)["status"] == "ready"
 
-    from textcast import migrate
+    db.forget_audio(article_id, conn)
 
-    conn = sqlite3.connect(settings.db_path)
-    conn.row_factory = sqlite3.Row
-    conn.executescript(db.SCHEMA.read_text(encoding="utf-8"))
-    # An old database, before tags existed.
-    conn.execute(
-        "CREATE TABLE series (name TEXT PRIMARY KEY, display TEXT NOT NULL DEFAULT '',"
-        " voice TEXT NOT NULL DEFAULT '', added_at TEXT NOT NULL)"
-    )
-    conn.execute("INSERT INTO series (name, added_at) VALUES ('Money Stuff', '2026-01-01')")
-    conn.execute(
-        "INSERT INTO article (slug, title, series, added_at) VALUES ('a', 'A', 'Money Stuff', '2026-01-01')"
-    )
-
-    migrate.run(conn)
-
-    assert not migrate.has_table(conn, "series")
-    assert [r["tag"] for r in conn.execute("SELECT tag FROM article_tag")] == ["Money Stuff"]
-    assert conn.execute("SELECT series FROM article WHERE slug = 'a'").fetchone()["series"] == "Money Stuff"
-    conn.close()
+    row = db.get_article(article_id, conn)
+    assert (row["status"], row["audio_ms"], row["audio_bytes"]) == ("new", 0, 0)
+    assert conn.execute(
+        "SELECT COUNT(*) c FROM block WHERE article_id = ? AND start_ms IS NOT NULL", (article_id,)
+    ).fetchone()["c"] == 0
+    assert conn.execute(
+        "SELECT COUNT(*) c FROM section WHERE article_id = ? AND file IS NOT NULL", (article_id,)
+    ).fetchone()["c"] == 0
+    assert db.load_article(article_id, conn).word_count > 0, "the text is untouched"

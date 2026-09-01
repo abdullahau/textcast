@@ -79,3 +79,32 @@ def test_rebuild_many_queues_each_article_once(conn):
 
     assert queued == 3, "the article that does not exist is skipped, not raised on"
     assert {job["article_id"] for job in db.active_jobs(conn)} == set(ids)
+
+
+def test_deleting_an_article_takes_its_audio_and_its_original_too(conn, settings):
+    """The stored original used to be left orphaned in sources/ for ever."""
+    from textcast.service import delete
+
+    stored = add_note()
+    source = settings.source_dir / f"{stored.slug}.txt"
+    media = settings.media_dir / stored.slug
+    media.mkdir(parents=True, exist_ok=True)
+    (media / "section-000.opus").write_bytes(b"audio")
+    assert source.exists()
+
+    assert delete(stored.article_id) is True
+
+    assert db.get_article(stored.article_id, conn) is None
+    assert not source.exists(), "the original went with it"
+    assert not media.exists(), "so did the audio"
+    assert delete(stored.article_id) is False, "deleting it twice is not an error"
+
+
+def test_reparse_keeps_the_original_it_is_about_to_read(conn, settings):
+    """It deletes the article row, but the source is the thing it needs."""
+    stored = add_note()
+    source = settings.source_dir / f"{stored.slug}.txt"
+
+    reparse(stored.article_id)
+
+    assert source.exists()

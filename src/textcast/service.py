@@ -246,6 +246,36 @@ def summarize(article_id: int, settings: Settings | None = None, replace: bool =
     return db.enqueue(article_id, kind="summarise", options=options, conn=conn)
 
 
+def delete(article_id: int, settings: Settings | None = None) -> bool:
+    """Remove an article and everything kept for it alone.
+
+    The row takes its sections, blocks, tags, position and jobs with it by
+    foreign key. The audio and the stored original are files, so they are
+    removed here — the original used to be left behind, orphaned in
+    `sources/` with nothing in the app able to reach it again.
+
+    Not `db.delete_article`, which `reparse` calls: that one must keep the
+    source, because it is about to parse it again.
+    """
+    settings = settings or get_settings()
+    conn = db.connect(settings.db_path)
+    row = db.get_article(article_id, conn)
+    if row is None:
+        return False
+
+    media = settings.media_dir / row["slug"]
+    for child in media.glob("*"):
+        child.unlink(missing_ok=True)
+    if media.exists():
+        media.rmdir()
+
+    for suffix in SOURCE_SUFFIXES:
+        (settings.source_dir / f"{row['slug']}{suffix}").unlink(missing_ok=True)
+
+    db.delete_article(article_id, conn)
+    return True
+
+
 def reparse(article_id: int, adapter: str | None = None, settings: Settings | None = None) -> Ingested:
     """Re-run the parser over the stored source after a parser fix.
 

@@ -28,6 +28,7 @@ from ..prefs import save_voice_defaults, voice_defaults
 
 # summarize is renamed: the ingest form has a field of the same name.
 from ..service import IngestError, ingest, rebuild, rebuild_many, reparse
+from ..service import delete as delete_article
 from ..service import summarize as queue_summary
 from ..settings import get_settings
 from ..tts import catalogue, default_voice, loaded_engine, shared_engine
@@ -887,15 +888,8 @@ def api_flag(request: Request, article_id: int, field: str = Form(...), value: b
 
 @app.post("/api/articles/{article_id}/delete", dependencies=[Auth])
 def api_delete(request: Request, article_id: int):
-    row = db.get_article(article_id)
-    if row is None:
+    if not delete_article(article_id):
         raise HTTPException(status_code=404, detail="no such article")
-
-    media = settings.media_dir / row["slug"]
-    for child in media.glob("*"):
-        child.unlink(missing_ok=True)
-    media.rmdir() if media.exists() else None
-    db.delete_article(article_id)
 
     if _wants_html(request):
         return RedirectResponse("/", status_code=303)

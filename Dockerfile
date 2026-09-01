@@ -54,6 +54,10 @@ ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
     TEXTCAST_DATA_DIR=/data \
     HF_HOME=/opt/models/huggingface \
+    # The weights are in the image. Without this the hub is still contacted on
+    # every model load to revalidate them: it works offline either way, but it
+    # is a round trip and a second of startup for nothing.
+    HF_HUB_OFFLINE=1 \
     TEXTCAST_HOST=0.0.0.0
 
 # Create /data owned by the app user *before* declaring the volume: Docker

@@ -1,0 +1,33 @@
+# Development on top of docker-compose.yml, picked up automatically.
+#
+# The image installs the project editable, so its import path is /app/src.
+# Mounting the working tree there means an edit on the host is the code the
+# container runs — no rebuild, no image, no copy.
+#
+# Templates reload themselves (Jinja checks mtimes) and static files are read
+# from disk per request. Only Python needs the process restarted, which
+# --reload and watchfiles do between them.
+#
+# Leave this file out on a server: docker compose -f docker-compose.yml up -d
+
+services:
+  app:
+    command:
+      - uvicorn
+      - textcast.web.app:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --reload
+      - --reload-dir
+      - /app/src
+    volumes:
+      - ./src:/app/src
+
+  worker:
+    # uvicorn[standard] brings watchfiles, which restarts the worker the same
+    # way --reload restarts the web process.
+    command: ["watchfiles", "--filter", "python", "textcast worker", "/app/src"]
+    volumes:
+      - ./src:/app/src

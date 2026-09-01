@@ -288,6 +288,28 @@ def save_manifest(
             )
 
 
+def forget_audio(article_id: int, conn: sqlite3.Connection | None = None) -> None:
+    """Drop everything that describes audio, keeping the text.
+
+    For when the files are gone but the database still points at them — media
+    deleted by hand, or a volume that did not come back. The timings are what
+    the player seeks by, so stale ones are worse than none.
+    """
+    conn = conn or connect()
+    with transaction(conn):
+        conn.execute(
+            "UPDATE article SET status = 'new', audio_ms = 0, audio_bytes = 0 WHERE id = ?",
+            (article_id,),
+        )
+        conn.execute(
+            "UPDATE section SET file = NULL, duration_ms = 0 WHERE article_id = ?", (article_id,)
+        )
+        conn.execute(
+            "UPDATE block SET start_ms = NULL, dur_ms = NULL, speech_ms = NULL WHERE article_id = ?",
+            (article_id,),
+        )
+
+
 def delete_article(article_id: int, conn: sqlite3.Connection | None = None) -> None:
     conn = conn or connect()
     conn.execute("DELETE FROM article WHERE id = ?", (article_id,))

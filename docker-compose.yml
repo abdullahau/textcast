@@ -1,8 +1,13 @@
-# textcast — web and worker, one volume.
+# textcast — web and worker, sharing one data directory.
 #
 # No opinion about how you reach it. Put it behind whatever you already use:
 # a reverse proxy, a VPN, a tailnet, or nothing at all on a private LAN.
 # Bind to 127.0.0.1 in .env if something else terminates TLS on this host.
+#
+# docker-compose.override.yml sits beside this and is picked up automatically.
+# It mounts the source and turns on reloading, so edits land without a
+# rebuild. For a server, run `docker compose -f docker-compose.yml up -d` to
+# leave it out.
 
 services:
   app:
@@ -13,12 +18,22 @@ services:
     ports:
       - "${TEXTCAST_PORT:-8000}:8000"
     env_file:
-      - .env
+      - path: .env
+        required: false
     environment:
       # The worker is its own service, so the web process only serves.
       TEXTCAST_WORKERS: "0"
+      TEXTCAST_DATA_DIR: /data
+    # A bind mount carries the host's ownership, so the container has to be
+    # the host user or it cannot write. The image's own uid was 10001 and
+    # ./data is 1001, which showed up as "readonly database" on the first
+    # write. Set TEXTCAST_UID/GID in .env if yours differ.
+    user: "${TEXTCAST_UID:-1000}:${TEXTCAST_GID:-1000}"
     volumes:
-      - textcast-data:/data
+      # A bind mount, not a named volume: the database, the audio, the saved
+      # sources and the block cache stay in ./data on the host, where your
+      # backups and the sqlite3 CLI already point.
+      - ${TEXTCAST_DATA_DIR:-./data}:/data
 
   worker:
     build: .
@@ -27,11 +42,20 @@ services:
     restart: unless-stopped
     command: ["textcast", "worker"]
     env_file:
-      - .env
+      - path: .env
+        required: false
+    environment:
+      TEXTCAST_DATA_DIR: /data
+    # A bind mount carries the host's ownership, so the container has to be
+    # the host user or it cannot write. The image's own uid was 10001 and
+    # ./data is 1001, which showed up as "readonly database" on the first
+    # write. Set TEXTCAST_UID/GID in .env if yours differ.
+    user: "${TEXTCAST_UID:-1000}:${TEXTCAST_GID:-1000}"
     volumes:
-      - textcast-data:/data
+      - ${TEXTCAST_DATA_DIR:-./data}:/data
+    # The image's healthcheck curls the web port, which the worker does not
+    # serve. Left on, it sits "unhealthy" for ever while working perfectly.
+    healthcheck:
+      disable: true
     # Synthesis is CPU-bound; leave something for the web process.
     cpus: ${TEXTCAST_WORKER_CPUS:-3}
-
-volumes:
-  textcast-data:
