@@ -12,8 +12,14 @@ from pathlib import Path
 
 from ..document import Article, Block, BlockKind, Section
 
-#: A line that is really a heading, in Markdown or in plain prose.
+#: A line that is really a heading, in Markdown or in plain prose. Matched
+#: against one line at a time, so it needs no MULTILINE.
 _MD_HEADING = re.compile(r"^(#{1,6})\s+(.*)$")
+#: The same shape, anywhere in a document. Detection used _MD_HEADING itself,
+#: which is anchored to the ends of the *string*, so a heading was only ever
+#: found in text one line long — and every pasted Markdown document with no
+#: list and no link was read as plain prose, hashes and all.
+_MD_HEADING_ANY = re.compile(r"^#{1,6}\s+\S", re.M)
 _MD_QUOTE = re.compile(r"^>\s?(.*)$")
 _MD_LIST = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+(.*)$")
 _MD_RULE = re.compile(r"^\s*([-*_])\1{2,}\s*$")
@@ -44,7 +50,7 @@ def strip_markdown(text: str) -> str:
 def looks_like_markdown(text: str) -> bool:
     head = text[:4000]
     return bool(
-        _MD_HEADING.search(head) or re.search(r"^\s*[-*+]\s+", head, re.M) or "](" in head
+        _MD_HEADING_ANY.search(head) or re.search(r"^\s*[-*+]\s+", head, re.M) or "](" in head
     )
 
 

@@ -130,3 +130,14 @@ def test_a_text_file_keeps_its_stem_as_a_fallback_title():
     article = article_from_file(b"Only a single line of prose here.", "my-note.txt")
     assert article.title in ("my note", "Only a single line of prose here.")
     assert list(article.blocks())
+
+
+def test_markdown_headings_are_found_anywhere_in_the_text():
+    """Detection was anchored to the ends of the string, so it only ever saw
+    a heading in text one line long — and pasted Markdown kept its hashes."""
+    from textcast.ingest.documents import article_from_text, looks_like_markdown
+
+    text = "# First section\n\nSome prose, long enough to be a paragraph.\n\n## Second\n\nMore prose."
+
+    assert looks_like_markdown(text)
+    assert [s.title for s in article_from_text(text).sections] == ["First section", "Second"]
