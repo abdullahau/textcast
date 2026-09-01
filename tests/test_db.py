@@ -277,3 +277,60 @@ def test_a_search_still_finds_the_words_inside_a_block(conn):
 
     assert hits, "block text is still indexed"
     assert hits[0]["block_id"] and hits[0]["start_ms"] is not None
+
+
+def test_rules_survive_a_round_trip_through_a_file(conn):
+    """The rules are the part worth carrying between machines."""
+    db.add_pronunciation("word", "SOFR", "sofer", conn, note="mine")
+    db.add_pronunciation("word", "LIBOR", "lˈIbɔɹ", conn, is_phonemes=True)
+    before = db.export_pronunciations(conn)
+
+    conn.execute("DELETE FROM pronunciation")
+    result = db.import_pronunciations(before, conn)
+
+    assert result["added"] == len(before["rules"]) and result["skipped"] == 0
+    assert db.export_pronunciations(conn) == before, "what came out went back in unchanged"
+
+
+def test_importing_the_same_file_twice_changes_nothing(conn):
+    payload = db.export_pronunciations(conn)
+
+    first = db.import_pronunciations(payload, conn)
+    second = db.import_pronunciations(payload, conn)
+
+    assert first["added"] == 0 and first["updated"] == len(payload["rules"])
+    assert second["updated"] == len(payload["rules"]) and second["added"] == 0
+    assert len(db.export_pronunciations(conn)["rules"]) == len(payload["rules"])
+
+
+def test_importing_merges_by_default_and_replaces_when_asked(conn):
+    conn.execute("DELETE FROM pronunciation")  # the seeded builtins are not the subject
+    db.add_pronunciation("word", "GAAP", "gap", conn)
+    incoming = {"rules": [{"kind": "word", "pattern": "EBITDA", "replacement": "ee bitda"}]}
+
+    db.import_pronunciations(incoming, conn)
+    assert {r["pattern"] for r in db.export_pronunciations(conn)["rules"]} == {"GAAP", "EBITDA"}
+
+    db.import_pronunciations(incoming, conn, replace=True)
+    assert {r["pattern"] for r in db.export_pronunciations(conn)["rules"]} == {"EBITDA"}
+
+
+def test_a_rule_that_makes_no_sense_is_skipped_not_fatal(conn):
+    conn.execute("DELETE FROM pronunciation")
+    payload = {"rules": [
+        {"kind": "word", "pattern": "OK", "replacement": "okay"},
+        {"kind": "nonsense", "pattern": "X", "replacement": "y"},
+        {"kind": "word", "pattern": "   ", "replacement": "y"},
+        "not a rule at all",
+    ]}
+
+    result = db.import_pronunciations(payload, conn)
+
+    assert result == {"added": 1, "updated": 0, "skipped": 3}
+
+
+def test_a_file_with_no_rules_in_it_says_so(conn):
+    import pytest as _pytest
+
+    with _pytest.raises(ValueError, match="no list of rules"):
+        db.import_pronunciations({"textcast": "pronunciations", "rules": "nope"}, conn)

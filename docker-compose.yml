@@ -40,7 +40,7 @@ services:
     image: textcast:latest
     container_name: textcast-worker
     restart: unless-stopped
-    command: ["textcast", "worker"]
+    command: ["python", "-m", "textcast"]
     env_file:
       - path: .env
         required: false

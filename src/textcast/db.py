@@ -973,6 +973,93 @@ def articles_matching(rule, conn: sqlite3.Connection | None = None, limit: int =
     ).fetchall()
 
 
+#: What a rule is, on the way out and back in. `builtin` is deliberately not
+#: carried: it marks what shipped with the app, not what you meant.
+EXPORT_FIELDS = (
+    "kind", "pattern", "replacement", "is_phonemes", "ignore_case", "enabled", "note", "sort_order",
+)
+
+
+def export_pronunciations(conn: sqlite3.Connection | None = None) -> dict:
+    """Every rule, as plain data you can keep, diff or hand to someone else."""
+    conn = conn or connect()
+    rules = []
+    for row in conn.execute("SELECT * FROM pronunciation ORDER BY sort_order, id"):
+        rule = {field: row[field] for field in EXPORT_FIELDS}
+        for flag in ("is_phonemes", "ignore_case", "enabled"):
+            rule[flag] = bool(rule[flag])
+        rules.append(rule)
+    return {"textcast": "pronunciations", "version": 1, "rules": rules}
+
+
+def import_pronunciations(
+    data: dict | list, conn: sqlite3.Connection | None = None, replace: bool = False
+) -> dict:
+    """Add or update rules from an export. Returns what happened.
+
+    A rule is identified by its kind and pattern, so importing the same file
+    twice changes nothing the second time. Nothing is deleted unless you ask
+    for `replace`, because a merge is what you want when carrying a few rules
+    between machines.
+    """
+    from .pronounce import KINDS, invalidate
+
+    rules = data.get("rules", []) if isinstance(data, dict) else data
+    if not isinstance(rules, list):
+        raise ValueError("that file has no list of rules in it")
+
+    conn = conn or connect()
+    added = updated = skipped = 0
+    with transaction(conn):
+        if replace:
+            conn.execute("DELETE FROM pronunciation")
+        existing = {
+            (r["kind"], r["pattern"])
+            for r in conn.execute("SELECT kind, pattern FROM pronunciation")
+        }
+        for raw in rules:
+            if not isinstance(raw, dict):
+                skipped += 1
+                continue
+            kind = str(raw.get("kind", "word"))
+            pattern = str(raw.get("pattern", "")).strip()
+            if kind not in KINDS or not pattern:
+                skipped += 1
+                continue
+            was = (kind, pattern) in existing
+            conn.execute(
+                """
+                INSERT INTO pronunciation
+                    (kind, pattern, replacement, is_phonemes, ignore_case, enabled,
+                     note, sort_order, builtin, added_at)
+                VALUES (?,?,?,?,?,?,?,?,0,?)
+                ON CONFLICT (kind, pattern) DO UPDATE SET
+                    replacement = excluded.replacement,
+                    is_phonemes = excluded.is_phonemes,
+                    ignore_case = excluded.ignore_case,
+                    enabled     = excluded.enabled,
+                    note        = excluded.note,
+                    sort_order  = excluded.sort_order
+                """,
+                (
+                    kind, pattern, str(raw.get("replacement", "")),
+                    int(bool(raw.get("is_phonemes", False))),
+                    int(bool(raw.get("ignore_case", False))),
+                    int(bool(raw.get("enabled", True))),
+                    str(raw.get("note", "")),
+                    int(raw.get("sort_order", 100) or 100),
+                    now(),
+                ),
+            )
+            if was:
+                updated += 1
+            else:
+                added += 1
+                existing.add((kind, pattern))
+    invalidate()
+    return {"added": added, "updated": updated, "skipped": skipped}
+
+
 def seed_pronunciations(conn: sqlite3.Connection | None = None, force: bool = False) -> int:
     """Install the built-in rules. Skipped once anything is stored.
 

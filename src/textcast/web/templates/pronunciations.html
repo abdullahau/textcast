@@ -75,6 +75,11 @@
 {% if error %}<p class="notice error">{{ error }}</p>{% endif %}
 {% if message %}<p class="notice ok">{{ message }}</p>{% endif %}
 {% if saved %}<p class="notice ok">Saved. New builds use this voice; nothing was queued.</p>{% endif %}
+{% if imported %}
+  <p class="notice ok">
+    Imported: {{ imported[0] }} added, {{ imported[1] }} updated{% if imported[2] %}, {{ imported[2] }} skipped{% endif %}.
+  </p>
+{% endif %}
 {% if queued %}<p class="notice ok">Queued {{ queued }} article{{ '' if queued == 1 else 's' }} for a rebuild.</p>{% endif %}
 
 {% if affected %}
@@ -280,5 +285,33 @@
       {% endfor %}
     </tbody>
   </table>
+</div>
+
+<div class="card">
+  <div class="titled">
+    <h2>Import and export</h2>
+    <span class="tip">
+      <button type="button" class="q" aria-label="What the file holds">?</button>
+      <span class="tip-body" role="tooltip">A plain JSON file: the match, what it is said as, the
+      IPA flag, and whether it is on. Rules are matched by kind and pattern, so importing the same
+      file twice changes nothing the second time.</span>
+    </span>
+  </div>
+  <p class="hint">
+    Rules are the part of this worth carrying between machines — and the part worth keeping
+    when everything else is rebuilt.
+  </p>
+  <div class="row">
+    <a class="btn ghost narrow" href="/pronunciations/export">Export {{ rows|length }} rules</a>
+  </div>
+  <form method="post" action="/pronunciations/import" enctype="multipart/form-data" style="margin-top:.9rem">
+    <div class="row">
+      <input type="file" name="file" accept=".json,application/json" required>
+      <button class="ghost narrow" type="submit">Import</button>
+    </div>
+    <label class="check" style="margin-top:.6rem">
+      <input type="checkbox" name="replace" value="true"> Replace everything, rather than merging
+    </label>
+  </form>
 </div>
 {% endblock %}

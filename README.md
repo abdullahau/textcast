@@ -17,40 +17,66 @@ it is read — with a handle beside every paragraph to jump the audio there.
 2. **Parse it properly.** Per-publication adapters (Bloomberg, FT) with a
    content-density fallback for everything else. Footnotes are inlined into the
    sentence that cites them.
-3. **Speak it.** Optionally summarise each section first, then Kokoro reads
-   it one block at a time, encoded to Opus — one
-   file per section, so playback starts before the whole article is built.
-4. **Read along.** The player highlights the current paragraph and follows it
+3. **Teach it how to say things.** Money, percentages and dates are rewritten
+   for the ear. Acronyms are respelled — `GAAP` as `gap` — and where no
+   spelling reaches a word, IPA phonemes are handed to the model directly.
+   Every rule is editable in the app, testable against your own voice, and
+   exportable.
+4. **Speak it.** Optionally summarise each section first, then Kokoro reads it
+   a block at a time, encoded to Opus.
+5. **Read along.** The player highlights the current paragraph and follows it
    down the page. The text stays selectable, so you can still copy from it.
-5. **Take it with you.** Install to the home screen, keep articles offline,
+6. **Take it with you.** Install to the home screen, keep articles offline,
    control it from the lock screen.
 
-## Quick start
+## Run it
+
+```bash
+git clone git@github.com:abdullahau/textcast.git && cd textcast
+cp .env.example .env          # set TEXTCAST_UID/GID to `id -u` and `id -g`
+docker compose up -d --build
+```
+
+Then open <http://127.0.0.1:8000>. Two containers off one image: `app` serves
+the pages, `worker` does the synthesis (CPU-limited, so it cannot starve the
+web process). Both share `./data` as a **bind mount**, so the database, the
+audio, the saved originals and the render cache stay on the host where your
+backups already point.
+
+The first build is slow — it downloads PyTorch and bakes the Kokoro weights
+into the image, about 3.3 GB and seven minutes. After that the model is in the
+image and a fresh container needs no network at all.
+
+There is no command line. Adding an article, choosing a voice, summarising and
+building are all done in the app.
+
+### Working on it
+
+`docker-compose.override.yml` is picked up automatically and mounts `./src`
+over the image's copy, so an edit on the host *is* the code the container
+runs — uvicorn reloads the web process, watchfiles restarts the worker, and
+templates and stylesheets are read per request. Nothing needs a rebuild except
+a dependency change.
+
+On a server, leave the override out:
+
+```bash
+docker compose -f docker-compose.yml up -d
+```
+
+One trap: the service worker caches `/static/` hard, so a CSS or JS edit can
+be invisible in the browser while live on disk. Hard-reload to see it.
+
+### Without Docker
 
 ```bash
 uv sync --extra kokoro --extra web --extra documents --extra summaries
-uv run textcast add https://example.com/an-article --tag Reading
-uv run textcast worker --once          # build the audio
-uv run textcast serve                  # http://127.0.0.1:8000
+uv run uvicorn textcast.web.app:app --port 8000   # the app, worker included
+uv run python -m textcast                         # or the worker on its own
 ```
 
 Kokoro needs **espeak-ng** on the system (`brew install espeak-ng`, or
-`apt install espeak-ng espeak-ng-data`). textcast finds it automatically in the
-usual places. The first build downloads the model into `data/`.
-
-## Commands
-
-| Command | What it does |
-| --- | --- |
-| `textcast add <file\|url\|.eml>` | Ingest into the library and queue the audio |
-| `textcast build <file\|url>` | One-shot: parse and synthesise, no database |
-| `textcast parse <file\|url>` | Show what the parser found, without building |
-| `textcast library` | List what you have; `--tags` lists tags, `--tag X` filters |
-| `textcast search <query>` | Full-text search every article, located in the audio |
-| `textcast worker` | Process queued builds; `--once` runs a single job |
-| `textcast mail` | Fetch unread newsletters over IMAP |
-| `textcast engines` / `voices` | What is installed, and what it can sound like |
-| `textcast serve` | Run the web app |
+`apt install espeak-ng espeak-ng-data`); textcast finds it in the usual places.
 
 ## Sharing to it from a phone
 
@@ -78,34 +104,56 @@ and filter the library by one from the dropdown.
 
 ## Newsletters by mailbox
 
-Point `textcast mail` at a dedicated address or a filtered folder and every
-unread issue becomes a queued article, tagged with its publication. IMAP only:
-the app connects outwards, so there is no mail server to run and no spam
-surface. It checks the `List-Id` headers first, so personal mail stays unread.
+Point it at a dedicated address or a filtered folder and every unread issue
+becomes an article, tagged with its publication. IMAP only: the app connects
+outwards, so there is no mail server to run and no spam surface. It checks the
+`List-Id` headers first, so personal mail stays unread.
 
-```bash
-export TEXTCAST_IMAP_HOST=imap.fastmail.com
-export TEXTCAST_IMAP_USER=you@example.com
-export TEXTCAST_IMAP_PASSWORD=an-app-password
-uv run textcast mail
+Set the mailbox in `.env` and give it a poll interval; the worker does the
+rest, on its own schedule, in the same container that builds the audio.
+
+```ini
+TEXTCAST_IMAP_HOST=imap.fastmail.com
+TEXTCAST_IMAP_USER=you@example.com
+TEXTCAST_IMAP_PASSWORD=an-app-password
+TEXTCAST_MAIL_POLL_MINUTES=30
 ```
 
-`deploy/textcast-mail.timer` runs that every 30 minutes under systemd.
+## Teaching it how to say things
 
-## Reading short forms aloud
+This is the part that makes a local model listenable, and it is all editable
+in the app, on the **Voice** page.
 
-Financial writing is full of things a speech model mangles. Everything is
-rewritten on the way to the engine, and never on screen:
+Anything with a *shape* is rewritten on the way to the engine and never on
+screen, so the page keeps the author's punctuation:
 
 | Written | Spoken |
 | --- | --- |
 | `$72mm`, `£5bn`, `€300k` | 72 million dollars, 5 billion pounds, 300 thousand euros |
 | `150bps`, `12x`, `2.5%` | 150 basis points, 12 times, 2.5 percent |
 | `Q3`, `FY2024`, `2019-21` | quarter 3, fiscal year 2024, 2019 to 2021 |
-| `SEC`, `S&P`, `M&A` | S E C, S and P, M and A |
-| `EBITDA`, `NASDAQ` | left alone — these are words |
 
-`src/textcast/normalize.py` holds the tables; add to them freely.
+Anything that is a *lookup* is a rule you can edit, add to or turn off. Three
+kinds, in the order you should reach for them:
+
+- **Respell it.** `GAAP` → `gap`, `EBITDA` → `ee bitda`. Ordinary letters, no
+  phonetic alphabet, and anyone can see what it does. This is the right answer
+  almost every time.
+- **Join it up.** `start-up` → `startup`. Kokoro breaks on the hyphen —
+  measured at 182 ms of silence mid-phrase against 113 ms joined.
+- **Give it phonemes.** When no spelling reaches it, the replacement can be
+  **IPA**: `LIBOR` → `lˈIbɔɹ`, handed to the model verbatim. Of the hundred-odd
+  rules that ship, exactly one needs this — which is the point. Reach for it
+  last, and only when you can hear that respelling has failed.
+
+Type a sentence into **Test the voice** and you get the text the engine will
+actually be given, the phonemes it will pronounce, which rules fired, and the
+audio itself, in whichever voice and pace you pick. Hearing it is the only way
+to judge a respelling.
+
+Change a rule and the page names the built articles that use the word and
+rebuilds them on one click. The whole rule set exports to a JSON file and
+imports back, so it survives a rebuild and moves between machines.
 
 ## Summaries
 
@@ -185,18 +233,9 @@ player sheet — a tap on the text itself, which still yields to a selection.
 Both are covered by browser tests in `tests/test_player.py`, driven through
 Chromium rather than asserted by inspection.
 
-## Deploying with Docker
+## Reaching it
 
-```bash
-cp .env.example .env
-docker compose up -d --build
-```
-
-Two services, `app` and `worker` (CPU limited so synthesis cannot starve the web
-process), and one volume `/data` holding the database, the model, the audio and
-the saved sources.
-
-textcast takes no view on how you reach it. Put a reverse proxy, a VPN or a
+textcast takes no view on how you get to it. Put a reverse proxy, a VPN or a
 tailnet in front, or nothing at all on a private LAN. `TEXTCAST_HOST` and
 `TEXTCAST_PORT` control where it listens.
 
@@ -238,7 +277,7 @@ matches and so must stay last.
 ## Tests
 
 ```bash
-uv run pytest                        # 56 tests
+uv run pytest                        # 207 tests
 uv run playwright install chromium   # once, for the browser tests
 ```
 
@@ -256,9 +295,10 @@ src/textcast/
 ├── tts/            engine registry and kokoro.py
 ├── audio.py        synthesis, Opus encoding, WebVTT
 ├── db.py           SQLite, search, tags, jobs, positions
-├── migrate.py      schema migrations, run on every start
-├── jobs.py         the build worker
-├── service.py      ingestion shared by the CLI and the web app
+├── migrate.py      runs on every start; seeding only
+├── jobs.py         the build worker, and `python -m textcast`
+├── prefs.py        default voice, quote voice and reading pace
+├── service.py      ingestion, deletion, re-parse, summary queueing
 ├── mail.py         IMAP newsletter fetch
 └── web/            FastAPI, templates, one stylesheet, the player
 ```

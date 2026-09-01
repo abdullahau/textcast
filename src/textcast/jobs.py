@@ -3,6 +3,10 @@
 One worker thread polling a SQLite table. A broker for a single-user app is
 machinery you would have to maintain; a table you already back up is not.
 
+It also polls the mailbox, when one is configured. That used to be a CLI
+command on a systemd timer; it is a setting now, so a container is the whole
+deployment.
+
 Two kinds of job, and neither leads to the other. A ``build`` renders the
 audio. A ``summarise`` asks a language model for a summary of each section and
 writes those in as blocks. Summarising does not then build: inserting a block
@@ -41,6 +45,7 @@ class Worker:
         self._engine_key: tuple[str, int] | None = None
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
+        self._mail_checked: float | None = None
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -62,11 +67,34 @@ class Worker:
         self._requeue_orphans()
         while not self._stop.is_set():
             try:
+                self._poll_mail()
                 if not self.step():
                     self._stop.wait(self.poll_seconds)
             except Exception:
                 log.exception("worker loop failed")
                 self._stop.wait(self.poll_seconds)
+
+    def _poll_mail(self) -> None:
+        """Fetch newsletters on a schedule, if a mailbox is configured.
+
+        Failures are logged and dropped: a mailbox that is down must not stop
+        the queue from building what is already in it.
+        """
+        minutes = self.settings.mail_poll_minutes
+        if minutes <= 0:
+            return
+        now = time.monotonic()
+        if self._mail_checked and now - self._mail_checked < minutes * 60:
+            return
+        self._mail_checked = now
+        try:
+            from .mail import fetch
+
+            result = fetch(settings=self.settings)
+            if result.added:
+                log.info("mail: added %d article(s)", result.added)
+        except Exception as exc:
+            log.warning("mail poll failed: %s", exc)
 
     def _requeue_orphans(self) -> None:
         """A job left 'running' means the process died mid-build. Retry it."""
@@ -244,3 +272,22 @@ def row_has_audio(conn, article_id: int) -> bool:
 
 def media_dir_for(slug: str, settings: Settings | None = None) -> Path:
     return (settings or get_settings()).media_dir / slug
+
+
+def main() -> int:
+    """Run the worker in the foreground. `python -m textcast`.
+
+    The only thing here that starts from a terminal. The web app is uvicorn's
+    to run, and everything else is done in the app itself.
+    """
+    from dotenv import load_dotenv
+
+    load_dotenv()
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s %(levelname)-7s %(name)s  %(message)s"
+    )
+    settings = get_settings()
+    settings.ensure_dirs()
+    log.info("worker started (engine=%s, data=%s)", settings.engine, settings.data_dir)
+    Worker(settings).run()
+    return 0

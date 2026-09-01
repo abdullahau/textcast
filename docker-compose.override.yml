@@ -28,6 +28,6 @@ services:
   worker:
     # uvicorn[standard] brings watchfiles, which restarts the worker the same
     # way --reload restarts the web process.
-    command: ["watchfiles", "--filter", "python", "textcast worker", "/app/src"]
+    command: ["watchfiles", "--filter", "python", "python -m textcast", "/app/src"]
     volumes:
       - ./src:/app/src

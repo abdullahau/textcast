@@ -28,6 +28,11 @@
   var totalMs = 0;
   sections.forEach(function (s) { offsets.push(totalMs); totalMs += s.ms; });
 
+  /* Five seconds each way. Long enough to catch a missed clause, short enough
+     that two presses is still less than a sentence. Kept in step with the
+     seekoffset on the buttons in reader.html. */
+  var SKIP_SECONDS = 5;
+
   var current = -1;
   var activeEl = null;
   var track = null;
@@ -247,8 +252,14 @@
     var handlers = {
       play: function () { audio.play(); },
       pause: function () { audio.pause(); },
-      seekbackward: function () { audio.currentTime = Math.max(0, audio.currentTime - 15); },
-      seekforward: function () { audio.currentTime += 30; },
+      /* Same step as the buttons, so the lock screen and the page agree. */
+      seekbackward: function (details) {
+        audio.currentTime = Math.max(0, audio.currentTime - (details && details.seekOffset || SKIP_SECONDS));
+      },
+      seekforward: function (details) {
+        audio.currentTime = Math.min(audio.duration || Infinity,
+                                     audio.currentTime + (details && details.seekOffset || SKIP_SECONDS));
+      },
       previoustrack: function () {
         if (current > 0) loadSection(current - 1, 0, !audio.paused);
         else audio.currentTime = 0;

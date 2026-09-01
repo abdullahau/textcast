@@ -382,6 +382,7 @@ def _pronunciation_page(request: Request, **extra):
         affected=_affected(kind, pattern),
         queued=extra.pop("queued", 0),
         saved=extra.pop("saved", False),
+        imported=extra.pop("imported", None),
         **extra,
     )
 
@@ -406,6 +407,7 @@ def pronunciations(
     pattern: str = "",
     queued: int = 0,
     saved: bool = False,
+    imported: str = "",
 ):
     return _pronunciation_page(
         request,
@@ -413,6 +415,7 @@ def pronunciations(
         changed_pattern=pattern,
         queued=queued,
         saved=saved,
+        imported=[int(n) for n in imported.split(",")] if imported.count(",") == 2 else None,
     )
 
 
@@ -564,6 +567,39 @@ def pronunciations_add(
     except ValueError as exc:
         return _pronunciation_page(request, error=str(exc), sample=SAMPLE_TEXT)
     return _changed(kind, pattern)
+
+
+@app.get("/pronunciations/export", dependencies=[Auth])
+def pronunciations_export():
+    """Every rule as a JSON file, to keep or to carry to another machine."""
+    payload = json.dumps(db.export_pronunciations(), ensure_ascii=False, indent=2)
+    return Response(
+        payload,
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="textcast-pronunciations-{__version__}.json"'},
+    )
+
+
+@app.post("/pronunciations/import", dependencies=[Auth])
+async def pronunciations_import(
+    request: Request,
+    file: UploadFile | None = None,
+    replace: bool = Form(default=False),
+):
+    if file is None or not file.filename:
+        return _pronunciation_page(request, error="Choose a file to import.")
+    try:
+        data = json.loads((await file.read()).decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        return _pronunciation_page(request, error=f"That is not JSON: {exc}")
+
+    try:
+        result = db.import_pronunciations(data, replace=replace)
+    except ValueError as exc:
+        return _pronunciation_page(request, error=str(exc))
+
+    query = urlencode({"imported": f"{result['added']},{result['updated']},{result['skipped']}"})
+    return RedirectResponse(f"/pronunciations?{query}", status_code=303)
 
 
 @app.post("/pronunciations/{rule_id}/toggle", dependencies=[Auth])

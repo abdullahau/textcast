@@ -41,9 +41,6 @@ summaries = [
     "openai>=1.100",
 ]
 
-[project.scripts]
-textcast = "textcast.cli:main"
-
 [dependency-groups]
 dev = [
     "pytest>=9.1",
