@@ -57,6 +57,9 @@
   // ------------------------------------------------------- highlighting
 
   function highlight(blockId) {
+    /* Called every frame while playing, so the common case — nothing has
+       changed — costs a string compare and no DOM lookup at all. */
+    if (activeEl && activeEl.id === blockId) return;
     var el = blockId ? document.getElementById(blockId) : null;
     if (el === activeEl) return;
     if (activeEl) activeEl.classList.remove("on");
@@ -66,29 +69,50 @@
     if (follow) el.scrollIntoView({ block: "center", behavior: "smooth" });
   }
 
-  /* The browser tells us which block is playing; we only have to react.
-
-     Not activeCues[0]. At a boundary the browser reports the cue that is
-     ending and the one that is starting as both active, ordered by start
-     time — so [0] is the one just finished, and the highlight sat a block
-     behind every time you seeked to a block's start. The last one started
-     most recently, which is the one being read. */
-  function currentCueId() {
-    var active = track && track.activeCues;
-    return active && active.length ? active[active.length - 1].id : null;
+  /* Which block covers this moment, from the timing map the page already
+     carries. A binary search over contiguous cues: the last one that has
+     started is the one being read. */
+  function blockAt(ms) {
+    var blocks = sections[current] && sections[current].blocks;
+    if (!blocks || !blocks.length) return null;
+    var lo = 0, hi = blocks.length - 1, found = null;
+    while (lo <= hi) {
+      var mid = (lo + hi) >> 1;
+      if (blocks[mid][1] <= ms) { found = blocks[mid]; lo = mid + 1; }
+      else { hi = mid - 1; }
+    }
+    return found ? found[0] : null;
   }
 
-  function onCueChange() {
-    var id = currentCueId();
-    if (id) highlight(id);
-  }
-
-  /* cuechange only fires when the set *changes*. A track that loads with a cue
-     already active — a fresh page, or a resume part-way in — fires nothing at
-     all, so the first block goes unhighlighted until the next boundary. */
   function syncHighlight() {
-    var id = currentCueId();
+    var id = blockAt((audio.currentTime || 0) * 1000);
     if (id) highlight(id);
+  }
+
+  /* Read the clock every frame while it is playing, rather than waiting to be
+     told. `cuechange` only fires when the active cue *set* changes, and how
+     promptly is the browser's business — Chromium is within about 10 ms,
+     others are far looser, which shows up as a word or two of the next block
+     being read before the highlight moves. Worse, a seek made by anything
+     other than this file — the skip buttons and the scrub bar are
+     media-chrome's, and they set currentTime themselves — changed no cue set
+     at all, so the highlight stayed where it was until the next boundary. */
+  var frame = null;
+
+  function followClock() {
+    syncHighlight();
+    frame = requestAnimationFrame(followClock);
+  }
+
+  function stopFollowing() {
+    if (frame !== null) { cancelAnimationFrame(frame); frame = null; }
+    syncHighlight();
+  }
+
+  /* Kept as a backstop: a background tab stops running frames, and the audio
+     keeps playing. */
+  function onCueChange() {
+    if (frame === null) syncHighlight();
   }
 
   // ------------------------------------------------------------ sections
@@ -296,7 +320,11 @@
   buildChapters();
   wireMediaSession();
   audio.addEventListener("ended", onEnded);
-  audio.addEventListener("pause", function () { savePosition(true); });
+  audio.addEventListener("play", function () { if (frame === null) followClock(); });
+  audio.addEventListener("pause", function () { stopFollowing(); savePosition(true); });
+  audio.addEventListener("ended", stopFollowing);
+  /* Every seek, whoever made it. */
+  audio.addEventListener("seeked", syncHighlight);
   audio.addEventListener("timeupdate", function () { savePosition(false); });
 
   $("prev").addEventListener("click", function () {

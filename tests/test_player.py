@@ -516,3 +516,43 @@ def test_the_sheet_can_be_closed_without_a_keyboard(still_page):
     assert sheet.is_visible()
     still_page.click("#doc", position={"x": 5, "y": 5})
     assert sheet.is_hidden(), "a tap outside it"
+
+
+def test_the_highlight_follows_the_clock_not_the_cue_events(still_page, live):
+    """`cuechange` fires when the browser gets round to it, and a seek made by
+    the transport — media-chrome owns the skip buttons and the scrub bar —
+    changes no cue set at all. Reading the clock covers both."""
+    _base, _slug, manifest = live
+    blocks = manifest.sections[0].blocks
+
+    def expected(ms):
+        found = None
+        for timing in blocks:
+            if timing.start_ms <= ms:
+                found = timing.id
+        return found
+
+    audio = "document.getElementById('audio')"
+    for js, label in (
+        (f"{audio}.currentTime = {blocks[3].start_ms / 1000 + 0.4}", "a seek into a block"),
+        (f"{audio}.currentTime += 1", "a nudge forward, as the skip button does"),
+        (f"{audio}.currentTime = {blocks[1].start_ms / 1000 + 0.2}", "a scrub backwards"),
+    ):
+        still_page.evaluate(js)
+        still_page.wait_for_timeout(200)
+        at = still_page.evaluate("document.getElementById('audio').currentTime") * 1000
+        got = still_page.evaluate("(document.querySelector('#doc .b.on') || {}).id || null")
+        assert got == expected(at), f"{label}: at {at:.0f}ms wanted {expected(at)}, got {got}"
+
+
+def test_the_highlight_needs_no_cues_at_all(still_page, live):
+    """The timing map is in the page; the track is a convenience on top."""
+    _base, _slug, manifest = live
+    target = manifest.sections[0].blocks[2]
+
+    still_page.evaluate("document.getElementById('audio').textTracks[0].mode = 'disabled'")
+    still_page.evaluate(f"document.getElementById('audio').currentTime = {target.start_ms / 1000 + 0.3}")
+    still_page.wait_for_timeout(250)
+
+    assert still_page.evaluate("(document.querySelector('#doc .b.on') || {}).id") == target.id
+    still_page.evaluate("document.getElementById('audio').textTracks[0].mode = 'hidden'")
