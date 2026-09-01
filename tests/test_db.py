@@ -219,3 +219,30 @@ def test_stats_summarise_the_library(conn):
     assert summary["ready"] == 1
     assert summary["audio_ms"] == 9000
     assert summary["words"] > 0
+
+
+def test_the_series_table_is_folded_into_tags_and_removed(settings):
+    """It held per-newsletter defaults. Tags replaced it, and nothing read it."""
+    import sqlite3
+
+    from textcast import migrate
+
+    conn = sqlite3.connect(settings.db_path)
+    conn.row_factory = sqlite3.Row
+    conn.executescript(db.SCHEMA.read_text(encoding="utf-8"))
+    # An old database, before tags existed.
+    conn.execute(
+        "CREATE TABLE series (name TEXT PRIMARY KEY, display TEXT NOT NULL DEFAULT '',"
+        " voice TEXT NOT NULL DEFAULT '', added_at TEXT NOT NULL)"
+    )
+    conn.execute("INSERT INTO series (name, added_at) VALUES ('Money Stuff', '2026-01-01')")
+    conn.execute(
+        "INSERT INTO article (slug, title, series, added_at) VALUES ('a', 'A', 'Money Stuff', '2026-01-01')"
+    )
+
+    migrate.run(conn)
+
+    assert not migrate.has_table(conn, "series")
+    assert [r["tag"] for r in conn.execute("SELECT tag FROM article_tag")] == ["Money Stuff"]
+    assert conn.execute("SELECT series FROM article WHERE slug = 'a'").fetchone()["series"] == "Money Stuff"
+    conn.close()

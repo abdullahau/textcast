@@ -104,17 +104,6 @@ CREATE TABLE IF NOT EXISTS position (
     updated_at  TEXT    NOT NULL
 );
 
--- Per-newsletter defaults: voice, whether to auto-build on arrival.
-CREATE TABLE IF NOT EXISTS series (
-    name        TEXT PRIMARY KEY,
-    display     TEXT NOT NULL DEFAULT '',
-    voice       TEXT NOT NULL DEFAULT '',
-    quote_voice TEXT NOT NULL DEFAULT '',
-    auto_build  INTEGER NOT NULL DEFAULT 1,
-    skip_footnotes INTEGER NOT NULL DEFAULT 0,
-    added_at    TEXT NOT NULL
-);
-
 CREATE TABLE IF NOT EXISTS setting (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL

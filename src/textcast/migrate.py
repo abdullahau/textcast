@@ -30,6 +30,7 @@ def has_table(conn: sqlite3.Connection, name: str) -> bool:
 def run(conn: sqlite3.Connection) -> None:
     _add_build_options(conn)
     _series_become_tags(conn)
+    _drop_series_table(conn)
     _drop_retired_engine(conn)
     _drop_section_summary(conn)
     _seed_pronunciations(conn)
@@ -76,6 +77,20 @@ def _series_become_tags(conn: sqlite3.Connection) -> None:
             (name, name),
         )
     log.info("migrated %d series into tags", len(moved))
+
+
+def _drop_series_table(conn: sqlite3.Connection) -> None:
+    """Remove the table tags replaced.
+
+    Runs after ``_series_become_tags``, which uses the table's existence to
+    decide whether there is anything to fold. Nothing has read it since; the
+    newsletter a parser recognises is kept on ``article.series`` and becomes a
+    tag on the way in.
+    """
+    if not has_table(conn, "series"):
+        return
+    conn.execute("DROP TABLE series")
+    log.info("dropped the series table; tags replaced it")
 
 
 def _drop_retired_engine(conn: sqlite3.Connection) -> None:
