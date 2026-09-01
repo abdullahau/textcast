@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s http://127.0.0.1:*)",
+      "Bash(curl -s http://localhost:*)",
+      "Bash(curl -sf http://127.0.0.1:*)",
+      "Bash(curl -sI *)",
+      "Bash(dig *)",
+      "Bash(brew list *)",
+      "Bash(identify *)",
+      "Bash(magick identify *)",
+      "Bash(oci usage-api usage-summary *)",
+      "Bash(docker compose ps *)",
+      "mcp__claude_ai_Hugging_Face__hf_fs",
+      "mcp__claude_ai_Hugging_Face__hub_repo_search"
+    ]
+  }
+}
