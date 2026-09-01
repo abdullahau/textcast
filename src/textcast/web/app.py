@@ -184,6 +184,12 @@ def render(request: Request, name: str, **context) -> HTMLResponse:
     return templates.TemplateResponse(request, name, context)
 
 
+def _stored_sources() -> dict:
+    """How many originals are kept, and how much they weigh."""
+    files = [p for p in settings.source_dir.glob("*") if p.is_file()]
+    return {"count": len(files), "bytes": sum(p.stat().st_size for p in files)}
+
+
 def article_or_404(slug: str):
     row = db.get_by_slug(slug)
     if row is None:
@@ -244,6 +250,8 @@ def library(
     tag: str | None = None,
     status: str | None = None,
     shelf: str = "",
+    added: int = 0,
+    failed: str = "",
 ):
     conn = db.connect()
     archived = shelf == "archived"
@@ -264,6 +272,9 @@ def library(
         status=status,
         archived=archived,
         starred=starred,
+        added=added,
+        failed=failed,
+        sources=_stored_sources(),
     )
 
 
@@ -771,7 +782,8 @@ async def api_ingest(
     title: str | None = Form(default=None),
     adapter: str | None = Form(default=None),
     tags: str | None = Form(default=None),
-    file: UploadFile | None = None,
+    source: str = Form(default=""),
+    files: list[UploadFile] | None = None,
 ):
     """The single ingestion door: text, URL, page source, or a file.
 
@@ -783,9 +795,17 @@ async def api_ingest(
 
     The bookmarklet and the share target both post here.
     """
+    chosen = [f for f in (files or []) if f is not None and f.filename]
+
+    # More than one file is a batch: each is its own article, and the browser
+    # goes to the library rather than to any one of them.
+    if len(chosen) > 1:
+        return await _ingest_many(request, chosen, _parse_tags(tags))
+
     upload = None
     eml = None
-    if file is not None and file.filename:
+    if chosen:
+        file = chosen[0]
         data = await file.read()
         name = file.filename.lower()
         if name.endswith((".eml", ".mbox", ".msg")):
@@ -821,6 +841,7 @@ async def api_ingest(
             title=title,
             upload=upload,
             adapter=adapter,
+            source=source,
             build=False,
             tags=_parse_tags(tags),
         )
@@ -840,6 +861,33 @@ async def api_ingest(
             "duplicate": result.duplicate,
             "url": f"/a/{result.slug}",
         }
+    )
+
+
+async def _ingest_many(request: Request, files: list[UploadFile], tags: list[str]):
+    """Take a pile of files in one go. One bad file does not stop the rest."""
+    added, failed = [], []
+    for upload in files:
+        data = await upload.read()
+        name = upload.filename.lower()
+        kwargs: dict = {"tags": tags, "build": False}
+        if name.endswith((".eml", ".mbox", ".msg")):
+            kwargs["eml"] = data
+        elif name.endswith((".html", ".htm")):
+            kwargs["html"] = data.decode("utf-8", errors="replace")
+        else:
+            kwargs["upload"] = (data, upload.filename)
+        try:
+            added.append(ingest(**kwargs))
+        except IngestError as exc:
+            failed.append(f"{upload.filename}: {exc}")
+
+    if _wants_html(request):
+        query = urlencode({"added": len(added), "failed": " · ".join(failed)[:400]})
+        return RedirectResponse(f"/?{query}", status_code=303)
+    return JSONResponse(
+        {"added": [a.slug for a in added], "failed": failed},
+        status_code=200 if added else 400,
     )
 
 
@@ -1054,6 +1102,37 @@ def media(slug: str, name: str):
         path,
         media_type=types.get(path.suffix),
         headers={"Cache-Control": "public, max-age=31536000, immutable"},
+    )
+
+
+@app.get("/api/sources.zip", dependencies=[Auth])
+def api_sources_zip():
+    """Every original, as it arrived, in one zip.
+
+    These are the bytes each article was parsed from. They are what Re-parse
+    replays, and the only part of the library that cannot be regenerated.
+    """
+    import io
+    import zipfile
+
+    conn = db.connect()
+    titles = {row["slug"]: row["title"] for row in conn.execute("SELECT slug, title FROM article")}
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        for path in sorted(settings.source_dir.glob("*")):
+            if path.is_file():
+                # Named for the article it belongs to, not its slug, so the
+                # zip reads like the library does.
+                title = titles.get(path.stem, path.stem).replace("/", "-")
+                archive.write(path, f"{title}{path.suffix}")
+    if not buffer.tell():
+        raise HTTPException(status_code=404, detail="no sources are stored")
+
+    return Response(
+        buffer.getvalue(),
+        media_type="application/zip",
+        headers={"Content-Disposition": 'attachment; filename="textcast-sources.zip"'},
     )
 
 

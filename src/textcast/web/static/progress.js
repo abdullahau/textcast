@@ -2,6 +2,7 @@
 (function () {
   "use strict";
   var tries = 0;
+  var card = document.getElementById("build-status");
 
   function tick() {
     fetch("/api/jobs", { headers: { Accept: "application/json" } })
@@ -10,18 +11,27 @@
         var jobs = data.jobs || [];
         if (!jobs.length) { location.reload(); return; }
 
-        jobs.forEach(function (job) {
+        var mine = jobs;
+        if (card) {
+          /* An article page is about one article. Without this, somebody
+             else's job painted its progress over this one's a second after
+             the page loaded. */
+          mine = jobs.filter(function (job) { return String(job.article) === card.dataset.article; });
+          if (!mine.length) { location.reload(); return; }
+        }
+
+        mine.forEach(function (job) {
           var meter = document.querySelector('[data-job-meter="' + job.id + '"]') || document.getElementById("build-meter");
           var note = document.querySelector('[data-job-message="' + job.id + '"]') || document.getElementById("build-message");
           if (meter) meter.style.width = (job.progress * 100).toFixed(1) + "%";
           if (note) note.textContent = job.message || job.state;
 
-          /* A summarise job is calls to a language model, not synthesis. The
-             page can be opened before the job is claimed, so the heading has
-             to follow the queue rather than the render at load. */
+          /* Summarising is calls to a model, not synthesis, and the page can
+             be opened before the job is claimed — so the heading follows the
+             queue rather than whatever was true at load. */
           var title = document.getElementById("build-title");
           if (title) {
-            title.textContent = job.kind === "summarise" ? "Summarising…" : "Building audio…";
+            title.textContent = job.kind === "summarise" ? "Writing summaries…" : "Building audio…";
           }
         });
 

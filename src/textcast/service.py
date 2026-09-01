@@ -66,6 +66,7 @@ def article_from_source(
     title: str | None = None,
     upload: tuple[bytes, str] | None = None,
     adapter: str | None = None,
+    source: str = "",
 ) -> Article:
     """Parse one of the accepted input forms into an Article."""
     from .ingest.documents import UnsupportedDocument, article_from_file, article_from_text
@@ -81,7 +82,8 @@ def article_from_source(
         return article_from_eml(eml, url=url or "")
 
     if text is not None and text.strip():
-        return article_from_text(text, title=title or "")
+        # Pasted text has no page to name its publication, so it is asked for.
+        return article_from_text(text, title=title or "", source=source or "Pasted text")
 
     if html is None:
         if not url:
@@ -108,6 +110,7 @@ def ingest(
     title: str | None = None,
     upload: tuple[bytes, str] | None = None,
     adapter: str | None = None,
+    source: str = "",
     build: bool = True,
     options: dict | None = None,
     tags: list[str] | None = None,
@@ -123,7 +126,8 @@ def ingest(
     settings.ensure_dirs()
 
     article = article_from_source(
-        html=html, url=url, eml=eml, text=text, title=title, upload=upload, adapter=adapter
+        html=html, url=url, eml=eml, text=text, title=title, upload=upload,
+        adapter=adapter, source=source,
     )
     from_web = text is None and upload is None
     if from_web and article.word_count < MIN_WORDS:

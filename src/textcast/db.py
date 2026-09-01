@@ -725,25 +725,54 @@ def enqueue(
 ) -> int:
     conn = conn or connect()
     with transaction(conn):
-        # One pending job per article; re-queueing replaces the old one.
+        # One pending job of a kind per article; re-queueing replaces the old
+        # one. Scoped by kind, or asking for a summary would cancel a build
+        # that is waiting to run.
         conn.execute(
-            "DELETE FROM job WHERE article_id = ? AND state IN ('queued', 'failed')",
-            (article_id,),
+            "DELETE FROM job WHERE article_id = ? AND kind = ? AND state IN ('queued', 'failed')",
+            (article_id, kind),
         )
         cursor = conn.execute(
             "INSERT INTO job (article_id, kind, options, created_at) VALUES (?,?,?,?)",
             (article_id, kind, json.dumps(options or {}), now()),
         )
-        conn.execute("UPDATE article SET status = 'queued' WHERE id = ?", (article_id,))
+        # `status` describes the audio. Asking for a summary does not change
+        # what the audio is, so it does not touch it.
+        if kind == "build":
+            conn.execute("UPDATE article SET status = 'queued' WHERE id = ?", (article_id,))
     return int(cursor.lastrowid)
 
 
-def claim_job(conn: sqlite3.Connection | None = None) -> sqlite3.Row | None:
-    """Atomically take the oldest queued job."""
+def claim_job(
+    conn: sqlite3.Connection | None = None, kinds: tuple[str, ...] | None = None
+) -> sqlite3.Row | None:
+    """Atomically take the oldest queued job of these kinds.
+
+    Never one for an article that already has a job running. Summarising
+    rewrites the very blocks a build would be rendering, so the two must not
+    meet on the same article — but on different articles they use different
+    machines entirely, one the network and one the CPU, and there is no reason
+    for either to wait.
+
+    Only a build sets the article to `building`. A summary pass does not
+    change the state of the audio, so it does not pretend to.
+    """
     conn = conn or connect()
+    where = "state = 'queued'"
+    params: list[Any] = []
+    if kinds:
+        where += f" AND kind IN ({','.join('?' * len(kinds))})"
+        params.extend(kinds)
+
     with transaction(conn):
         row = conn.execute(
-            "SELECT * FROM job WHERE state = 'queued' ORDER BY created_at, id LIMIT 1"
+            f"""
+            SELECT * FROM job
+             WHERE {where}
+               AND article_id NOT IN (SELECT article_id FROM job WHERE state = 'running')
+             ORDER BY created_at, id LIMIT 1
+            """,
+            params,
         ).fetchone()
         if row is None:
             return None
@@ -751,7 +780,10 @@ def claim_job(conn: sqlite3.Connection | None = None) -> sqlite3.Row | None:
             "UPDATE job SET state = 'running', started_at = ?, progress = 0 WHERE id = ?",
             (now(), row["id"]),
         )
-        conn.execute("UPDATE article SET status = 'building' WHERE id = ?", (row["article_id"],))
+        if row["kind"] == "build":
+            conn.execute(
+                "UPDATE article SET status = 'building' WHERE id = ?", (row["article_id"],)
+            )
     return row
 
 

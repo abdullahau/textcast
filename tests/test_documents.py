@@ -141,3 +141,32 @@ def test_markdown_headings_are_found_anywhere_in_the_text():
 
     assert looks_like_markdown(text)
     assert [s.title for s in article_from_text(text).sections] == ["First section", "Second"]
+
+
+def test_a_quotation_that_runs_over_lines_is_one_block():
+    """Split, each line got its own "Start quote… End quote" spoken round it."""
+    from textcast.document import BlockKind
+    from textcast.ingest.documents import article_from_text
+
+    article = article_from_text(
+        "# One\n\nOrdinary prose here, long enough to be a paragraph.\n\n"
+        "> The quotation begins,\n> and carries on.\n\n"
+        "More prose.\n\n> A separate quotation.\n"
+    )
+    blocks = [b for _s, b in article.blocks()]
+
+    kinds = [b.kind for b in blocks]
+    assert kinds == [BlockKind.PARA, BlockKind.QUOTE, BlockKind.PARA, BlockKind.QUOTE]
+    assert blocks[1].text == "The quotation begins, and carries on."
+    assert blocks[1].spoken().count("Start quote") == 1
+
+
+def test_a_quotation_ending_at_a_new_paragraph_does_not_swallow_it():
+    from textcast.document import BlockKind
+    from textcast.ingest.documents import article_from_text
+
+    article = article_from_text("# One\n\n> Quoted.\nStraight back to prose without a blank line.\n")
+    blocks = [b for _s, b in article.blocks()]
+
+    assert [b.kind for b in blocks] == [BlockKind.QUOTE, BlockKind.PARA]
+    assert blocks[1].text == "Straight back to prose without a blank line."

@@ -17,6 +17,9 @@
 
 <div class="section-head"><h1>Library</h1></div>
 
+{% if added %}<p class="notice ok">Added {{ added }} article{{ '' if added == 1 else 's' }}. Build the audio from each one.</p>{% endif %}
+{% if failed %}<p class="notice error">{{ failed }}</p>{% endif %}
+
 <form class="filters" method="get" action="/">
   <select name="tag" onchange="this.form.submit()" aria-label="Filter by tag">
     <option value="">All tags</option>
@@ -46,9 +49,12 @@
 
 {% if jobs %}
   <div class="card" id="job-strip" style="margin-bottom:1rem">
-    <h2>Building</h2>
+    <h2>In progress</h2>
     {% for j in jobs %}
-      <p class="hint" style="margin:.5rem 0 .3rem">{{ j.title }} — <span data-job-message="{{ j.id }}">{{ j.message or j.state }}</span></p>
+      <p class="hint" style="margin:.5rem 0 .3rem">
+        <span class="badge {{ 'queued' if j.kind == 'summarise' else 'building' }}">{{ 'summary' if j.kind == 'summarise' else 'audio' }}</span>
+        {{ j.title }} — <span data-job-message="{{ j.id }}">{{ j.message or j.state }}</span>
+      </p>
       <span class="meter"><i data-job-meter="{{ j.id }}" style="width: {{ (j.progress * 100)|round(1) }}%"></i></span>
     {% endfor %}
   </div>
@@ -86,6 +92,25 @@
   <span>{{ stats.audio_ms|duration or '0:00' }} total</span>
   <span>{{ "%.0f"|format(stats.audio_bytes / 1e6) }} MB</span>
 </p>
+
+{% if sources.count %}
+  <div class="card">
+    <div class="titled">
+      <h2>Keep the originals</h2>
+      <span class="tip">
+        <button type="button" class="q" aria-label="What is in the zip">?</button>
+        <span class="tip-body" role="tooltip">The bytes each article was parsed from — the pages,
+        the PDFs, the newsletters, the text you pasted. Re-parse replays them, and they are the
+        one part of the library that cannot be made again.</span>
+      </span>
+    </div>
+    <div class="row">
+      <a class="btn ghost narrow" href="/api/sources.zip">
+        Download {{ sources.count }} originals ({{ "%.1f"|format(sources.bytes / 1e6) }} MB)
+      </a>
+    </div>
+  </div>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}{% if jobs %}<script src="/static/progress.js?v={{ assets }}" defer></script>{% endif %}{% endblock %}

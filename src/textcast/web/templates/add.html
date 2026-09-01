@@ -13,13 +13,23 @@
 
 <div class="card">
   <h2>Paste text</h2>
-  <p class="hint">Anything you have already copied. Plain text or Markdown — blank lines separate paragraphs, and <code>#</code> headings become sections.</p>
+  <p class="hint">
+    Anything you have already copied. Blank lines separate paragraphs,
+    <code>#</code> starts a section, <code>&gt;</code> marks a quotation — read in the quote
+    voice, or announced — and <code>-</code> makes a list.
+  </p>
   <form method="post" action="/api/ingest">
     <input type="hidden" name="kind" value="text">
-    <div class="row"><div>
-      <label for="text-title">Title <span style="font-weight:400;color:var(--muted)">(optional)</span></label>
-      <input type="text" name="title" id="text-title" placeholder="Taken from the first heading if left blank">
-    </div></div>
+    <div class="row">
+      <div>
+        <label for="text-title">Title <span style="font-weight:400;color:var(--muted)">(optional)</span></label>
+        <input type="text" name="title" id="text-title" placeholder="Taken from the first heading if left blank">
+      </div>
+      <div>
+        <label for="text-source">Source <span style="font-weight:400;color:var(--muted)">(optional)</span></label>
+        <input type="text" name="source" id="text-source" placeholder="Bloomberg, a friend, your own notes…">
+      </div>
+    </div>
     <div class="row" style="margin-top:.7rem"><div>
       <label for="text-body">Text</label>
       <textarea name="text" id="text-body" required placeholder="Paste here…"></textarea>
@@ -42,11 +52,16 @@
 
 <div class="card">
   <h2>From a file</h2>
-  <p class="hint">PDF, Word (<code>.docx</code>), Markdown, plain text, a saved web page, or a newsletter saved as <code>.eml</code>.</p>
+  <p class="hint">
+    PDF, Word (<code>.docx</code>), Markdown, plain text, a saved web page, or a newsletter saved
+    as <code>.eml</code>. Choose as many as you like — each becomes its own article, and one bad
+    file does not stop the rest.
+  </p>
   <form method="post" action="/api/ingest" enctype="multipart/form-data">
     <input type="hidden" name="kind" value="file">
     <div class="row">
-      <input type="file" name="file" accept=".pdf,.docx,.md,.markdown,.txt,.html,.htm,.eml,.mbox" required>
+      <input type="file" name="files" multiple
+             accept=".pdf,.docx,.md,.markdown,.txt,.html,.htm,.eml,.mbox" required>
     </div>
     <div class="row" style="margin-top:.9rem"><button class="narrow" type="submit">Upload</button></div>
   </form>

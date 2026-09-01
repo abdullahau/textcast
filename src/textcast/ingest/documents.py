@@ -86,12 +86,16 @@ def article_from_text(
     current = Section(title="")
     paragraph: list[str] = []
     in_fence = False
+    quoting = False
 
     def flush() -> None:
+        nonlocal quoting
         joined = " ".join(paragraph).strip()
+        kind = BlockKind.QUOTE if quoting else BlockKind.PARA
         paragraph.clear()
+        quoting = False
         if joined:
-            current.blocks.append(Block(kind=BlockKind.PARA, text=strip_markdown(joined)))
+            current.blocks.append(Block(kind=kind, text=strip_markdown(joined)))
 
     def new_section(heading: str) -> None:
         nonlocal current
@@ -124,11 +128,19 @@ def article_from_text(
 
         quote = _MD_QUOTE.match(line) if markdown else None
         if quote:
-            flush()
+            # Run-on `>` lines are one quotation, the same way run-on plain
+            # lines are one paragraph. Split, each got its own "Start quote…
+            # End quote" spoken around it.
             body = strip_markdown(quote.group(1))
-            if body:
-                current.blocks.append(Block(kind=BlockKind.QUOTE, text=body))
+            if quoting and body:
+                paragraph.append(body)
+            elif body:
+                flush()
+                quoting = True
+                paragraph.append(body)
             continue
+        if quoting:
+            flush()
 
         item = _MD_LIST.match(line)
         if item:

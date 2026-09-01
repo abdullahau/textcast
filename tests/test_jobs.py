@@ -91,3 +91,42 @@ def test_an_article_asking_for_a_retired_engine_still_builds(conn, settings, cap
 
     assert db.get_article(stored.article_id, conn)["status"] == "ready"
     assert "gone" in caplog.text
+
+
+def test_a_summary_and_a_build_run_at_the_same_time(conn, settings):
+    """They use different machines — the network and the CPU — so queueing one
+    behind the other bought nothing."""
+    first = ingest(text=LONG_NOTE, title="Being built")
+    second = ingest(text=LONG_NOTE + "\n\nDifferent.", title="Being summarised", build=False)
+    db.enqueue(second.article_id, kind="summarise", conn=conn)
+
+    build = db.claim_job(conn, ("build",))
+    summary = db.claim_job(conn, ("summarise",))
+
+    assert build["article_id"] == first.article_id
+    assert summary["article_id"] == second.article_id, "the second lane did not wait"
+
+
+def test_the_two_kinds_never_meet_on_one_article(conn, settings):
+    """A summary rewrites the very blocks a build is rendering."""
+    stored = ingest(text=LONG_NOTE, title="One article")
+    db.enqueue(stored.article_id, kind="summarise", conn=conn)
+
+    db.claim_job(conn, ("summarise",))
+
+    assert db.claim_job(conn, ("build",)) is None, "the build waited its turn"
+
+
+def test_a_failed_summary_does_not_mark_the_audio_failed(conn, settings, monkeypatch):
+    from textcast import summarize
+
+    summarize.save_config(conn, api_key="k", model="stub")
+    monkeypatch.setattr(summarize, "_client", lambda cfg: (_ for _ in ()).throw(RuntimeError("no")))
+    stored = ingest(text=LONG_NOTE, title="Summary will fail", build=False)
+    db.enqueue(stored.article_id, kind="summarise", conn=conn)
+
+    Worker(settings).step(("summarise",))
+
+    assert db.get_article(stored.article_id, conn)["status"] == "new", "the article is as it was"
+    job = conn.execute("SELECT state, kind FROM job ORDER BY id DESC LIMIT 1").fetchone()
+    assert (job["kind"], job["state"]) == ("summarise", "failed")

@@ -13,6 +13,11 @@ writes those in as blocks. Summarising does not then build: inserting a block
 moves every id after it, so the audio has to be made after the text is final,
 and when that happens is yours to say.
 
+They run in their own lanes, side by side. One is the CPU for minutes and the
+other is the network for seconds; queueing the quick one behind the long one
+bought nothing. ``claim_job`` keeps them off the same article, which is the
+only place they actually collide.
+
 The engine is loaded once and kept, because loading it costs more than a short
 article's synthesis.
 """
@@ -34,6 +39,10 @@ from .tts import ENGINES, TTSEngine, get_engine, publish_engine
 
 log = logging.getLogger("textcast.jobs")
 
+#: One thread each. Synthesis is CPU-bound and long; summarising is a handful
+#: of network calls. Nothing is gained by making either wait for the other.
+LANES = (("build",), ("summarise",))
+
 
 class Worker:
     """Polls for queued builds and renders them, one at a time."""
@@ -44,34 +53,51 @@ class Worker:
         self._engines: list[TTSEngine] = []
         self._engine_key: tuple[str, int] | None = None
         self._stop = threading.Event()
-        self._thread: threading.Thread | None = None
+        self._threads: list[threading.Thread] = []
         self._mail_checked: float | None = None
 
     # -- lifecycle ---------------------------------------------------------
 
     def start(self) -> None:
-        if self._thread is not None:
+        """Start both lanes in the background."""
+        if self._threads:
             return
-        self._thread = threading.Thread(target=self.run, name="textcast-worker", daemon=True)
-        self._thread.start()
+        db.init(self.settings.db_path)
+        self._requeue_orphans()
+        for kinds in LANES:
+            thread = threading.Thread(
+                target=self._loop, args=(kinds,), name=f"textcast-{kinds[0]}", daemon=True
+            )
+            thread.start()
+            self._threads.append(thread)
         log.info("worker started (engine=%s)", self.settings.engine)
 
     def stop(self, timeout: float = 5.0) -> None:
         self._stop.set()
-        if self._thread is not None:
-            self._thread.join(timeout=timeout)
-            self._thread = None
+        for thread in self._threads:
+            thread.join(timeout=timeout)
+        self._threads = []
 
     def run(self) -> None:
-        db.init(self.settings.db_path)
-        self._requeue_orphans()
+        """Start the lanes and stay in the foreground until interrupted."""
+        self.start()
+        try:
+            while not self._stop.wait(1.0):
+                pass
+        except KeyboardInterrupt:
+            pass
+        finally:
+            self.stop()
+
+    def _loop(self, kinds: tuple[str, ...]) -> None:
         while not self._stop.is_set():
             try:
-                self._poll_mail()
-                if not self.step():
+                if "summarise" in kinds:
+                    self._poll_mail()
+                if not self.step(kinds):
                     self._stop.wait(self.poll_seconds)
             except Exception:
-                log.exception("worker loop failed")
+                log.exception("%s lane failed", kinds[0])
                 self._stop.wait(self.poll_seconds)
 
     def _poll_mail(self) -> None:
@@ -132,10 +158,10 @@ class Worker:
         publish_engine(self._engines[0])
         return self._engines
 
-    def step(self) -> bool:
-        """Run one job. Returns False when the queue is empty."""
+    def step(self, kinds: tuple[str, ...] | None = None) -> bool:
+        """Run one job of these kinds. Returns False when there is none."""
         conn = db.connect(self.settings.db_path)
-        job = db.claim_job(conn)
+        job = db.claim_job(conn, kinds)
         if job is None:
             return False
 
@@ -147,11 +173,14 @@ class Worker:
                 self._build(conn, job)
             db.update_job(job["id"], conn, state="done", progress=1.0, finished_at=db.now(), message="")
         except Exception as exc:
-            log.exception("build failed for article %s", article_id)
+            log.exception("%s failed for article %s", job["kind"], article_id)
             db.update_job(
                 job["id"], conn, state="failed", error=str(exc)[:800], finished_at=db.now()
             )
-            db.set_status(article_id, "failed", conn)
+            # Only a build failing means the audio failed. A summary that did
+            # not arrive leaves the article exactly as it was.
+            if job["kind"] == "build":
+                db.set_status(article_id, "failed", conn)
         return True
 
     def _summarise(self, conn, job) -> None:

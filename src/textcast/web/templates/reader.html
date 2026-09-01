@@ -133,25 +133,25 @@
 
   {% if row.status != 'ready' %}
     {% set summarising = job and job.kind == 'summarise' %}
+    {% set running = job and job.state in ('queued', 'running') %}
     <div class="card" id="build-status" data-article="{{ row.id }}" data-status="{{ row.status }}"
-         {{ 'hidden' if row.status == 'new' }}>
-      {% if row.status == 'failed' %}
-        <h2 id="build-title">{{ 'Summarising failed' if summarising else 'Build failed' }}</h2>
-        <p class="hint mono">{{ job.error if job and job.error else 'No error recorded.' }}</p>
-      {% elif row.status in ('queued', 'building') %}
-        <h2 id="build-title">{{ 'Summarising…' if summarising else 'Building audio…' }}</h2>
+         {{ 'hidden' if not running and row.status != 'failed' }}>
+      {% if running %}
+        <h2 id="build-title">{{ 'Writing summaries…' if summarising else 'Building audio…' }}</h2>
         <p class="hint" id="build-message">
-          {%- if job and job.message %}{{ job.message }}
-          {%- elif summarising %}Waiting for the model.
+          {%- if job.message %}{{ job.message }}
+          {%- elif summarising %}Waiting for {{ summary_model }}.
           {%- else %}Waiting for the worker.{% endif -%}
         </p>
-        <span class="meter"><i id="build-meter" style="width: {{ ((job.progress if job else 0) * 100)|round(1) }}%"></i></span>
+        <span class="meter"><i id="build-meter" style="width: {{ (job.progress * 100)|round(1) }}%"></i></span>
         {% if summarising %}
           <p class="hint" style="margin:.6rem 0 0">
-            One call per section to {{ summary_model }}. The audio is not being touched;
-            build it when the summaries land.
+            One call per section. Your audio is untouched — build it when the summaries land.
           </p>
         {% endif %}
+      {% elif row.status == 'failed' %}
+        <h2 id="build-title">Build failed</h2>
+        <p class="hint mono">{{ job.error if job and job.error else 'No error recorded.' }}</p>
       {% endif %}
     </div>
   {% endif %}
