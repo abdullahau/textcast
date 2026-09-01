@@ -51,19 +51,19 @@
 </div>
 
 <div class="card">
-  <h2>From a file</h2>
+  <h2>From files</h2>
   <p class="hint">
-    PDF, Word (<code>.docx</code>), Markdown, plain text, a saved web page, or a newsletter saved
-    as <code>.eml</code>. Choose as many as you like — each becomes its own article, and one bad
-    file does not stop the rest.
+    Saved web pages (<code>.html</code>), PDFs, Word (<code>.docx</code>), Markdown, plain text,
+    or newsletters saved as <code>.eml</code>. <b>Pick as many as you like</b> — each becomes its
+    own article, and one that will not parse does not stop the others.
   </p>
   <form method="post" action="/api/ingest" enctype="multipart/form-data">
     <input type="hidden" name="kind" value="file">
     <div class="row">
-      <input type="file" name="files" multiple
-             accept=".pdf,.docx,.md,.markdown,.txt,.html,.htm,.eml,.mbox" required>
+      <input type="file" name="files" id="file-input" multiple
+             accept=".html,.htm,.pdf,.docx,.md,.markdown,.txt,.eml,.mbox,.msg" required>
+      <button class="narrow" type="submit" id="file-submit">Upload</button>
     </div>
-    <div class="row" style="margin-top:.9rem"><button class="narrow" type="submit">Upload</button></div>
   </form>
 </div>
 
@@ -112,6 +112,17 @@
 </div>
 
 <script>
+/* Say how many were picked, so a batch upload is obviously a batch. */
+(function () {
+  var input = document.getElementById("file-input");
+  var submit = document.getElementById("file-submit");
+  if (!input || !submit) return;
+  input.addEventListener("change", function () {
+    var n = input.files ? input.files.length : 0;
+    submit.textContent = n > 1 ? "Upload " + n + " files" : "Upload";
+  });
+})();
+
 (function () {
   var code = "javascript:(function(){var f=document.createElement('form');f.method='POST';f.action='" + location.origin + "/api/ingest';f.target='_blank';var k=document.createElement('input');k.type='hidden';k.name='kind';k.value='html';var h=document.createElement('input');h.type='hidden';h.name='html';h.value=document.documentElement.outerHTML;var u=document.createElement('input');u.type='hidden';u.name='url';u.value=location.href;f.appendChild(k);f.appendChild(h);f.appendChild(u);document.body.appendChild(f);f.submit();f.remove();})()";
   var link = document.getElementById("bookmarklet");

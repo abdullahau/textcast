@@ -366,7 +366,7 @@ button.q:hover, button.q:focus-visible { color: var(--fg); border-color: var(--f
 
 /* Import and export live inside the rule box: same subject, one place. */
 .rule-io { margin-top: 1.1rem; padding-top: 1rem; border-top: 1px solid var(--border); }
-.rule-io input[type=file] { flex: 1 1 auto; min-width: 0; }
+
 
 /* ---------- article list ---------- */
 
@@ -569,7 +569,33 @@ input:focus, select:focus, textarea:focus { border-color: var(--border-hi); }
 input::placeholder, textarea::placeholder { color: var(--muted); }
 textarea { min-height: 9rem; resize: vertical; line-height: 1.55; }
 textarea.code { font-family: var(--mono); font-size: .78rem; min-height: 7rem; }
-input[type=file] { font-size: .82rem; color: var(--muted); padding: .35rem; }
+/* A file input is a button and a label the browser draws itself, so it lines
+   up with nothing unless it is given the same box as every other field. */
+input[type=file] {
+  width: 100%;
+  min-height: 2.1rem;
+  padding: .34rem .4rem .34rem .34rem;
+  font: inherit;
+  font-size: .82rem;
+  color: var(--muted);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+input[type=file]::file-selector-button {
+  margin-right: .6rem;
+  height: 1.6rem;
+  padding: 0 .7rem;
+  font: inherit;
+  font-size: .8rem;
+  font-weight: 500;
+  color: var(--fg-soft);
+  background: var(--sunk);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+input[type=file]::file-selector-button:hover { background: var(--raised); color: var(--fg); }
 
 .row { display: flex; gap: .55rem; flex-wrap: wrap; align-items: flex-end; }
 .row + .row { margin-top: .7rem; }

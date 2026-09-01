@@ -246,17 +246,18 @@
         changes nothing.</span>
       </span>
     </div>
-    <div class="row">
-      <a class="btn ghost narrow" href="/pronunciations/export">Export {{ rows|length }}</a>
-      <form method="post" action="/pronunciations/import" id="import-form"
-            enctype="multipart/form-data" class="row" style="flex:1;margin:0">
+    <form method="post" action="/pronunciations/import" enctype="multipart/form-data">
+      <div class="row">
         <input type="file" name="file" accept=".json,application/json" required>
         <button class="ghost narrow" type="submit">Import</button>
-      </form>
+      </div>
+      <label class="check" style="margin-top:.6rem">
+        <input type="checkbox" name="replace" value="true"> Replace all, instead of merging
+      </label>
+    </form>
+    <div class="row" style="margin-top:.8rem">
+      <a class="btn ghost narrow" href="/pronunciations/export">Export {{ rows|length }} rules</a>
     </div>
-    <label class="check" style="margin-top:.6rem">
-      <input type="checkbox" name="replace" value="true" form="import-form"> Replace all, instead of merging
-    </label>
   </div>
 </div>
 
