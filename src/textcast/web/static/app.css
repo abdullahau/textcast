@@ -17,6 +17,7 @@
   --ring:      #a1a1aa;
   --highlight: #ececef;   /* the read-along wash */
   --knob:      #ffffff;   /* the theme switch's sliding knob */
+  --info:      #2563eb;   /* status: not built yet */
   --good:      #16a34a;
   --bad:       #dc2626;
   --warn:      #ca8a04;
@@ -47,6 +48,7 @@
     --ring:      #52525b;
     --highlight: #1f1f23;
     --knob:      #52525b;
+    --info:      #60a5fa;
     --good:      #4ade80;
     --bad:       #f87171;
     --warn:      #facc15;
@@ -68,6 +70,7 @@
   --ring:      #52525b;
   --highlight: #1f1f23;
   --knob:      #52525b;
+  --info:      #60a5fa;
   --good:      #4ade80;
   --bad:       #f87171;
   --warn:      #facc15;
@@ -331,9 +334,13 @@ button.q:hover, button.q:focus-visible { color: var(--fg); border-color: var(--f
   background: var(--surface);
 }
 
+/* Two rows, two columns. Title and length on the first; state on the left of
+   the second, and who/where/how-long on its right. Reading down the left edge
+   gives you the titles, down the right the lengths. */
 .item {
   display: grid;
   grid-template-columns: 1fr auto;
+  grid-template-rows: auto auto;
   gap: .3rem .9rem;
   padding: .85rem 1rem;
   border-bottom: 1px solid var(--border);
@@ -341,28 +348,55 @@ button.q:hover, button.q:focus-visible { color: var(--fg); border-color: var(--f
 }
 .item:last-child { border-bottom: none; }
 .item:hover { background: var(--raised); text-decoration: none; }
-.item .t { font-weight: 500; line-height: 1.4; font-size: .93rem; }
-.item .m {
+
+.item .t {
+  grid-row: 1;
   grid-column: 1;
+  font-weight: 500;
+  line-height: 1.4;
+  font-size: .93rem;
+  display: flex;
+  align-items: baseline;
+  gap: .38rem;
+  min-width: 0;
+}
+/* Starred reads before the title, so the ones you flagged are found by
+   scanning the left edge rather than by hunting through the metadata. */
+.item .star { color: var(--warn); flex: none; font-size: .85rem; line-height: 1.4; }
+
+.item .r {
+  grid-row: 1;
+  grid-column: 2;
+  align-self: baseline;
+  /* The column is as wide as the metadata under it, so without this the
+     lengths float in the middle of it instead of lining up on the edge. */
+  justify-self: end;
+  font-size: .82rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg-soft);
+  white-space: nowrap;
+}
+
+.item .s { grid-row: 2; grid-column: 1; align-self: center; }
+
+.item .m {
+  grid-row: 2;
+  grid-column: 2;
   font-size: .76rem;
   color: var(--muted);
   display: flex;
   flex-wrap: wrap;
-  gap: .3rem .5rem;
+  justify-content: flex-end;
   align-items: center;
-}
-.item .r {
-  grid-row: 1 / span 2;
-  grid-column: 2;
-  align-self: center;
-  font-size: .78rem;
-  font-variant-numeric: tabular-nums;
-  color: var(--muted);
+  gap: .3rem .5rem;
   text-align: right;
-  white-space: nowrap;
 }
+.item .m .who { color: var(--fg-soft); }
 
-/* ---------- badges and tags ---------- */
+/* Narrow screens have no room for two columns of metadata. */
+@media (max-width: 33rem) {
+  .item .m { grid-column: 1 / -1; grid-row: 3; justify-content: flex-start; text-align: left; }
+}
 
 .badge {
   display: inline-flex;
@@ -377,6 +411,7 @@ button.q:hover, button.q:focus-visible { color: var(--fg); border-color: var(--f
   border: 1px solid var(--border);
 }
 .badge.ready    { color: var(--good); border-color: color-mix(in srgb, var(--good) 35%, transparent); }
+.badge.new      { color: var(--info); border-color: color-mix(in srgb, var(--info) 35%, transparent); }
 .badge.building,
 .badge.queued   { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 35%, transparent); }
 .badge.failed   { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 35%, transparent); }

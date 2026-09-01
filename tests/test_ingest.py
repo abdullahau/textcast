@@ -187,3 +187,23 @@ def test_a_short_pasted_note_is_accepted(conn):
     # Whitespace-only reads as "you gave me nothing", which is the truth.
     with pytest.raises(IngestError, match="give a url, some text"):
         ingest(text="   ", build=False)
+
+
+@pytest.mark.skipif(not PAGES, reason="corpus not present")
+def test_a_bloomberg_page_names_who_wrote_it():
+    """Every Money Stuff issue says Matt Levine in its head, three times over,
+    and the adapter read none of them."""
+    page = next((p for p in PAGES if "Bloomberg" in p.name), None)
+    assert page is not None, "the corpus has no Bloomberg page"
+
+    article = load(page)
+
+    assert article.source == "Bloomberg"
+    assert article.author, "no byline extracted"
+    assert article.author == "Matt Levine"
+
+
+@pytest.mark.skipif(not PAGES, reason="corpus not present")
+def test_every_page_in_the_corpus_has_a_byline():
+    for page in PAGES:
+        assert load(page).author, f"{page.name} parsed without an author"

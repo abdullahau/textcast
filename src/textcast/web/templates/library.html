@@ -58,15 +58,18 @@
   <div class="list">
     {% for a in articles %}
       <a class="item" href="/a/{{ a.slug }}">
-        <span class="t">{{ a.title }}</span>
-        <span class="m">
-          {% if a.status != 'ready' %}<span class="badge {{ a.status }}">{{ a.status }}</span>{% endif %}
-          {% for t in article_tags.get(a.id, []) %}<span class="tag">{{ t }}</span>{% endfor %}
-          {% if a.starred %}<span title="Starred">★</span>{% endif %}
-          <span>{{ "{:,}".format(a.word_count) }} words</span>
-          {% if a.published_at %}<span>{{ a.published_at|date }}</span>{% endif %}
+        <span class="t">
+          {% if a.starred %}<span class="star" title="Starred" aria-label="Starred">★</span>{% endif %}
+          <span>{{ a.title }}</span>
         </span>
         <span class="r">{{ a.audio_ms|duration or '—' }}</span>
+        <span class="s"><span class="badge {{ a.status }}">{{ a.status }}</span></span>
+        <span class="m">
+          {% if a.author %}<span class="who">{{ a.author }}</span>{% endif %}
+          {% if a.source %}<span>{{ a.source }}</span>{% endif %}
+          <span>{{ "{:,}".format(a.word_count) }} words</span>
+          {% for t in article_tags.get(a.id, []) %}<span class="tag">{{ t }}</span>{% endfor %}
+        </span>
       </a>
     {% endfor %}
   </div>

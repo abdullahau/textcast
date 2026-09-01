@@ -10,7 +10,7 @@ import re
 
 from ..document import Article, Block, BlockKind
 from .base import blocks_from_dom, finish, inline_footnotes, text_of
-from .dom import Tree, attr, clean, drop, root, select, select_one
+from .dom import Tree, attr, clean, drop, first_text, root, select, select_one
 
 DEK = '[class*="HedAndDek_dek"]'
 FOOTNOTE_LIST = 'ol[class*="Footnotes_base"]'
@@ -26,6 +26,32 @@ NOISE = [
 ]
 
 
+#: Bloomberg names the writer three times over in the head, and again in the
+#: byline. The meta tags are stable; the byline class carries a build hash, so
+#: it is matched on a prefix and kept as the fallback.
+AUTHOR_META = [
+    'meta[name="parsely-author"]',
+    'meta[name="sailthru.author"]',
+    'meta[name="author"]',
+    'meta[property="article:author"]',
+]
+AUTHOR_BYLINE = [
+    '[class*="BylineAuthorBio_author"]',
+    '[class*="bylineAuthor"] a',
+    '[class*="Byline"] a',
+    '[rel="author"]',
+]
+
+
+def _author(tree: Tree) -> str:
+    """Who wrote it. Every Money Stuff issue says Matt Levine right here."""
+    for selector in AUTHOR_META:
+        content = attr(select_one(tree, selector), "content").strip()
+        if content:
+            return content
+    return first_text(tree, AUTHOR_BYLINE)
+
+
 class BloombergAdapter:
     name = "bloomberg"
 
@@ -37,6 +63,7 @@ class BloombergAdapter:
     def parse(self, tree: Tree, url: str = "") -> Article:
         title = text_of(select_one(tree, "h1")) or "Untitled"
         subtitle = text_of(select_one(tree, DEK))
+        author = _author(tree)
 
         # Decide this before dropping noise: the subscribe link that names the
         # series sits in a node the noise selectors remove.
@@ -62,6 +89,7 @@ class BloombergAdapter:
             Article(
                 title=title,
                 subtitle=subtitle,
+                author=author,
                 sections=sections,
                 source="Bloomberg",
                 url=url,

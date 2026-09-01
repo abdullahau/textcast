@@ -173,11 +173,19 @@
   </div>
 
   <div class="card" style="margin-top:2.5rem">
-    <h2>Tags</h2>
+    <h2>Details</h2>
     <p class="hint">Tags are how the library filters. Type to create a new one.</p>
     <form method="post" action="/api/articles/{{ row.id }}/tags">
+      <div class="row" style="margin-bottom:.8rem">
+        <div>
+          <label for="author">Author</label>
+          <input type="text" name="author" id="author" value="{{ row.author }}"
+                 placeholder="Whoever wrote it" autocomplete="off">
+        </div>
+      </div>
+      <label for="tag-entry">Tags</label>
       <div class="tag-input" data-tag-input>
-        <input type="text" placeholder="Add a tag, press Enter" autocomplete="off" data-tag-entry>
+        <input type="text" id="tag-entry" placeholder="Add a tag, press Enter" autocomplete="off" data-tag-entry>
       </div>
       <input type="hidden" name="tags" data-tag-values value="{{ tags|join(',') }}">
       {% if all_tags %}
@@ -185,7 +193,7 @@
           {% for t in all_tags[:14] %}<button type="button" class="tag" data-tag-suggest="{{ t.name }}">{{ t.name }}</button>{% endfor %}
         </div>
       {% endif %}
-      <div class="row" style="margin-top:.8rem"><button class="ghost narrow" type="submit">Save tags</button></div>
+      <div class="row" style="margin-top:.8rem"><button class="ghost narrow" type="submit">Save details</button></div>
     </form>
   </div>
 

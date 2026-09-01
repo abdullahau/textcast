@@ -337,3 +337,60 @@ def test_the_two_dark_palettes_stay_identical():
         f"only in one: {set(by_media) ^ set(by_switch)}; "
         f"differing: {[k for k in by_media if by_media[k] != by_switch.get(k)]}"
     )
+
+
+def test_the_author_can_be_corrected_by_hand(client, conn, monkeypatch):
+    """A publication puts a byline in its head; a pasted note has nowhere to
+    find one, so the field is editable either way."""
+    from textcast.document import Article, Block, BlockKind, Section
+
+    monkeypatch.setattr(web, "_voices", lambda: [])
+    doc = Article(title="Anonymous note", sections=[Section(title="One", blocks=[
+        Block(kind=BlockKind.PARA, text="The body of it."),
+    ])]).renumber()
+    article_id = db.save_article(doc, conn)
+    assert db.get_article(article_id, conn)["author"] == ""
+
+    client.post(f"/api/articles/{article_id}/tags",
+                data={"tags": "Notes", "author": "  Matt Levine  "})
+
+    assert db.get_article(article_id, conn)["author"] == "Matt Levine"
+    assert db.tags_for(article_id, conn) == ["Notes"]
+    assert 'value="Matt Levine"' in client.get("/a/anonymous-note").text
+
+
+def test_tags_can_still_be_saved_without_touching_the_author(client, conn):
+    from textcast.document import Article, Block, BlockKind, Section
+
+    doc = Article(title="Keeps its byline", author="George Hammond",
+                  sections=[Section(title="One", blocks=[
+                      Block(kind=BlockKind.PARA, text="The body of it."),
+                  ])]).renumber()
+    article_id = db.save_article(doc, conn)
+
+    client.post(f"/api/articles/{article_id}/tags", data={"tags": "Reading"})
+
+    assert db.get_article(article_id, conn)["author"] == "George Hammond"
+
+
+def test_the_library_row_reads_star_title_length_status_then_who(client, conn):
+    """Every status shows, including ready, each in its own colour."""
+    from textcast.document import Article, Block, BlockKind, Section
+
+    doc = Article(title="A starred piece", author="Matt Levine", source="Bloomberg",
+                  sections=[Section(title="One", blocks=[
+                      Block(kind=BlockKind.PARA, text="The body of it."),
+                  ])]).renumber()
+    article_id = db.save_article(doc, conn)
+    db.set_tags(article_id, ["Money Stuff"], conn)
+    db.set_flag(article_id, "starred", True, conn)
+
+    page = client.get("/").text
+    # The tag filter names every tag too, so take the row itself, not the page.
+    start = page.index('href="/a/a-starred-piece"')
+    row = page[start : page.index("</a>", start)]
+
+    assert '<span class="star"' in row and row.index("star") < row.index("A starred piece")
+    assert '<span class="badge new">new</span>' in row, "ready is not the only status shown"
+    order = [row.index(x) for x in ("Matt Levine", "Bloomberg", "words", "Money Stuff")]
+    assert order == sorted(order), "author, publication, word count, then tags"

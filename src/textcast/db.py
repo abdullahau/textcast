@@ -315,6 +315,12 @@ def delete_article(article_id: int, conn: sqlite3.Connection | None = None) -> N
     conn.execute("DELETE FROM article WHERE id = ?", (article_id,))
 
 
+def set_author(article_id: int, author: str, conn: sqlite3.Connection | None = None) -> None:
+    """Who wrote it, when the parser did not find out or got it wrong."""
+    conn = conn or connect()
+    conn.execute("UPDATE article SET author = ? WHERE id = ?", (author.strip(), article_id))
+
+
 def set_flag(article_id: int, field: str, value: bool, conn: sqlite3.Connection | None = None) -> None:
     if field not in ("starred", "archived"):
         raise ValueError(f"not a flag: {field}")

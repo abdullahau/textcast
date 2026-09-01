@@ -948,14 +948,23 @@ def api_manifest(article_id: int):
 
 
 @app.post("/api/articles/{article_id}/tags", dependencies=[Auth])
-def api_set_tags(request: Request, article_id: int, tags: str = Form(default="")):
+def api_set_details(
+    request: Request,
+    article_id: int,
+    tags: str = Form(default=""),
+    author: str | None = Form(default=None),
+):
+    """Tags, and the byline. The parser finds the author where a publication
+    publishes one; a pasted note has nowhere to find it, so it is editable."""
     row = db.get_article(article_id)
     if row is None:
         raise HTTPException(status_code=404, detail="no such article")
     applied = db.set_tags(article_id, _parse_tags(tags))
+    if author is not None:
+        db.set_author(article_id, author)
     if _wants_html(request):
         return RedirectResponse(f"/a/{row['slug']}", status_code=303)
-    return {"tags": applied}
+    return {"tags": applied, "author": db.get_article(article_id)["author"]}
 
 
 @app.post("/api/tags/{name}/delete", dependencies=[Auth])
