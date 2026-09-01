@@ -121,7 +121,7 @@
   <p><a class="btn ghost" id="bookmarklet" href="#">Send to textcast</a></p>
 </div>
 
-<script src="/static/tags.js?v=1" defer></script>
+<script src="/static/tags.js?v={{ assets }}" defer></script>
 <script>
 (function () {
   var code = "javascript:(function(){var f=document.createElement('form');f.method='POST';f.action='" + location.origin + "/api/ingest';f.target='_blank';var k=document.createElement('input');k.type='hidden';k.name='kind';k.value='html';var h=document.createElement('input');h.type='hidden';h.name='html';h.value=document.documentElement.outerHTML;var u=document.createElement('input');u.type='hidden';u.name='url';u.value=location.href;f.appendChild(k);f.appendChild(h);f.appendChild(u);document.body.appendChild(f);f.submit();f.remove();})()";

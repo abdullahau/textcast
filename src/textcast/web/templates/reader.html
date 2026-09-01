@@ -172,9 +172,9 @@
   };
 </script>
 <script src="/static/vendor/media-chrome-4.19.2.js" defer></script>
-<script src="/static/player.js?v=3" defer></script>
+<script src="/static/player.js?v={{ assets }}" defer></script>
 {% elif row.status in ('queued', 'building') %}
-<script src="/static/progress.js?v=2" defer></script>
+<script src="/static/progress.js?v={{ assets }}" defer></script>
 {% endif %}
-<script src="/static/tags.js?v=1" defer></script>
+<script src="/static/tags.js?v={{ assets }}" defer></script>
 {% endblock %}

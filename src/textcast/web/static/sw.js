@@ -3,9 +3,16 @@
  * Two jobs: keep the shell fast, and hold whole articles offline so a commute
  * with no signal still works. That is what AirDropping a WAV used to buy.
  */
-const SHELL = "textcast-shell-v1";
-const OFFLINE = "textcast-offline-v1";
-const SHELL_FILES = ["/static/app.css?v=1", "/static/player.js?v=1", "/static/icon.svg"];
+/* Bump BUILD on any release that changes a static asset. The cache names
+   carry it, so `install` re-runs and `activate` drops the old caches —
+   otherwise a stale stylesheet survives every deploy. */
+const BUILD = "0.2.0";
+const SHELL = `textcast-shell-${BUILD}`;
+const OFFLINE = `textcast-offline-${BUILD}`;
+
+/* No query strings here: the pages decide their own cache-busting suffix, and
+   a hardcoded one here would pin an old version forever. */
+const SHELL_FILES = ["/static/app.css", "/static/player.js", "/static/tags.js", "/static/icon.svg"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(SHELL).then((c) => c.addAll(SHELL_FILES)).then(() => self.skipWaiting()));
@@ -50,8 +57,11 @@ self.addEventListener("fetch", (event) => {
 
   // Audio and static assets are immutable — cache first.
   if (url.pathname.startsWith("/media/") || url.pathname.startsWith("/static/")) {
+    // Ignore ?v= when matching, so a page asking for ?v=4 still hits a stored
+    // ?v=3 entry rather than going to the network on every load.
+    const options = url.pathname.startsWith("/static/") ? { ignoreSearch: true } : undefined;
     event.respondWith(
-      caches.match(request).then((hit) => hit || fetch(request).then((response) => {
+      caches.match(request, options).then((hit) => hit || fetch(request).then((response) => {
         const copy = response.clone();
         caches.open(url.pathname.startsWith("/media/") ? OFFLINE : SHELL).then((c) => c.put(request, copy));
         return response;

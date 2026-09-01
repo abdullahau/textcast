@@ -19,7 +19,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from .. import db
+from .. import __version__, db
 from ..document import BlockKind
 from ..jobs import Worker
 from ..service import IngestError, ingest, rebuild, reparse
@@ -41,6 +41,14 @@ worker: Worker | None = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global worker
+    # uvicorn configures its own loggers only; without this the worker builds
+    # and fails silently inside the web process.
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)-7s %(name)s  %(message)s",
+        force=False,
+    )
+    logging.getLogger("textcast").setLevel(logging.INFO)
     settings.ensure_dirs()
     db.init(settings.db_path)
     if settings.workers > 0:
@@ -98,6 +106,9 @@ def short_date(value: str | None) -> str:
 templates.env.filters["duration"] = duration
 templates.env.filters["date"] = short_date
 templates.env.globals["engines"] = list(ENGINES)
+# One cache-busting suffix for every static asset, so they cannot drift apart.
+# Keep it in step with BUILD in static/sw.js.
+templates.env.globals["assets"] = __version__
 
 
 def render(request: Request, name: str, **context) -> HTMLResponse:
