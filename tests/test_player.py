@@ -500,3 +500,19 @@ def test_the_first_block_is_highlighted_before_any_cue_boundary(live, browser):
         assert page.evaluate("document.querySelector('#doc .b.on').id") == manifest.sections[0].blocks[0].id
     finally:
         context.close()
+
+
+def test_the_sheet_can_be_closed_without_a_keyboard(still_page):
+    """Escape is not a key a phone has. Without a close button or an outside
+    tap, the sheet could only be left by reloading the page."""
+    sheet = still_page.locator("#sheet")
+
+    still_page.click("#menu")
+    assert sheet.is_visible()
+    still_page.click("#sheet-close")
+    assert sheet.is_hidden(), "the close button"
+
+    still_page.click("#menu")
+    assert sheet.is_visible()
+    still_page.click("#doc", position={"x": 5, "y": 5})
+    assert sheet.is_hidden(), "a tap outside it"

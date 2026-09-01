@@ -233,7 +233,15 @@
 
 <div class="sheet" id="sheet" hidden>
   <div class="sheet-inner">
-    <h3>Sections</h3>
+    <div class="sheet-head">
+      <h3>Sections</h3>
+      <button type="button" class="ctl" id="sheet-close" aria-label="Close">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2" stroke-linecap="round" aria-hidden="true">
+          <path d="M6 6l12 12M18 6L6 18"/>
+        </svg>
+      </button>
+    </div>
     <div id="chapters"></div>
     <div class="toggles">
       <label class="check"><input type="checkbox" id="opt-footnotes" checked> Show footnotes</label>

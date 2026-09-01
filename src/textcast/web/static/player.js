@@ -316,9 +316,16 @@
     if (follow && activeEl) activeEl.scrollIntoView({ block: "center", behavior: "smooth" });
   });
 
-  $("menu").addEventListener("click", function () {
+  $("menu").addEventListener("click", function (event) {
+    event.stopPropagation();
     sheet.hidden = !sheet.hidden;
     this.setAttribute("aria-expanded", sheet.hidden ? "false" : "true");
+  });
+  $("sheet-close").addEventListener("click", closeSheet);
+  /* Escape is not a key a phone has. Without one of these the sheet could
+     only be left by reloading the page. */
+  document.addEventListener("click", function (event) {
+    if (!sheet.hidden && !sheet.contains(event.target)) closeSheet();
   });
 
   /* Seeking must never cost you a text selection.

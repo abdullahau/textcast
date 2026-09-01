@@ -16,6 +16,7 @@
   --accent-fg: #fafafa;
   --ring:      #a1a1aa;
   --highlight: #ececef;   /* the read-along wash */
+  --tick:      #18181b;   /* checkboxes and other small controls */
   --knob:      #ffffff;   /* the theme switch's sliding knob */
   --info:      #2563eb;   /* status: not built yet */
   --good:      #16a34a;
@@ -46,7 +47,8 @@
     --accent:    #fafafa;   /* white accent on black */
     --accent-fg: #09090b;
     --ring:      #52525b;
-    --highlight: #1f1f23;
+    --highlight: #26262d;
+    --tick:      #60a5fa;
     --knob:      #52525b;
     --info:      #60a5fa;
     --good:      #4ade80;
@@ -68,7 +70,8 @@
   --accent:    #fafafa;
   --accent-fg: #09090b;
   --ring:      #52525b;
-  --highlight: #1f1f23;
+  --highlight: #26262d;
+  --tick:      #60a5fa;
   --knob:      #52525b;
   --info:      #60a5fa;
   --good:      #4ade80;
@@ -200,9 +203,42 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
 button.link { background: none; border: 0; padding: 0 .3rem; font: inherit; color: var(--muted); cursor: pointer; }
 button.link:hover { color: var(--fg); }
 
-@media (max-width: 34rem) {
+.nav-group { display: flex; align-items: center; gap: .4rem; }
+.nav-toggle {
+  display: none;
+  width: 2rem; height: 2rem; min-width: 2rem; padding: 0;
+  background: transparent; border-color: transparent; color: var(--muted);
+}
+.nav-toggle:hover { color: var(--fg); background: var(--sunk); opacity: 1; }
+
+/* The search field was the thing being squeezed, so the links are what give
+   way. Below this the brand is its icon alone as well. */
+@media (max-width: 44rem) {
   .brand span { display: none; }
   .find { flex: 1 1 auto; }
+  .nav-toggle { display: inline-flex; }
+  .nav-group {
+    position: absolute;
+    top: calc(var(--bar-h) - .35rem);
+    right: max(.75rem, env(safe-area-inset-right));
+    z-index: 30;
+    display: none;
+    flex-direction: column;
+    align-items: stretch;
+    gap: .15rem;
+    min-width: 10rem;
+    padding: .4rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: 0 12px 32px rgb(0 0 0 / .22);
+  }
+  .nav-group.open { display: flex; }
+  .nav-group a, .nav-group button.link { padding: .5rem .6rem; border-radius: var(--radius-sm); }
+  .nav-group a:hover, .nav-group button.link:hover { background: var(--sunk); }
+  .nav-group .theme-switch { align-self: flex-start; margin: .3rem .6rem .2rem; }
+  .nav-group form { width: 100%; }
+  .nav-group button.link { width: 100%; text-align: left; }
 }
 
 /* ---------- page ---------- */
@@ -320,10 +356,17 @@ button.q:hover, button.q:focus-visible { color: var(--fg); border-color: var(--f
 /* Near the right edge there is no room to open leftwards. */
 .tip.right .tip-body { left: auto; right: 0; }
 
-/* A heading or a field label with its hint button beside it. */
-.titled { display: flex; align-items: center; gap: .45rem; }
+/* A heading or a field label with its hint button beside it. The row takes
+   over the label's own bottom margin, or the field underneath rides up
+   against the question mark. */
+.titled { display: flex; align-items: center; gap: .45rem; margin-bottom: .35rem; }
 .titled h2 { margin: 0; }
 .titled label { margin-bottom: 0; }
+.card > .titled { margin-bottom: .15rem; }
+
+/* Import and export live inside the rule box: same subject, one place. */
+.rule-io { margin-top: 1.1rem; padding-top: 1rem; border-top: 1px solid var(--border); }
+.rule-io input[type=file] { flex: 1 1 auto; min-width: 0; }
 
 /* ---------- article list ---------- */
 
@@ -534,7 +577,16 @@ input[type=file] { font-size: .82rem; color: var(--muted); padding: .35rem; }
 .row > .narrow { flex: 0 0 auto; }
 
 .check { display: flex; align-items: center; gap: .45rem; font-size: .83rem; font-weight: 400; color: var(--fg-soft); margin: 0; cursor: pointer; }
-.check input { width: auto; min-height: 0; accent-color: var(--accent); }
+.check input {
+  width: 1.05rem;
+  height: 1.05rem;
+  min-height: 0;
+  flex: none;
+  accent-color: var(--tick);
+  cursor: pointer;
+}
+/* The one that is on should read as on at a glance. */
+.check:has(input:checked) { color: var(--fg); }
 
 .notice { padding: .7rem .85rem; border-radius: var(--radius-sm); font-size: .85rem; margin-bottom: 1rem; border: 1px solid; }
 .notice.error { background: color-mix(in srgb, var(--bad) 8%, var(--surface)); color: var(--bad); border-color: color-mix(in srgb, var(--bad) 30%, transparent); }
@@ -641,7 +693,15 @@ button.chip[aria-pressed="true"] .star { fill: var(--warn); stroke: var(--warn);
   cursor: text;
 }
 .b:hover { border-left-color: var(--border-hi); }
-.b.on { background: var(--highlight); border-left-color: var(--accent); }
+/* On black a wash alone disappears. The edge does the work, the wash
+   confirms it, and the ring lifts it off the page. */
+.b.on {
+  background: var(--highlight);
+  border-left-color: var(--tick);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--tick) 22%, transparent),
+              0 2px 10px rgb(0 0 0 / .18);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
 
 .b .seek {
   position: absolute;
@@ -769,7 +829,10 @@ body.has-player { padding-bottom: 5.5rem; }
   box-shadow: 0 -20px 50px -25px rgba(0,0,0,.6);
 }
 .sheet[hidden] { display: none; }
-.sheet h3 { font-size: .72rem; text-transform: uppercase; letter-spacing: .09em; color: var(--muted); margin-bottom: .6rem; font-weight: 600; }
+.sheet h3 { font-size: .72rem; text-transform: uppercase; letter-spacing: .09em; color: var(--muted); margin: 0; font-weight: 600; }
+.sheet-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: .6rem; }
+.sheet-head .ctl { width: 2rem; height: 2rem; min-width: 2rem; padding: 0; background: transparent; border-color: transparent; color: var(--muted); }
+.sheet-head .ctl:hover { color: var(--fg); background: var(--sunk); opacity: 1; }
 .sheet-inner { max-width: 54rem; margin: 0 auto; }
 
 .chapter {

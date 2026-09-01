@@ -86,9 +86,9 @@
 <div class="card">
   <h2>Rebuild what this changes</h2>
   <p class="hint">
-    Changing a rule does not touch audio that already exists.
+    Audio that already exists keeps the old pronunciation.
     {{ affected|length }} built article{{ '' if affected|length == 1 else 's' }}
-    contain{{ 's' if affected|length == 1 else '' }} <code>{{ changed_pattern }}</code>.
+    use{{ 's' if affected|length == 1 else '' }} <code>{{ changed_pattern }}</code>.
   </p>
   <ul class="fired">
     {% for a in affected[:8] %}<li><a href="/a/{{ a.slug }}">{{ a.title }}</a></li>{% endfor %}
@@ -109,9 +109,8 @@
     <h2>Default voice</h2>
     <span class="tip">
       <button type="button" class="q" aria-label="What the default voice does">?</button>
-      <span class="tip-body" role="tooltip">Used by every article that does not choose its own, on its
-      next build. Saving this queues nothing and changes no audio that already exists — an article keeps
-      the voice it was made with until you rebuild it.</span>
+      <span class="tip-body" role="tooltip">Used by any article that has not chosen its own, on its
+      next build. Saving queues nothing and changes no audio that exists.</span>
     </span>
   </div>
   <form method="post" action="/pronunciations/defaults">
@@ -143,8 +142,8 @@
           <label for="speed">Reading pace</label>
           <span class="tip">
             <button type="button" class="q" aria-label="What the reading pace does">?</button>
-            <span class="tip-body" role="tooltip">Baked into the audio, so it takes effect on the next
-            build. The player’s speed control is separate and changes nothing on disk.</span>
+            <span class="tip-body" role="tooltip">Baked into the audio, so it applies on the next build.
+            The player’s speed control is separate.</span>
           </span>
         </div>
         <select name="speed" id="speed">
@@ -159,9 +158,8 @@
 <div class="card">
   <h2>Test the voice</h2>
   <p class="hint">
-    Type a word, a respelling or a whole sentence and hear it. This is where a rule is judged:
-    <code>ee bitda</code> against <code>EBITDA</code>, with no phonetic alphabet needed. It shows what
-    the engine is actually given and which rules fired on the way.
+    Hear a word or a sentence before you commit to a rule. Shows what the engine is given,
+    the phonemes it will use, and which rules fired.
   </p>
   <div class="row">
     <div>
@@ -204,14 +202,12 @@
 <div class="card">
   <h2>Add a rule</h2>
   <p class="hint">
-    Just respell it. <code>GAAP</code> said as <code>gap</code>, <code>EBITDA</code> said as
-    <code>ee bitda</code> — ordinary letters, no phonetic alphabet. Only tick the IPA box for a word
-    no spelling reaches.
+    Respell it and you are done: <code>GAAP</code> said as <code>gap</code>. Tick the IPA box only
+    when no spelling gets close — one rule in a hundred needs it.
   </p>
   <p class="hint">
-    A <b>word</b> matches whole words only. A <b>phrase</b> matches anywhere, so use it for things with
-    a full stop like <code>vs.</code> A <b>regex</b> gives you lookarounds — that is how the month rules
-    fire on <code>Jul 2</code> but not on <code>Julian</code>.
+    <b>Word</b> matches whole words. <b>Phrase</b> matches anywhere, for things ending in a full stop
+    like <code>vs.</code> <b>Regex</b> is for the rest.
   </p>
   <form method="post" action="/pronunciations/add">
     <div class="row">
@@ -239,6 +235,29 @@
     </div>
     <div class="row" style="margin-top:.9rem"><button class="narrow" type="submit">Add rule</button></div>
   </form>
+
+  <div class="rule-io">
+    <div class="titled">
+      <h2>Move rules between machines</h2>
+      <span class="tip">
+        <button type="button" class="q" aria-label="What the file holds">?</button>
+        <span class="tip-body" role="tooltip">Plain JSON: the match, what it is said as, whether it is
+        IPA, and whether it is on. Importing matches on kind and pattern, so the same file twice
+        changes nothing.</span>
+      </span>
+    </div>
+    <div class="row">
+      <a class="btn ghost narrow" href="/pronunciations/export">Export {{ rows|length }}</a>
+      <form method="post" action="/pronunciations/import" id="import-form"
+            enctype="multipart/form-data" class="row" style="flex:1;margin:0">
+        <input type="file" name="file" accept=".json,application/json" required>
+        <button class="ghost narrow" type="submit">Import</button>
+      </form>
+    </div>
+    <label class="check" style="margin-top:.6rem">
+      <input type="checkbox" name="replace" value="true" form="import-form"> Replace all, instead of merging
+    </label>
+  </div>
 </div>
 
 <div class="section-head"><h2>Rules</h2><span class="muted">lower order runs first</span></div>
@@ -274,8 +293,7 @@
 <div class="card" style="margin-top:1rem">
   <h2>Always on</h2>
   <p class="hint">
-    Anything with a shape is handled in code, because matching it needs arithmetic rather than a lookup.
-    These run before the rules above and cannot be edited here.
+    Numbers, dates and symbols are handled in code. These run first and are not editable.
   </p>
   <table class="plain">
     <thead><tr><th>Written</th><th>Spoken</th></tr></thead>
@@ -285,33 +303,5 @@
       {% endfor %}
     </tbody>
   </table>
-</div>
-
-<div class="card">
-  <div class="titled">
-    <h2>Import and export</h2>
-    <span class="tip">
-      <button type="button" class="q" aria-label="What the file holds">?</button>
-      <span class="tip-body" role="tooltip">A plain JSON file: the match, what it is said as, the
-      IPA flag, and whether it is on. Rules are matched by kind and pattern, so importing the same
-      file twice changes nothing the second time.</span>
-    </span>
-  </div>
-  <p class="hint">
-    Rules are the part of this worth carrying between machines — and the part worth keeping
-    when everything else is rebuilt.
-  </p>
-  <div class="row">
-    <a class="btn ghost narrow" href="/pronunciations/export">Export {{ rows|length }} rules</a>
-  </div>
-  <form method="post" action="/pronunciations/import" enctype="multipart/form-data" style="margin-top:.9rem">
-    <div class="row">
-      <input type="file" name="file" accept=".json,application/json" required>
-      <button class="ghost narrow" type="submit">Import</button>
-    </div>
-    <label class="check" style="margin-top:.6rem">
-      <input type="checkbox" name="replace" value="true"> Replace everything, rather than merging
-    </label>
-  </form>
 </div>
 {% endblock %}
