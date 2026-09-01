@@ -1,60 +1,13 @@
 {% extends "base.html" %}
 {% block title %}Add — textcast{% endblock %}
 
-{% macro build_options(prefix='') -%}
-<details class="card" style="margin-top:.9rem">
-  <summary style="cursor:pointer;font-size:.85rem;font-weight:500">Voice and reading options</summary>
-  <div style="margin-top:.9rem">
-    <div class="row">
-      <div>
-        <label for="{{ prefix }}voice">Voice</label>
-        <select name="voice" id="{{ prefix }}voice">
-          <option value="">Default ({{ default_voice }})</option>
-          {% for v in voices %}<option value="{{ v.id }}">{{ v.name }} · {{ v.gender }}</option>{% endfor %}
-        </select>
-      </div>
-      <div>
-        <div class="titled">
-          <label for="{{ prefix }}quote_voice">Quote voice</label>
-          <span class="tip"><button type="button" class="q" aria-label="What the quote voice and the reading pace do">?</button><span class="tip-body" role="tooltip">A block quote needs a mark, or it runs into the sentence before it. <b>Spoken cues</b> means the reader says “Start quote” and “End quote” aloud. Pick a second voice instead and the change of voice does that job, with no extra words. <b>Reading pace</b> is baked into the audio; the player’s speed control is separate and changes nothing on disk.</span></span>
-        </div>
-        <select name="quote_voice" id="{{ prefix }}quote_voice">
-          <option value="">Same voice, spoken cues</option>
-          {% for v in voices %}<option value="{{ v.id }}">{{ v.name }} · {{ v.gender }}</option>{% endfor %}
-        </select>
-      </div>
-      <div>
-        <label for="{{ prefix }}speed">Reading pace</label>
-        <select name="speed" id="{{ prefix }}speed">
-          {% for s in speeds %}<option value="{{ s }}" {{ 'selected' if s == default_speed }}>{{ s }}×{{ ' (normal)' if s == '1.0' else '' }}</option>{% endfor %}
-        </select>
-      </div>
-    </div>
-
-    <div class="row" style="margin-top:.7rem">
-      <label class="check"><input type="checkbox" name="skip_footnotes" value="true"> Skip footnotes</label>
-      <label class="check"><input type="checkbox" name="summarize" value="true"> Summarise each section</label>
-      <label class="check"><input type="checkbox" name="build" value="true" checked> Build audio now</label>
-    </div>
-  </div>
-</details>
-{%- endmacro %}
-
-{% macro tag_field(id) -%}
-<label for="{{ id }}">Tags</label>
-<div class="tag-input" data-tag-input>
-  <input type="text" id="{{ id }}" placeholder="Add a tag, press Enter" autocomplete="off" data-tag-entry>
-</div>
-<input type="hidden" name="tags" data-tag-values value="">
-{% if all_tags %}
-  <div class="tag-suggestions">
-    {% for t in all_tags[:12] %}<button type="button" class="tag" data-tag-suggest="{{ t.name }}">{{ t.name }}</button>{% endfor %}
-  </div>
-{% endif %}
-{%- endmacro %}
-
 {% block content %}
 <div class="section-head"><h1>Add something to read</h1></div>
+
+<p class="hint" style="margin:-.4rem 0 1.4rem">
+  This page only takes the text in. You land on the article as soon as it is parsed,
+  and choose the voice, the summary and when to build it from there.
+</p>
 
 {% if error %}<p class="notice error">{{ error }}</p>{% endif %}
 
@@ -71,8 +24,6 @@
       <label for="text-body">Text</label>
       <textarea name="text" id="text-body" required placeholder="Paste here…"></textarea>
     </div></div>
-    <div class="row" style="margin-top:.7rem"><div>{{ tag_field('text-tags') }}</div></div>
-    {{ build_options('text-') }}
     <div class="row" style="margin-top:.9rem"><button class="narrow" type="submit">Add text</button></div>
   </form>
 </div>
@@ -85,8 +36,6 @@
     <div class="row">
       <input type="url" name="url" placeholder="https://…" value="{{ url }}" required>
     </div>
-    <div class="row" style="margin-top:.7rem"><div>{{ tag_field('url-tags') }}</div></div>
-    {{ build_options('url-') }}
     <div class="row" style="margin-top:.9rem"><button class="narrow" type="submit">Add link</button></div>
   </form>
 </div>
@@ -99,8 +48,6 @@
     <div class="row">
       <input type="file" name="file" accept=".pdf,.docx,.md,.markdown,.txt,.html,.htm,.eml,.mbox" required>
     </div>
-    <div class="row" style="margin-top:.7rem"><div>{{ tag_field('file-tags') }}</div></div>
-    {{ build_options('file-') }}
     <div class="row" style="margin-top:.9rem"><button class="narrow" type="submit">Upload</button></div>
   </form>
 </div>
@@ -120,8 +67,6 @@
         <option value="generic">Generic article</option>
       </select>
     </div>
-    <div class="row" style="margin-top:.7rem"><div>{{ tag_field('html-tags') }}</div></div>
-    {{ build_options('html-') }}
     <div class="row" style="margin-top:.9rem"><button class="narrow" type="submit">Add source</button></div>
   </form>
 </div>
@@ -142,7 +87,7 @@
         <code>x-textcast-token</code> holding your token.</li>
     <li>In the shortcut details, turn on <b>Show in Share Sheet</b> and accept URLs.</li>
   </ol>
-  <p class="hint">Share any page to it and the article is queued before you put the phone down.</p>
+  <p class="hint">Share any page to it and the article is waiting in your library, parsed.</p>
 </div>
 
 <div class="card">
@@ -151,7 +96,6 @@
   <p><a class="btn ghost" id="bookmarklet" href="#">Send to textcast</a></p>
 </div>
 
-<script src="/static/tags.js?v={{ assets }}" defer></script>
 <script>
 (function () {
   var code = "javascript:(function(){var f=document.createElement('form');f.method='POST';f.action='" + location.origin + "/api/ingest';f.target='_blank';var k=document.createElement('input');k.type='hidden';k.name='kind';k.value='html';var h=document.createElement('input');h.type='hidden';h.name='html';h.value=document.documentElement.outerHTML;var u=document.createElement('input');u.type='hidden';u.name='url';u.value=location.href;f.appendChild(k);f.appendChild(h);f.appendChild(u);document.body.appendChild(f);f.submit();f.remove();})()";

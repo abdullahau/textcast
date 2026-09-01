@@ -281,6 +281,10 @@ def reader(request: Request, slug: str):
     ).fetchone()
     options = db.get_build_options(row["id"], conn)
     chosen = voice_defaults(conn)
+    has_summary = any(b.kind is BlockKind.SUMMARY for _s, b in article.blocks())
+    # Nothing is built yet, so what to do next belongs above the text, not
+    # below it. Once there is a summary, only the build is still pending.
+    build_on_top = row["status"] in ("new", "failed")
 
     return render(
         request,
@@ -298,6 +302,10 @@ def reader(request: Request, slug: str):
         default_quote_voice=chosen.quote_voice,
         speeds=SPEEDS,
         selected_speed=_speed_label(options.get("speed") or chosen.speed),
+        blocks=sum(len(section.blocks) for section in article.sections),
+        has_summary=has_summary,
+        build_on_top=build_on_top,
+        modify_on_top=build_on_top and not has_summary,
     )
 
 
@@ -309,19 +317,7 @@ def search_page(request: Request, q: str = ""):
 @app.get("/add", response_class=HTMLResponse, dependencies=[Auth])
 def add_page(request: Request, url: str = "", title: str = "", text: str = ""):
     # The share target lands here on a GET from some clients.
-    chosen = voice_defaults()
-    return render(
-        request,
-        "add.html",
-        url=url or text,
-        shared_title=title,
-        all_tags=db.list_tags(),
-        voices=_voices(),
-        default_voice=chosen.voice or "default",
-        default_quote_voice=chosen.quote_voice,
-        speeds=SPEEDS,
-        default_speed=chosen.speed_label,
-    )
+    return render(request, "add.html", url=url or text, shared_title=title)
 
 
 @app.get("/jobs", response_class=HTMLResponse, dependencies=[Auth])
@@ -593,17 +589,6 @@ def pronunciations_delete(rule_id: int):
 # summaries
 # --------------------------------------------------------------------------
 
-#: Endpoints that speak the OpenAI protocol, offered so nobody has to look one
-#: up. Anything else that speaks it works too — including a local Ollama.
-PROVIDERS = [
-    ("Google Gemini", "https://generativelanguage.googleapis.com/v1beta/openai/", "gemini-2.5-flash"),
-    ("OpenAI", "https://api.openai.com/v1/", "gpt-4.1-mini"),
-    ("OpenRouter", "https://openrouter.ai/api/v1/", "google/gemini-2.5-flash"),
-    ("Groq", "https://api.groq.com/openai/v1/", "llama-3.3-70b-versatile"),
-    ("Ollama, on this machine", "http://127.0.0.1:11434/v1/", "llama3.2"),
-]
-
-
 def _summaries_page(request: Request, **extra):
     from .. import summarize as summaries
 
@@ -614,7 +599,8 @@ def _summaries_page(request: Request, **extra):
         cfg=cfg,
         installed=summaries.is_installed(),
         default_prompt=summaries.DEFAULT_PROMPT,
-        providers=PROVIDERS,
+        providers=summaries.PROVIDERS,
+        provider_name=summaries.provider_for(cfg.base_url),
         pending=db.summarisable(),
         **extra,
     )
@@ -660,9 +646,9 @@ def summaries_test(request: Request, sample: str = Form(default="")):
 
 
 @app.post("/api/articles/{article_id}/summarize", dependencies=[Auth])
-def api_summarize(request: Request, article_id: int):
+def api_summarize(request: Request, article_id: int, again: bool = Form(default=False)):
     try:
-        job_id = queue_summary(article_id)
+        job_id = queue_summary(article_id, replace=again)
     except IngestError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if _wants_html(request):
@@ -746,15 +732,15 @@ async def api_ingest(
     title: str | None = Form(default=None),
     adapter: str | None = Form(default=None),
     tags: str | None = Form(default=None),
-    voice: str = Form(default=""),
-    quote_voice: str = Form(default=""),
-    skip_footnotes: bool = Form(default=False),
-    summarize: bool = Form(default=False),
-    speed: str = Form(default=""),
-    build: bool = Form(default=True),
     file: UploadFile | None = None,
 ):
     """The single ingestion door: text, URL, page source, or a file.
+
+    It takes the text in and nothing else. No audio is built and no summary is
+    asked for: you land on the article, see what the parser made of it, and
+    decide there. Adding something and choosing how to read it are two
+    different jobs, and doing both in one form meant guessing at the second
+    before you had seen the first.
 
     The bookmarklet and the share target both post here.
     """
@@ -796,9 +782,8 @@ async def api_ingest(
             title=title,
             upload=upload,
             adapter=adapter,
-            build=build,
+            build=False,
             tags=_parse_tags(tags),
-            options=_build_options(voice, quote_voice, skip_footnotes, summarize, speed=speed),
         )
     except IngestError as exc:
         return _ingest_error(request, str(exc))
@@ -825,18 +810,7 @@ def _wants_html(request: Request) -> bool:
 
 def _ingest_error(request: Request, message: str):
     if _wants_html(request):
-        return render(
-            request,
-            "add.html",
-            url="",
-            error=message,
-            all_tags=db.list_tags(),
-            voices=_voices(),
-            default_voice=voice_defaults().voice or "default",
-            default_quote_voice=voice_defaults().quote_voice,
-            speeds=SPEEDS,
-            default_speed=voice_defaults().speed_label,
-        )
+        return render(request, "add.html", url="", error=message)
     return JSONResponse({"error": message}, status_code=400)
 
 
@@ -855,6 +829,7 @@ async def share_target(
             url=candidate if is_link else None,
             text=None if is_link else candidate,
             title=title if not is_link else None,
+            build=False,
         )
     except IngestError as exc:
         return _ingest_error(request, str(exc))

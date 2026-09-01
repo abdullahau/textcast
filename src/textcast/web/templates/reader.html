@@ -2,6 +2,77 @@
 {% block title %}{{ row.title }} — textcast{% endblock %}
 
 {% block content %}
+{% macro modify() %}
+  <div class="card">
+    <div class="titled">
+      <h2>Modify article</h2>
+      <span class="tip"><button type="button" class="q" aria-label="What these buttons do">?</button><span class="tip-body" role="tooltip">Re-parse reads the saved original again, after a parser fix. Summarise asks the model for a summary of each section and then rebuilds. Delete removes the article, its text and its audio, and cannot be undone — to put an article aside without losing it, archive it instead.</span></span>
+    </div>
+    <div class="row" style="margin:.9rem 0 0">
+      <form method="post" action="/api/articles/{{ row.id }}/summarize" class="narrow">
+        {% if has_summary %}<input type="hidden" name="again" value="true">{% endif %}
+        <button class="ghost" type="submit">{{ 'Summarise again' if has_summary else 'Summarise' }}</button>
+      </form>
+      <form method="post" action="/api/articles/{{ row.id }}/reparse" class="narrow">
+        <button class="ghost" type="submit" title="Re-run the parser over the saved source">Re-parse</button>
+      </form>
+      <form method="post" action="/api/articles/{{ row.id }}/delete" class="narrow"
+            onsubmit="return confirm('Delete this article and its audio? Archive it instead to keep it.')">
+        <button class="danger" type="submit">Delete</button>
+      </form>
+    </div>
+  </div>
+{% endmacro %}
+
+{% macro production() %}
+  <div class="card">
+    <h2>{{ 'Rebuild' if row.status == 'ready' else 'Build' }} the audio</h2>
+    <p class="hint">
+      {% if row.status == 'ready' %}These settings belong to this article alone.
+      {% else %}The parser found
+        {{ article.sections|length }} section{{ '' if article.sections|length == 1 else 's' }} and
+        {{ blocks }} block{{ '' if blocks == 1 else 's' }}, {{ "{:,}".format(row.word_count) }} words.
+        Read it now, or have it read to you. These settings belong to this article alone.
+      {% endif %}
+    </p>
+    <form method="post" action="/api/articles/{{ row.id }}/rebuild">
+      <div class="row">
+        <div>
+          <label for="voice">Voice</label>
+          <select name="voice" id="voice">
+            <option value="">Default ({{ default_voice }})</option>
+            {% for v in voices %}<option value="{{ v.id }}" {{ 'selected' if v.id == build.get('voice') }}>{{ v.name }} · {{ v.gender }}</option>{% endfor %}
+          </select>
+        </div>
+        <div>
+          <div class="titled">
+            <label for="quote_voice">Quote voice</label>
+            <span class="tip"><button type="button" class="q" aria-label="What the quote voice and the reading pace do">?</button><span class="tip-body" role="tooltip">A block quote needs a mark, or it runs into the sentence before it. <b>Spoken cues</b> means the reader says “Start quote” and “End quote” aloud. Pick a second voice instead and the change of voice does that job, with no extra words. <b>Reading pace</b> is baked into the audio; the player’s speed control is separate and changes nothing on disk.</span></span>
+          </div>
+          <select name="quote_voice" id="quote_voice">
+            <option value="">Same voice, spoken cues</option>
+            {% for v in voices %}<option value="{{ v.id }}" {{ 'selected' if v.id == build.get('quote_voice') }}>{{ v.name }} · {{ v.gender }}</option>{% endfor %}
+          </select>
+        </div>
+        <div>
+          <label for="speed">Reading pace</label>
+          <select name="speed" id="speed">
+            {% for s in speeds %}<option value="{{ s }}" {{ 'selected' if s == selected_speed }}>{{ s }}×{{ ' (normal)' if s == '1.0' else '' }}</option>{% endfor %}
+          </select>
+        </div>
+      </div>
+      <div class="row" style="margin-top:.7rem">
+        <label class="check"><input type="checkbox" name="skip_footnotes" value="true" {{ 'checked' if build.get('skip_footnotes') }}> Skip footnotes</label>
+        <label class="check"><input type="checkbox" name="skip_summaries" value="true" {{ 'checked' if build.get('skip_summaries') }}> Skip summaries</label>
+      </div>
+      <div class="row" style="margin-top:.9rem">
+        <button class="narrow" type="submit">{{ 'Rebuild' if row.status == 'ready' else 'Build' }}</button>
+      </div>
+    </form>
+
+  </div>
+{% endmacro %}
+
 <article>
   <header class="doc-head">
     <h1>{{ article.title }}</h1>
@@ -49,7 +120,8 @@
   </header>
 
   {% if row.status != 'ready' %}
-    <div class="card" id="build-status" data-article="{{ row.id }}" data-status="{{ row.status }}">
+    <div class="card" id="build-status" data-article="{{ row.id }}" data-status="{{ row.status }}"
+         {{ 'hidden' if row.status == 'new' }}>
       {% if row.status == 'failed' %}
         <h2>Build failed</h2>
         <p class="hint mono">{{ job.error if job and job.error else 'No error recorded.' }}</p>
@@ -57,10 +129,14 @@
         <h2>Building audio…</h2>
         <p class="hint" id="build-message">{{ job.message if job else 'Waiting for the worker.' }}</p>
         <span class="meter"><i id="build-meter" style="width: {{ ((job.progress if job else 0) * 100)|round(1) }}%"></i></span>
-      {% else %}
-        <h2>No audio yet</h2>
-        <p class="hint">You can read it now, or build the audio below.</p>
       {% endif %}
+    </div>
+  {% endif %}
+
+  {% if build_on_top %}
+    <div class="pre-doc">
+      {% if modify_on_top %}{{ modify() }}{% endif %}
+      {{ production() }}
     </div>
   {% endif %}
 
@@ -90,63 +166,9 @@
     </form>
   </div>
 
-  <div class="card">
-    <h2>{{ 'Rebuild' if row.status == 'ready' else 'Build' }} audio</h2>
-    <p class="hint">These settings belong to this article alone.</p>
-    <form method="post" action="/api/articles/{{ row.id }}/rebuild">
-      <div class="row">
-        <div>
-          <label for="voice">Voice</label>
-          <select name="voice" id="voice">
-            <option value="">Default ({{ default_voice }})</option>
-            {% for v in voices %}<option value="{{ v.id }}" {{ 'selected' if v.id == build.get('voice') }}>{{ v.name }} · {{ v.gender }}</option>{% endfor %}
-          </select>
-        </div>
-        <div>
-          <div class="titled">
-            <label for="quote_voice">Quote voice</label>
-            <span class="tip"><button type="button" class="q" aria-label="What the quote voice and the reading pace do">?</button><span class="tip-body" role="tooltip">A block quote needs a mark, or it runs into the sentence before it. <b>Spoken cues</b> means the reader says “Start quote” and “End quote” aloud. Pick a second voice instead and the change of voice does that job, with no extra words. <b>Reading pace</b> is baked into the audio; the player’s speed control is separate and changes nothing on disk.</span></span>
-          </div>
-          <select name="quote_voice" id="quote_voice">
-            <option value="">Same voice, spoken cues</option>
-            {% for v in voices %}<option value="{{ v.id }}" {{ 'selected' if v.id == build.get('quote_voice') }}>{{ v.name }} · {{ v.gender }}</option>{% endfor %}
-          </select>
-        </div>
-        <div>
-          <label for="speed">Reading pace</label>
-          <select name="speed" id="speed">
-            {% for s in speeds %}<option value="{{ s }}" {{ 'selected' if s == selected_speed }}>{{ s }}×{{ ' (normal)' if s == '1.0' else '' }}</option>{% endfor %}
-          </select>
-        </div>
-      </div>
-      <div class="row" style="margin-top:.7rem">
-        <label class="check"><input type="checkbox" name="skip_footnotes" value="true" {{ 'checked' if build.get('skip_footnotes') }}> Skip footnotes</label>
-        <label class="check"><input type="checkbox" name="skip_summaries" value="true" {{ 'checked' if build.get('skip_summaries') }}> Skip summaries</label>
-      </div>
-      <div class="row" style="margin-top:.9rem">
-        <button class="narrow" type="submit">{{ 'Rebuild' if row.status == 'ready' else 'Build' }}</button>
-      </div>
-    </form>
-  </div>
+  {% if not build_on_top %}{{ production() }}{% endif %}
 
-  <div class="card">
-    <div class="titled">
-      <h2>Modify article</h2>
-      <span class="tip"><button type="button" class="q" aria-label="What these buttons do">?</button><span class="tip-body" role="tooltip">Re-parse reads the saved original again, after a parser fix. Summarise asks the model for a summary of each section and then rebuilds. Delete removes the article, its text and its audio, and cannot be undone — to put an article aside without losing it, archive it instead.</span></span>
-    </div>
-    <div class="row" style="margin:.9rem 0 0">
-      <form method="post" action="/api/articles/{{ row.id }}/reparse" class="narrow">
-        <button class="ghost" type="submit" title="Re-run the parser over the saved source">Re-parse</button>
-      </form>
-      <form method="post" action="/api/articles/{{ row.id }}/summarize" class="narrow">
-        <button class="ghost" type="submit" title="Summarise each section, then rebuild the audio">Summarise</button>
-      </form>
-      <form method="post" action="/api/articles/{{ row.id }}/delete" class="narrow"
-            onsubmit="return confirm('Delete this article and its audio? Archive it instead to keep it.')">
-        <button class="danger" type="submit">Delete</button>
-      </form>
-    </div>
-  </div>
+  {% if not modify_on_top %}{{ modify() }}{% endif %}
 </article>
 
 {% if row.status == 'ready' %}

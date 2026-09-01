@@ -3,10 +3,11 @@
 One worker thread polling a SQLite table. A broker for a single-user app is
 machinery you would have to maintain; a table you already back up is not.
 
-Two kinds of job. A ``build`` renders the audio. A ``summarise`` asks a
-language model for a summary of each section, writes those in as blocks, and
-then queues the build itself — because inserting a block moves every id after
-it, so the audio has to follow the text, never the other way round.
+Two kinds of job, and neither leads to the other. A ``build`` renders the
+audio. A ``summarise`` asks a language model for a summary of each section and
+writes those in as blocks. Summarising does not then build: inserting a block
+moves every id after it, so the audio has to be made after the text is final,
+and when that happens is yours to say.
 
 The engine is loaded once and kept, because loading it costs more than a short
 article's synthesis.
@@ -126,7 +127,11 @@ class Worker:
         return True
 
     def _summarise(self, conn, job) -> None:
-        """Ask the model for a summary of each section, then queue the build."""
+        """Ask the model for a summary of each section and store them.
+
+        No build follows. The summary changes the text, and choosing when to
+        turn text into audio is a separate decision made on the article page.
+        """
         from .summarize import config, summarize_article
 
         article_id = job["article_id"]
@@ -141,16 +146,15 @@ class Worker:
         def progress(done: int, total: int) -> None:
             db.update_job(job["id"], conn, progress=done / total, message=f"section {done} of {total}")
 
-        added = summarize_article(article, cfg, progress=progress)
-        if added:
+        replace = bool(json.loads(job["options"] or "{}").get("replace"))
+        added = summarize_article(article, cfg, progress=progress, replace=replace)
+        if added or replace:
             db.replace_blocks(article_id, article, conn)
         log.info("summarised %d section(s) of article %s", added, article_id)
 
-        # The build is queued rather than run here, so a summary failure never
-        # costs the audio and a rebuild never re-runs the model.
-        options = json.loads(job["options"] or "{}")
-        options.pop("summarize", None)
-        db.enqueue(article_id, options=options or None, conn=conn)
+        # claim_job marked the article as building. Nothing is being built, so
+        # put it back to where it actually is: text, and no audio yet.
+        db.set_status(article_id, "ready" if row_has_audio(conn, article_id) else "new", conn)
 
     def _build(self, conn, job) -> None:
         article_id = job["article_id"]
@@ -231,6 +235,11 @@ class Worker:
         audio_bytes = sum(f.stat().st_size for f in out_dir.glob("*.opus"))
         db.save_manifest(article_id, manifest, audio_bytes, conn)
         log.info("built %s: %.1f min, %.1f MB", row["slug"], manifest.total_ms / 60000, audio_bytes / 1e6)
+
+
+def row_has_audio(conn, article_id: int) -> bool:
+    row = conn.execute("SELECT audio_ms FROM article WHERE id = ?", (article_id,)).fetchone()
+    return bool(row and row["audio_ms"])
 
 
 def media_dir_for(slug: str, settings: Settings | None = None) -> Path:

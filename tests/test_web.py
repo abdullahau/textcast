@@ -230,8 +230,10 @@ def test_a_saved_default_reaches_the_pages_that_offer_it(client, conn):
     ])]).renumber()
     db.save_article(doc, conn)
 
-    assert "Default (bm_george)" in client.get("/add").text
-    assert '<option value="1.2" selected>' in client.get("/a/follows-the-default").text
+    # The Add page no longer chooses a voice; the article page does.
+    page = client.get("/a/follows-the-default").text
+    assert "Default (bm_george)" in page
+    assert '<option value="1.2" selected>' in page
 
 
 def test_a_build_uses_the_saved_default_over_the_environment(conn, settings, monkeypatch):
@@ -265,3 +267,49 @@ def test_a_build_uses_the_saved_default_over_the_environment(conn, settings, mon
 
     assert seen == {"voice": "bm_george", "speed": 1.2}
     assert db.get_article(stored.article_id, conn)["status"] in ("ready", "failed")
+
+
+def test_adding_something_does_not_start_a_build(client, conn):
+    """Adding text and deciding how to read it are two jobs, not one form."""
+    response = client.post(
+        "/api/ingest",
+        data={"kind": "text", "title": "Just added", "text": "A note.\n\nWith two paragraphs in it."},
+    )
+
+    assert response.status_code == 200
+    article_id = response.json()["id"]
+    assert response.json()["job"] is None
+    assert db.active_jobs(conn) == [], "nothing was queued"
+    assert db.get_article(article_id, conn)["status"] == "new"
+
+
+def test_a_new_article_offers_the_build_above_its_text(client, conn, monkeypatch):
+    monkeypatch.setattr(web, "_voices", lambda: [])
+    client.post("/api/ingest", data={"kind": "text", "title": "Fresh", "text": "A note.\n\nTwo paragraphs."})
+
+    body = client.get("/a/fresh").text
+    doc = body.index('class="doc"')
+
+    assert body.index("Modify article") < body.index("Build the audio") < doc, \
+        "summarise or re-parse first, then build, both before the text"
+    assert "sections and" in body or "section and" in body, "it says what the parser found"
+    assert "Summarise" in body[:doc]
+
+
+def test_an_article_that_already_has_summaries_is_not_offered_them_again(client, conn, monkeypatch):
+    """And the modify card goes back below the text, leaving only the build."""
+    from textcast.document import Article, Block, BlockKind, Section
+
+    monkeypatch.setattr(web, "_voices", lambda: [])
+    doc = Article(title="Already done", sections=[Section(title="One", blocks=[
+        Block(kind=BlockKind.SUMMARY, text="In short, this."),
+        Block(kind=BlockKind.PARA, text="The body of it."),
+    ])]).renumber()
+    db.save_article(doc, conn)
+
+    body = client.get("/a/already-done").text
+    text = body.index('class="doc"')
+
+    assert "Summarise" not in body[:text], "it already has one"
+    assert body.index("Build the audio") < text, "the build is still pending"
+    assert body.index("Modify article") > text, "so modify goes back to the bottom"

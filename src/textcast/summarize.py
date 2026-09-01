@@ -2,8 +2,13 @@
 
 The endpoint is OpenAI-compatible, which is the one interface every provider
 now speaks. That buys the whole field with a single dependency: point
-``base_url`` at Gemini, OpenAI, OpenRouter, Groq, Together, or an Ollama on
-this machine, name a model, and nothing else changes.
+``base_url`` at any entry in ``PROVIDERS`` — or anything else that speaks the
+protocol — name a model, and nothing else changes.
+
+A router like litellm was weighed and not taken: 183 MB across 114 packages
+against 21 MB, and the only thing it reaches that this does not is a provider
+with no OpenAI endpoint at all (Bedrock, Vertex, SageMaker), which need a
+signed cloud SDK.
 
 Three things are configurable and all three live in the ``setting`` table, so
 they are edited in the app rather than in a restart: the model, the endpoint
@@ -32,6 +37,45 @@ log = logging.getLogger("textcast.summarize")
 DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
 DEFAULT_MODEL = "gemini-2.5-flash"
 
+#: Endpoints that speak the OpenAI protocol, with a model worth starting on.
+#: Anything not listed works too, as long as it speaks the same protocol.
+PROVIDERS = [
+    ("gemini", "Google Gemini", "https://generativelanguage.googleapis.com/v1beta/openai/",
+     ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash"]),
+    ("openai", "OpenAI", "https://api.openai.com/v1/",
+     ["gpt-4.1-mini", "gpt-4.1", "o4-mini"]),
+    ("anthropic", "Anthropic", "https://api.anthropic.com/v1/",
+     ["claude-sonnet-4-5", "claude-haiku-4-5", "claude-opus-4-5"]),
+    ("openrouter", "OpenRouter", "https://openrouter.ai/api/v1/",
+     ["google/gemini-2.5-flash", "anthropic/claude-sonnet-4.5", "deepseek/deepseek-chat"]),
+    ("groq", "Groq", "https://api.groq.com/openai/v1/",
+     ["llama-3.3-70b-versatile", "openai/gpt-oss-120b"]),
+    ("deepseek", "DeepSeek", "https://api.deepseek.com/v1/",
+     ["deepseek-chat", "deepseek-reasoner"]),
+    ("mistral", "Mistral", "https://api.mistral.ai/v1/",
+     ["mistral-small-latest", "mistral-large-latest"]),
+    ("xai", "xAI Grok", "https://api.x.ai/v1/",
+     ["grok-4-fast", "grok-4"]),
+    ("together", "Together", "https://api.together.xyz/v1/",
+     ["meta-llama/Llama-3.3-70B-Instruct-Turbo"]),
+    ("cerebras", "Cerebras", "https://api.cerebras.ai/v1/",
+     ["llama-3.3-70b", "qwen-3-235b-a22b-instruct"]),
+    ("ollama", "Ollama, on this machine", "http://127.0.0.1:11434/v1/",
+     ["llama3.2", "qwen3", "gemma3"]),
+    ("lmstudio", "LM Studio, on this machine", "http://127.0.0.1:1234/v1/",
+     ["local-model"]),
+]
+
+#: Model names move faster than this file. The list above is a starting point,
+#: not a menu: the model field takes anything the endpoint accepts.
+PROVIDER_URLS = {url: name for _id, name, url, _models in PROVIDERS}
+
+
+def provider_for(base_url: str) -> str:
+    """Which listed provider an endpoint belongs to, or an empty string."""
+    return PROVIDER_URLS.get((base_url or "").strip(), "")
+
+
 #: Keys in the ``setting`` table.
 KEY_MODEL = "summary_model"
 KEY_BASE_URL = "summary_base_url"
@@ -40,10 +84,13 @@ KEY_PROMPT = "summary_prompt"
 
 #: Written for the ear, not the eye. Everything here exists because a summary
 #: that reads well on screen reads badly aloud: no markdown, no bullet list, no
-#: heading, and no "this section discusses" preamble.
+#: heading, and no "this section discusses" preamble. The word limit is there
+#: because a summary is spoken before the section it summarises — 150 words is
+#: about a minute, and past that you are listening to the summary, not the
+#: article.
 DEFAULT_PROMPT = """You are summarising one section of an article for someone who will hear it read aloud, before they hear the section itself.
 
-Write two or three sentences of plain prose. Say what the section is about and why it matters. Keep the author's tone, including any humour. Explain a financial term the first time it appears rather than assuming it.
+Write two or three sentences of plain prose, under 150 words in total. Say what the section is about and why it matters. Keep the author's tone, including any humour. Explain a financial term the first time it appears rather than assuming it.
 
 Do not use markdown, bullet points, headings or quotation marks. Do not begin with "This section". Write only the summary.
 
@@ -175,14 +222,21 @@ def summarize_article(
     cfg: Config | None = None,
     client=None,
     progress=None,
+    replace: bool = False,
 ) -> int:
     """Put a summary block at the head of every section. Returns how many.
 
-    Written onto the article in place. The caller stores it and rebuilds the
-    audio, because inserting a block changes every id after it.
+    Written onto the article in place; the caller stores it. A section that
+    already has one is left alone, so running this twice costs nothing —
+    unless ``replace`` is set, which drops the old summaries first and asks
+    the model again for every section.
     """
     cfg = cfg or config()
     client = client or _client(cfg)
+
+    if replace:
+        for section in article.sections:
+            section.blocks = [b for b in section.blocks if b.kind is not BlockKind.SUMMARY]
 
     targets = [
         section

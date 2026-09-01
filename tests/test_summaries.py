@@ -10,6 +10,8 @@ from textcast import db, summarize
 from textcast.document import Article, Block, BlockKind, Section
 from textcast.summarize import Config, SummaryError, summarize_article, summarize_text
 
+_real_client = summarize._client
+
 
 class FakeClient:
     """Stands in for any OpenAI-compatible endpoint."""
@@ -222,3 +224,69 @@ def test_summarising_is_refused_when_no_model_is_configured(conn, settings, monk
 
     with pytest.raises(IngestError, match="API key"):
         queue_summary(stored.article_id)
+
+
+# -- saving settings must never start work --------------------------------
+
+
+def test_saving_a_model_does_not_summarise_anything(conn, settings):
+    """The whole library is one confirm box away, so saving must not touch it."""
+    import pytest as _pytest
+
+    from textcast.web import app as web
+
+    _pytest.importorskip("fastapi")
+    from fastapi.testclient import TestClient
+
+    doc = article()
+    article_id = db.save_article(doc, conn)
+
+    def refuse(cfg):
+        raise AssertionError("saving the settings called the model")
+
+    web.settings = settings
+    summarize._client = refuse
+    try:
+        with TestClient(web.app) as client:
+            client.post("/summaries", data={
+                "model": "gemini-2.5-flash",
+                "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
+                "api_key": "a-real-looking-key",
+                "prompt": summarize.DEFAULT_PROMPT,
+                "keep_key": "true",
+            })
+    finally:
+        summarize._client = _real_client
+
+    assert summarize.config(conn).model == "gemini-2.5-flash"
+    assert db.active_jobs(conn) == [], "no job was queued"
+    assert conn.execute(
+        "SELECT COUNT(*) c FROM block WHERE article_id=? AND kind='summary'", (article_id,)
+    ).fetchone()["c"] == 0, "no summary block was written"
+
+
+
+def test_summarising_again_replaces_what_is_there(conn):
+    """Without this, the second pass sees a summary already present and stops."""
+    doc = article()
+    first = FakeClient("The first attempt.")
+    summarize_article(doc, Config(api_key="k"), first)
+
+    second = FakeClient("A better one.")
+    added = summarize_article(doc, Config(api_key="k"), second, replace=True)
+
+    assert added == 2
+    heads = [s.blocks[0] for s in doc.sections]
+    assert [b.kind for b in heads] == [BlockKind.SUMMARY, BlockKind.SUMMARY]
+    assert [b.text for b in heads] == ["A better one.", "A better one."]
+    assert len(second.prompts) == 2, "every section went back to the model"
+
+
+def test_summarising_again_does_not_stack_up_blocks(conn):
+    doc = article()
+    summarize_article(doc, Config(api_key="k"), FakeClient())
+    before = sum(len(s.blocks) for s in doc.sections)
+
+    summarize_article(doc, Config(api_key="k"), FakeClient(), replace=True)
+
+    assert sum(len(s.blocks) for s in doc.sections) == before

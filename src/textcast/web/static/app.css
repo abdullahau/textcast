@@ -143,6 +143,54 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
 .bar-links a:not(.btn) { color: var(--muted); padding: 0 .3rem; }
 .bar-links a:not(.btn):hover { color: var(--fg); text-decoration: none; }
 /* A form is the only honest way to sign out, so its button has to read as a link. */
+/* A switch, not a button: it shows which of the two you are in, and slides to
+   the other. aria-checked is set from JavaScript because "dark" can come from
+   the system with no attribute on the page at all. */
+.theme-switch {
+  position: relative;
+  width: 52px;
+  height: 26px;
+  min-width: 52px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  /* Two equal items in a 50px content box: space-around puts each one at the
+     centre of its own half, which is where the knob stops. The shared button
+     rule sets a gap, which would push both icons off those centres. */
+  justify-content: space-around;
+  gap: 0;
+  background: var(--sunk);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+.theme-switch:hover { opacity: 1; border-color: var(--border-hi); }
+.theme-switch .knob {
+  position: absolute;
+  top: 2px;
+  left: 2.5px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--surface);
+  box-shadow: 0 1px 2px rgb(0 0 0 / .25);
+  transition: transform .16s ease;
+}
+/* 12.5px to 37.5px: half-centre to half-centre. */
+.theme-switch[aria-checked="true"] .knob { transform: translateX(25px); }
+.theme-switch svg {
+  position: relative;
+  z-index: 1;
+  display: block;
+  flex: 0 0 12px;
+  width: 12px;
+  height: 12px;
+}
+/* The icon under the knob is the one you are in, so it leads; the other waits. */
+.theme-switch .sun { color: var(--fg); }
+.theme-switch .moon { color: var(--muted); }
+.theme-switch[aria-checked="true"] .sun { color: var(--muted); }
+.theme-switch[aria-checked="true"] .moon { color: var(--fg); }
+
 button.link { background: none; border: 0; padding: 0 .3rem; font: inherit; color: var(--muted); cursor: pointer; }
 button.link:hover { color: var(--fg); }
 
@@ -399,8 +447,10 @@ button.q:hover, button.q:focus-visible { color: var(--fg); border-color: var(--f
   padding: 1.15rem;
 }
 .card + .card { margin-top: .9rem; }
-/* The build banner sits above the article, which pulls its own heading up. */
-#build-status { margin-bottom: 1.75rem; }
+/* Anything above the article needs air under it, or the first section heading
+   sits right against the card. */
+#build-status, .pre-doc { margin-bottom: 2.25rem; }
+.pre-doc #build-status { margin-bottom: 0; }
 .card h2 { font-size: .92rem; font-weight: 600; margin-bottom: .15rem; }
 .card p.hint { font-size: .82rem; color: var(--muted); margin: .15rem 0 .9rem; line-height: 1.5; }
 .card p.hint code { font-size: .95em; }

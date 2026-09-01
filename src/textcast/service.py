@@ -232,8 +232,8 @@ def rebuild(article_id: int, options: dict | None = None, settings: Settings | N
     return db.enqueue(article_id, options=options, conn=conn)
 
 
-def summarize(article_id: int, settings: Settings | None = None) -> int:
-    """Queue a summary pass. The worker queues the rebuild when it is done."""
+def summarize(article_id: int, settings: Settings | None = None, replace: bool = False) -> int:
+    """Queue a summary pass. It writes blocks and stops; building is separate."""
     from .summarize import config
 
     settings = settings or get_settings()
@@ -242,7 +242,8 @@ def summarize(article_id: int, settings: Settings | None = None) -> int:
         raise IngestError(f"no article {article_id}")
     if not config(conn).ready:
         raise IngestError("summaries need a model and an API key on the Summaries page")
-    return db.enqueue(article_id, kind="summarise", conn=conn)
+    options = {"replace": True} if replace else None
+    return db.enqueue(article_id, kind="summarise", options=options, conn=conn)
 
 
 def reparse(article_id: int, adapter: str | None = None, settings: Settings | None = None) -> Ingested:

@@ -66,7 +66,8 @@ Build it once:
 6. If access control is on, add a header `x-textcast-token` holding your token.
 7. In the shortcut details, turn on **Show in Share Sheet** and accept URLs.
 
-The same steps are on the Add page, with your host filled in.
+The same steps are on the Add page, with your host filled in. Anything shared
+this way lands in the library parsed and unbuilt, like anything else.
 
 ## Tags
 
@@ -117,13 +118,14 @@ The endpoint is OpenAI-compatible, which every provider now speaks. Point it
 wherever you like on the **Summaries** page — the model, the endpoint, the key
 and the prompt are all editable there, and the key is stored on your machine:
 
-| Provider | Endpoint |
-| --- | --- |
-| Google Gemini (default) | `https://generativelanguage.googleapis.com/v1beta/openai/` |
-| OpenAI | `https://api.openai.com/v1/` |
-| OpenRouter | `https://openrouter.ai/api/v1/` |
-| Groq | `https://api.groq.com/openai/v1/` |
-| Ollama, on this machine | `http://127.0.0.1:11434/v1/` |
+Pick one from the dropdown and it fills in the address and suggests models:
+Gemini, OpenAI, Anthropic, OpenRouter, Groq, DeepSeek, Mistral, xAI, Together,
+Cerebras, or an Ollama or LM Studio on your own machine. Anything else that
+speaks the protocol works too — type its address in.
+
+A router such as litellm was measured and not taken: 183 MB across 114
+packages against 21 MB, and the only thing it reaches that this does not is a
+provider with no OpenAI endpoint at all (Bedrock, Vertex, SageMaker).
 
 `TEXTCAST_SUMMARY_MODEL`, `TEXTCAST_SUMMARY_BASE_URL` and
 `TEXTCAST_SUMMARY_API_KEY` (or `GEMINI_API_KEY`) supply the defaults; what you

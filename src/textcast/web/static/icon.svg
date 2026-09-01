@@ -1,11 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
   <rect width="64" height="64" rx="14" fill="#141310"/>
-  <g fill="none" stroke="#D9A94A" stroke-width="4.5" stroke-linecap="round">
+  <g fill="none" stroke="#FAFAFA" stroke-width="4.5" stroke-linecap="round">
     <path d="M14 34v-6a18 18 0 0 1 36 0v6"/>
     <path d="M14 34h6v14h-4a2 2 0 0 1-2-2z"/>
     <path d="M50 34h-6v14h4a2 2 0 0 0 2-2z"/>
   </g>
-  <g stroke="#F3F1ED" stroke-width="3" stroke-linecap="round">
+  <!-- The lines read as text under the headband. Muted, so at 16px the
+       headphones are still the shape you recognise. -->
+  <g stroke="#7A7A80" stroke-width="3" stroke-linecap="round">
     <path d="M27 26h10"/><path d="M27 33h10"/><path d="M27 40h6"/>
   </g>
 </svg>

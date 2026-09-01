@@ -161,6 +161,28 @@ def page(live, browser):
     p.close()
 
 
+@pytest.fixture
+def still_page(live, browser):
+    """A reader of its own, for tests that assert nothing moves.
+
+    The module-scoped page is a live player: it can still be playing from an
+    earlier test, and it rolls on to the next section by itself when a section
+    ends. A test about staying put cannot share that.
+    """
+    base, slug, _ = live
+    context = browser.new_context()
+    page = context.new_page()
+    page.goto(f"{base}/a/{slug}", wait_until="domcontentloaded")
+    page.wait_for_function(
+        "() => { const a = document.getElementById('audio');"
+        " return a && a.textTracks.length && a.textTracks[0].cues"
+        " && a.textTracks[0].cues.length > 0; }",
+        timeout=20000,
+    )
+    yield page
+    context.close()
+
+
 def active_id(page):
     return page.evaluate("(document.querySelector('#doc .b.on') || {}).id || null")
 
@@ -227,16 +249,16 @@ def test_the_gutter_handle_seeks_to_its_paragraph(page, live):
     assert abs(page.evaluate("document.getElementById('audio').currentTime") - want) < 1.0
 
 
-def test_selecting_text_does_not_seek(page, live):
+def test_selecting_text_does_not_seek(still_page, live):
     """Selecting a paragraph used to start playback, which made copying impossible."""
     _base, _slug, manifest = live
     target = manifest.sections[0].blocks[1]
 
-    page.evaluate("document.getElementById('audio').pause()")
-    page.evaluate("document.getElementById('audio').currentTime = 0")
-    before = page.evaluate("document.getElementById('audio').currentTime")
+    still_page.evaluate("document.getElementById('audio').pause()")
+    still_page.evaluate("document.getElementById('audio').currentTime = 0")
+    before = still_page.evaluate("document.getElementById('audio').currentTime")
 
-    selected = page.evaluate(
+    selected = still_page.evaluate(
         """(id) => {
             const el = document.getElementById(id);
             const range = document.createRange();
@@ -251,8 +273,8 @@ def test_selecting_text_does_not_seek(page, live):
     )
 
     assert selected > 10, "the paragraph text is selectable"
-    assert page.evaluate("document.getElementById('audio').currentTime") == before
-    assert page.evaluate("document.getElementById('audio').paused")
+    assert still_page.evaluate("document.getElementById('audio').currentTime") == before
+    assert still_page.evaluate("document.getElementById('audio').paused")
 
 
 def test_blocks_are_paragraphs_not_buttons(page):
@@ -422,14 +444,14 @@ def test_clicking_a_block_starts_at_that_block_and_nowhere_else(page, live):
     page.evaluate("document.getElementById('audio').pause()")
 
 
-def test_a_stray_seek_does_not_start_playback(page, live):
+def test_a_stray_seek_does_not_start_playback(still_page, live):
     """`seeked` is asynchronous; an armed resume must not fire on someone else's seek."""
     _base, _slug, manifest = live
     target = manifest.sections[0].blocks[2]
 
-    page.evaluate("document.getElementById('audio').pause()")
-    page.evaluate(f"document.getElementById('audio').currentTime = {target.start_ms / 1000}")
-    page.evaluate("document.getElementById('audio').currentTime = 0")
-    page.wait_for_timeout(300)
+    still_page.evaluate("document.getElementById('audio').pause()")
+    still_page.evaluate(f"document.getElementById('audio').currentTime = {target.start_ms / 1000}")
+    still_page.evaluate("document.getElementById('audio').currentTime = 0")
+    still_page.wait_for_timeout(300)
 
-    assert page.evaluate("document.getElementById('audio').paused")
+    assert still_page.evaluate("document.getElementById('audio').paused")

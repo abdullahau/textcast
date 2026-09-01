@@ -54,7 +54,7 @@ def test_a_parallel_build_can_report_its_progress(conn, settings):
 
 
 @pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not installed")
-def test_a_summarise_job_writes_the_blocks_and_queues_the_build(conn, settings, monkeypatch):
+def test_a_summarise_job_writes_the_blocks_and_stops_there(conn, settings, monkeypatch):
     from textcast import summarize
     from textcast.document import BlockKind
 
@@ -73,8 +73,10 @@ def test_a_summarise_job_writes_the_blocks_and_queues_the_build(conn, settings, 
     article = db.load_article(stored.article_id, conn)
     assert article.sections[0].blocks[0].kind is BlockKind.SUMMARY
 
-    assert worker.step() is True, "the build it queued"
-    assert db.get_article(stored.article_id, conn)["status"] == "ready"
+    # Building is a separate decision, made on the article page.
+    assert worker.step() is False, "no build was queued behind it"
+    assert db.active_jobs(conn) == []
+    assert db.get_article(stored.article_id, conn)["status"] == "new"
 
 
 def test_an_article_asking_for_a_retired_engine_still_builds(conn, settings, caplog):

@@ -11,6 +11,14 @@
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/static/icon.svg">
+<script>
+  /* Inline and before the stylesheet on purpose: set from a file and the page
+     paints light first, then flips. */
+  try {
+    var saved = localStorage.getItem("tc:theme");
+    if (saved === "dark" || saved === "light") document.documentElement.dataset.theme = saved;
+  } catch (e) {}
+</script>
 <link rel="stylesheet" href="/static/app.css?v={{ assets }}">
 </head>
 <body>
@@ -31,6 +39,18 @@
     <a href="/tags">Tags</a>
     <a href="/pronunciations">Voice</a>
     <a href="/summaries">Summaries</a>
+    <button type="button" class="theme-switch" id="theme" role="switch" aria-checked="false"
+            title="Switch between light and dark">
+      <span class="knob" aria-hidden="true"></span>
+      <svg class="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+           stroke-linecap="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="4.5"/>
+        <path d="M12 1.5v2.5M12 20v2.5M3.9 3.9l1.8 1.8M18.3 18.3l1.8 1.8M1.5 12h2.5M20 12h2.5M3.9 20.1l1.8-1.8M18.3 5.7l1.8-1.8"/>
+      </svg>
+      <svg class="moon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>
+      </svg>
+    </button>
     {% if auth_on %}<form method="post" action="/logout" class="narrow" style="display:inline"><button class="link" type="submit">Sign out</button></form>{% endif %}
     <a class="btn sm" href="/add">Add</a>
   </nav>
@@ -44,6 +64,33 @@
 if ("serviceWorker" in navigator) {
   addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));
 }
+
+/* Three states, two of them explicit. With nothing stored the page follows the
+   system, which is what the stylesheet does on its own. */
+(function () {
+  var root = document.documentElement;
+  var button = document.getElementById("theme");
+  if (!button) return;
+
+  var system = matchMedia("(prefers-color-scheme: dark)");
+  function dark() { return root.dataset.theme ? root.dataset.theme === "dark" : system.matches; }
+  function label() {
+    var on = dark();
+    button.setAttribute("aria-label", on ? "Switch to light" : "Switch to dark");
+    /* aria-checked drives the knob, and it is set here rather than in the
+       markup because dark can come from the system with no attribute set. */
+    button.setAttribute("aria-checked", on ? "true" : "false");
+  }
+
+  button.addEventListener("click", function () {
+    var next = dark() ? "light" : "dark";
+    root.dataset.theme = next;
+    try { localStorage.setItem("tc:theme", next); } catch (e) {}
+    label();
+  });
+  system.addEventListener("change", label);
+  label();
+})();
 </script>
 {% block scripts %}{% endblock %}
 </body>
