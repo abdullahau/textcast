@@ -106,8 +106,9 @@
                placeholder="{{ '•••••••• stored' if cfg.api_key else 'not set' }}">
         <p class="hint" style="margin-top:.35rem">
           Kept in the database on this machine. Leave blank to keep the one already stored.
-          <code>TEXTCAST_SUMMARY_API_KEY</code> or <code>GEMINI_API_KEY</code> supplies it
-          when nothing is stored. A local Ollama needs no key — put anything in it.
+          <code>TEXTCAST_SUMMARY_API_KEY</code> supplies it when nothing is stored — one
+          variable, whichever provider you point at. A local Ollama needs no key; put
+          anything in it.
         </p>
       </div>
     </div>

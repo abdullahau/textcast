@@ -59,14 +59,18 @@ def test_the_environment_is_the_default_and_the_app_overrides_it(conn, monkeypat
     assert summarize.config(conn).model == "chosen-in-the-app"
 
 
-def test_a_key_is_read_from_any_of_the_usual_variables(conn, monkeypatch):
+def test_the_key_variable_is_not_named_after_a_vendor(conn, monkeypatch):
+    """It read GEMINI_API_KEY and OPENAI_API_KEY too, which said the endpoint
+    was one of those two when any of a dozen will do."""
     monkeypatch.setenv("GEMINI_API_KEY", "from-gemini")
-    assert summarize.config(conn).api_key == "from-gemini"
+    monkeypatch.setenv("OPENAI_API_KEY", "from-openai")
+    assert summarize.config(conn).api_key == ""
+
+    monkeypatch.setenv("TEXTCAST_SUMMARY_API_KEY", "the-one-it-reads")
+    assert summarize.config(conn).api_key == "the-one-it-reads"
 
 
 def test_a_config_without_a_key_is_not_ready(conn, monkeypatch):
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("TEXTCAST_SUMMARY_API_KEY", raising=False)
 
     assert summarize.config(conn).ready is False

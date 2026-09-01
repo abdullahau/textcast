@@ -455,3 +455,48 @@ def test_a_stray_seek_does_not_start_playback(still_page, live):
     still_page.wait_for_timeout(300)
 
     assert still_page.evaluate("document.getElementById('audio').paused")
+
+
+def test_seeking_to_a_block_highlights_that_block_not_the_one_before(still_page, live):
+    """At a boundary the browser calls both cues active, ordered by start time.
+
+    Taking activeCues[0] took the cue that was *ending*, so every click on a
+    block's handle left the highlight one block behind while the right audio
+    played.
+    """
+    _base, _slug, manifest = live
+    blocks = manifest.sections[0].blocks
+
+    for target in blocks[1:5]:
+        still_page.evaluate(f"document.getElementById('audio').currentTime = {target.start_ms / 1000}")
+        still_page.wait_for_timeout(250)
+        got = still_page.evaluate("(document.querySelector('#doc .b.on') || {}).id || null")
+        assert got == target.id, f"seeking to {target.id} highlighted {got}"
+
+
+def test_the_first_block_is_highlighted_before_any_cue_boundary(live, browser):
+    """cuechange only fires when the set changes, so a track that loads with a
+    cue already active used to leave the first block unmarked until the next
+    boundary — very visible when it is a long summary."""
+    base, slug, manifest = live
+    # An earlier test leaves a saved position, and resuming into the middle is
+    # the right behaviour. This one is about opening at the top.
+    conn = db.init()
+    conn.execute("DELETE FROM position")
+
+    context = browser.new_context()
+    page = context.new_page()
+    try:
+        page.goto(f"{base}/a/{slug}", wait_until="domcontentloaded")
+        page.wait_for_function(
+            "() => { const a = document.getElementById('audio');"
+            " return a && a.textTracks.length && a.textTracks[0].cues"
+            " && a.textTracks[0].cues.length > 0; }",
+            timeout=20000,
+        )
+        page.wait_for_function(
+            "() => !!document.querySelector('#doc .b.on')", timeout=8000
+        )
+        assert page.evaluate("document.querySelector('#doc .b.on').id") == manifest.sections[0].blocks[0].id
+    finally:
+        context.close()

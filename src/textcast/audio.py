@@ -188,9 +188,13 @@ def write_vtt(timings: list[BlockTiming], out: Path) -> None:
     """
     lines = ["WEBVTT", ""]
     for timing in timings:
+        # A millisecond short of the next cue. Ending exactly where the next
+        # begins makes the browser call both active at the boundary, and then
+        # which one is "the" cue is a coin toss the player has to break.
+        end = timing.start_ms + max(1, timing.dur_ms - 1)
         lines += [
             timing.id,
-            f"{vtt_timestamp(timing.start_ms)} --> {vtt_timestamp(timing.start_ms + timing.dur_ms)}",
+            f"{vtt_timestamp(timing.start_ms)} --> {vtt_timestamp(end)}",
             timing.id,
             "",
         ]

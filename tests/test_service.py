@@ -108,3 +108,56 @@ def test_reparse_keeps_the_original_it_is_about_to_read(conn, settings):
     reparse(stored.article_id)
 
     assert source.exists()
+
+
+def test_deleting_audio_keeps_the_article_and_takes_the_cache(conn, settings):
+    """There was no way back from a build except deleting the whole article."""
+    from textcast.service import cached_renders, delete_audio
+
+    stored = add_note()
+    media = settings.media_dir / stored.slug
+    media.mkdir(parents=True, exist_ok=True)
+    (media / "section-000.opus").write_bytes(b"audio")
+    (media / "section-000.vtt").write_text("WEBVTT")
+    for path in cached_renders(stored.article_id, conn, settings):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"\0" * 8)
+    conn.execute("UPDATE article SET status='ready', audio_ms=9000 WHERE id=?", (stored.article_id,))
+    conn.execute("UPDATE block SET start_ms=0, dur_ms=1 WHERE article_id=?", (stored.article_id,))
+
+    removed = delete_audio(stored.article_id)
+
+    row = db.get_article(stored.article_id, conn)
+    assert removed >= 3, "the media files and the cached renders"
+    assert (row["status"], row["audio_ms"]) == ("new", 0)
+    assert not media.exists()
+    assert list(settings.cache_dir.glob("*.f32")) == []
+    assert db.load_article(stored.article_id, conn).word_count > 0, "the text stays"
+    assert (settings.source_dir / f"{stored.slug}.txt").exists(), "so does the original"
+
+
+def test_deleting_summaries_keeps_the_article_and_drops_the_audio(conn, settings):
+    from textcast.document import BlockKind
+    from textcast.service import delete_summaries
+    from textcast.summarize import Config, summarize_article
+
+    stored = add_note()
+    article = db.load_article(stored.article_id, conn)
+
+    class Fake:
+        def __init__(self):
+            from types import SimpleNamespace
+            reply = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="In short."))])
+            self.chat = SimpleNamespace(completions=SimpleNamespace(create=lambda **kw: reply))
+
+    summarize_article(article, Config(api_key="k"), Fake())
+    db.replace_blocks(stored.article_id, article, conn)
+    assert any(b.kind is BlockKind.SUMMARY for _s, b in db.load_article(stored.article_id, conn).blocks())
+
+    dropped = delete_summaries(stored.article_id)
+
+    after = db.load_article(stored.article_id, conn)
+    assert dropped > 0
+    assert not any(b.kind is BlockKind.SUMMARY for _s, b in after.blocks())
+    assert after.sections[0].blocks[0].id == "b0-0", "ids close up behind them"
+    assert delete_summaries(stored.article_id) == 0, "nothing left to remove"

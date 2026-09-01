@@ -15,6 +15,14 @@
           var note = document.querySelector('[data-job-message="' + job.id + '"]') || document.getElementById("build-message");
           if (meter) meter.style.width = (job.progress * 100).toFixed(1) + "%";
           if (note) note.textContent = job.message || job.state;
+
+          /* A summarise job is calls to a language model, not synthesis. The
+             page can be opened before the job is claimed, so the heading has
+             to follow the queue rather than the render at load. */
+          var title = document.getElementById("build-title");
+          if (title) {
+            title.textContent = job.kind === "summarise" ? "Summarising…" : "Building audio…";
+          }
         });
 
         // Back off once a long build is clearly going to take a while.

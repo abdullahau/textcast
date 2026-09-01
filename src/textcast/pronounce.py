@@ -203,6 +203,18 @@ PHONEME_HINTS = {
     "LIBOR": "lˈIbɔɹ",
 }
 
+#: Hyphens the engine reads as a pause rather than a join. Measured on Kokoro:
+#: "fund start-ups that" leaves a 182 ms break mid-phrase against 113 ms for
+#: "startups", and the clip runs 80 ms longer. Joined, it is one word and one
+#: breath. Spelled out rather than captured, so the output is the same word
+#: whatever the input's capitals were: a mid-word capital risks being read as
+#: two words again, which is the thing being fixed. The plural pattern is safe
+#: beside the singular — there is no word boundary between "up" and "s".
+JOINED = {
+    r"\bstart-ups\b": "startups",
+    r"\bstart-up\b": "startup",
+}
+
 #: Written short, said long.
 ABBREVIATIONS = {
     "approx.": "approximately",
@@ -290,6 +302,16 @@ def builtin_rules() -> list[Rule]:
             is_phonemes=True,
             note="phonemes, where no respelling reaches it",
             sort_order=30,
+        ))
+
+    for pattern, joined in JOINED.items():
+        add(Rule(
+            kind="regex",
+            pattern=pattern,
+            replacement=joined,
+            ignore_case=True,
+            note="hyphen read as a pause; joined it is one word",
+            sort_order=25,
         ))
 
     for short, long in ABBREVIATIONS.items():

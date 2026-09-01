@@ -124,13 +124,8 @@ class Config:
         return bool(self.api_key and self.model)
 
 
-def _env(key: str, *fallbacks: str) -> str:
-    """The first environment variable of the lot that holds anything."""
-    for name in (key, *fallbacks):
-        value = os.environ.get(name, "").strip()
-        if value:
-            return value
-    return ""
+def _env(key: str) -> str:
+    return os.environ.get(key, "").strip()
 
 
 def config(conn=None) -> Config:
@@ -148,7 +143,7 @@ def config(conn=None) -> Config:
     return Config(
         model=stored(KEY_MODEL, _env("TEXTCAST_SUMMARY_MODEL") or DEFAULT_MODEL),
         base_url=stored(KEY_BASE_URL, _env("TEXTCAST_SUMMARY_BASE_URL") or DEFAULT_BASE_URL),
-        api_key=stored(KEY_API_KEY, _env("TEXTCAST_SUMMARY_API_KEY", "GEMINI_API_KEY", "OPENAI_API_KEY")),
+        api_key=stored(KEY_API_KEY, _env("TEXTCAST_SUMMARY_API_KEY")),
         prompt=stored(KEY_PROMPT, DEFAULT_PROMPT),
     )
 

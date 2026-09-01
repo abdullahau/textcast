@@ -16,6 +16,7 @@
   --accent-fg: #fafafa;
   --ring:      #a1a1aa;
   --highlight: #ececef;   /* the read-along wash */
+  --knob:      #ffffff;   /* the theme switch's sliding knob */
   --good:      #16a34a;
   --bad:       #dc2626;
   --warn:      #ca8a04;
@@ -45,6 +46,7 @@
     --accent-fg: #09090b;
     --ring:      #52525b;
     --highlight: #1f1f23;
+    --knob:      #52525b;
     --good:      #4ade80;
     --bad:       #f87171;
     --warn:      #facc15;
@@ -65,6 +67,7 @@
   --accent-fg: #09090b;
   --ring:      #52525b;
   --highlight: #1f1f23;
+  --knob:      #52525b;
   --good:      #4ade80;
   --bad:       #f87171;
   --warn:      #facc15;
@@ -171,9 +174,9 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
   width: 20px;
   height: 20px;
   border-radius: 50%;
-  background: var(--surface);
-  box-shadow: 0 1px 2px rgb(0 0 0 / .25);
-  transition: transform .16s ease;
+  background: var(--knob);
+  box-shadow: 0 1px 3px rgb(0 0 0 / .35);
+  transition: transform .16s ease, background-color .16s ease;
 }
 /* 12.5px to 37.5px: half-centre to half-centre. */
 .theme-switch[aria-checked="true"] .knob { transform: translateX(25px); }

@@ -246,6 +246,92 @@ def summarize(article_id: int, settings: Settings | None = None, replace: bool =
     return db.enqueue(article_id, kind="summarise", options=options, conn=conn)
 
 
+def cached_renders(article_id: int, conn, settings: Settings) -> list[Path]:
+    """The cache files this article's blocks would read.
+
+    The key is a hash of the spoken text, the engine, the voice and the pace,
+    so a file can belong to more than one article. Rare, but it means these
+    are only safe to delete when the block itself is going.
+    """
+    from .audio import _cache_key
+    from .document import Block, BlockKind
+    from .prefs import voice_defaults
+
+    chosen = voice_defaults(conn, settings)
+    options = db.get_build_options(article_id, conn)
+    voice = options.get("voice") or chosen.voice or "af_heart"
+    quote_voice = options.get("quote_voice") or chosen.quote_voice
+    speed = float(options.get("speed") or chosen.speed or 1.0)
+
+    paths: list[Path] = []
+    for row in conn.execute(
+        "SELECT kind, text FROM block WHERE article_id = ?", (article_id,)
+    ):
+        block = Block(kind=BlockKind(row["kind"]), text=row["text"])
+        quoted = block.kind is BlockKind.QUOTE and quote_voice
+        spoken = block.spoken(quote_markers=not quoted)
+        key = _cache_key(spoken, "kokoro", quote_voice if quoted else voice, speed)
+        paths.append(settings.cache_dir / f"{key}.f32")
+    return paths
+
+
+def delete_audio(article_id: int, settings: Settings | None = None) -> int:
+    """Throw the audio away and keep the article. Returns files removed.
+
+    The files, the block cache behind them, and every timing in the database
+    that pointed at them. Without this the only way to undo a build was to
+    delete the article and add it again.
+    """
+    settings = settings or get_settings()
+    conn = db.connect(settings.db_path)
+    row = db.get_article(article_id, conn)
+    if row is None:
+        raise IngestError(f"no article {article_id}")
+
+    removed = 0
+    media = settings.media_dir / row["slug"]
+    for child in media.glob("*"):
+        child.unlink(missing_ok=True)
+        removed += 1
+    if media.exists():
+        media.rmdir()
+
+    for path in cached_renders(article_id, conn, settings):
+        if path.exists():
+            path.unlink(missing_ok=True)
+            removed += 1
+
+    db.forget_audio(article_id, conn)
+    return removed
+
+
+def delete_summaries(article_id: int, settings: Settings | None = None) -> int:
+    """Remove the summary blocks and keep everything else. Returns how many.
+
+    Removing a block moves every id after it, so the audio no longer lines up:
+    it goes too, the same as it would if you had never summarised.
+    """
+    from .document import BlockKind
+
+    settings = settings or get_settings()
+    conn = db.connect(settings.db_path)
+    article = db.load_article(article_id, conn)
+    if article is None:
+        raise IngestError(f"no article {article_id}")
+
+    dropped = 0
+    for section in article.sections:
+        keep = [b for b in section.blocks if b.kind is not BlockKind.SUMMARY]
+        dropped += len(section.blocks) - len(keep)
+        section.blocks = keep
+    if not dropped:
+        return 0
+
+    delete_audio(article_id, settings)
+    db.replace_blocks(article_id, article, conn)
+    return dropped
+
+
 def delete(article_id: int, settings: Settings | None = None) -> bool:
     """Remove an article and everything kept for it alone.
 

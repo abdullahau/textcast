@@ -16,6 +16,18 @@
       <form method="post" action="/api/articles/{{ row.id }}/reparse" class="narrow">
         <button class="ghost" type="submit" title="Re-run the parser over the saved source">Re-parse</button>
       </form>
+      {% if has_summary %}
+      <form method="post" action="/api/articles/{{ row.id }}/summaries/delete" class="narrow"
+            onsubmit="return confirm('Remove the summaries? The audio goes too, because every block id moves.')">
+        <button class="ghost" type="submit" title="Remove the summary blocks and keep the article">Delete summaries</button>
+      </form>
+      {% endif %}
+      {% if row.status == 'ready' or row.audio_ms %}
+      <form method="post" action="/api/articles/{{ row.id }}/audio/delete" class="narrow"
+            onsubmit="return confirm('Delete the audio? The text stays and you can build it again.')">
+        <button class="ghost" type="submit" title="Remove the audio and its cache, keep the article">Delete audio</button>
+      </form>
+      {% endif %}
       <form method="post" action="/api/articles/{{ row.id }}/delete" class="narrow"
             onsubmit="return confirm('Delete this article and its audio? Archive it instead to keep it.')">
         <button class="danger" type="submit">Delete</button>
@@ -120,15 +132,26 @@
   </header>
 
   {% if row.status != 'ready' %}
+    {% set summarising = job and job.kind == 'summarise' %}
     <div class="card" id="build-status" data-article="{{ row.id }}" data-status="{{ row.status }}"
          {{ 'hidden' if row.status == 'new' }}>
       {% if row.status == 'failed' %}
-        <h2>Build failed</h2>
+        <h2 id="build-title">{{ 'Summarising failed' if summarising else 'Build failed' }}</h2>
         <p class="hint mono">{{ job.error if job and job.error else 'No error recorded.' }}</p>
       {% elif row.status in ('queued', 'building') %}
-        <h2>Building audio…</h2>
-        <p class="hint" id="build-message">{{ job.message if job else 'Waiting for the worker.' }}</p>
+        <h2 id="build-title">{{ 'Summarising…' if summarising else 'Building audio…' }}</h2>
+        <p class="hint" id="build-message">
+          {%- if job and job.message %}{{ job.message }}
+          {%- elif summarising %}Waiting for the model.
+          {%- else %}Waiting for the worker.{% endif -%}
+        </p>
         <span class="meter"><i id="build-meter" style="width: {{ ((job.progress if job else 0) * 100)|round(1) }}%"></i></span>
+        {% if summarising %}
+          <p class="hint" style="margin:.6rem 0 0">
+            One call per section to {{ summary_model }}. The audio is not being touched;
+            build it when the summaries land.
+          </p>
+        {% endif %}
       {% endif %}
     </div>
   {% endif %}

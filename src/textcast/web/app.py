@@ -27,10 +27,11 @@ from ..jobs import Worker
 from ..prefs import save_voice_defaults, voice_defaults
 
 # summarize is renamed: the ingest form has a field of the same name.
-from ..service import IngestError, ingest, rebuild, rebuild_many, reparse
+from ..service import IngestError, delete_audio, delete_summaries, ingest, rebuild, rebuild_many, reparse
 from ..service import delete as delete_article
 from ..service import summarize as queue_summary
 from ..settings import get_settings
+from ..summarize import config as summaries_config
 from ..tts import catalogue, default_voice, loaded_engine, shared_engine
 
 log = logging.getLogger("textcast.web")
@@ -305,6 +306,7 @@ def reader(request: Request, slug: str):
         selected_speed=_speed_label(options.get("speed") or chosen.speed),
         blocks=sum(len(section.blocks) for section in article.sections),
         has_summary=has_summary,
+        summary_model=summaries_config(conn).model,
         build_on_top=build_on_top,
         modify_on_top=build_on_top and not has_summary,
     )
@@ -886,6 +888,32 @@ def api_flag(request: Request, article_id: int, field: str = Form(...), value: b
     return {"ok": True}
 
 
+@app.post("/api/articles/{article_id}/audio/delete", dependencies=[Auth])
+def api_delete_audio(request: Request, article_id: int):
+    """Undo a build without losing the article."""
+    try:
+        removed = delete_audio(article_id)
+    except IngestError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    if _wants_html(request):
+        row = db.get_article(article_id)
+        return RedirectResponse(f"/a/{row['slug']}", status_code=303)
+    return {"removed": removed}
+
+
+@app.post("/api/articles/{article_id}/summaries/delete", dependencies=[Auth])
+def api_delete_summaries(request: Request, article_id: int):
+    """Undo a summary pass. The audio goes with it, because the ids move."""
+    try:
+        dropped = delete_summaries(article_id)
+    except IngestError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    if _wants_html(request):
+        row = db.get_article(article_id)
+        return RedirectResponse(f"/a/{row['slug']}", status_code=303)
+    return {"dropped": dropped}
+
+
 @app.post("/api/articles/{article_id}/delete", dependencies=[Auth])
 def api_delete(request: Request, article_id: int):
     if not delete_article(article_id):
@@ -953,6 +981,7 @@ def api_jobs():
                 "article": j["article_id"],
                 "slug": j["slug"],
                 "title": j["title"],
+                "kind": j["kind"],
                 "state": j["state"],
                 "progress": round(j["progress"], 3),
                 "message": j["message"],

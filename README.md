@@ -128,8 +128,9 @@ packages against 21 MB, and the only thing it reaches that this does not is a
 provider with no OpenAI endpoint at all (Bedrock, Vertex, SageMaker).
 
 `TEXTCAST_SUMMARY_MODEL`, `TEXTCAST_SUMMARY_BASE_URL` and
-`TEXTCAST_SUMMARY_API_KEY` (or `GEMINI_API_KEY`) supply the defaults; what you
-save on the page wins over them, so the settings always take effect.
+`TEXTCAST_SUMMARY_API_KEY` supply the defaults — one key variable whichever
+provider you point at. What you save on the page wins over them, so the
+settings always take effect.
 
 Summarising queues a rebuild, because a new block moves every paragraph after
 it. That is also why it is its own job: the model runs once, the audio follows.

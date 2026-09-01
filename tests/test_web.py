@@ -313,3 +313,27 @@ def test_an_article_that_already_has_summaries_is_not_offered_them_again(client,
     assert "Summarise" not in body[:text], "it already has one"
     assert body.index("Build the audio") < text, "the build is still pending"
     assert body.index("Modify article") > text, "so modify goes back to the bottom"
+
+
+def test_the_two_dark_palettes_stay_identical():
+    """Dark is defined twice: once for the system preference and once for the
+    switch. They must carry the same tokens, or a colour set in one place is
+    missing when you get there the other way."""
+    import re
+    from pathlib import Path
+
+    css = Path("src/textcast/web/static/app.css").read_text(encoding="utf-8")
+
+    def tokens(selector: str) -> dict[str, str]:
+        start = css.index(selector)
+        body = css[css.index("{", start) + 1 : css.index("}", start)]
+        return {k: v.strip() for k, v in re.findall(r"(--[\w-]+):\s*([^;]+);", body)}
+
+    by_media = tokens(':root:not([data-theme="light"])')
+    by_switch = tokens(':root[data-theme="dark"]')
+
+    assert by_media, "the media-query dark palette moved"
+    assert by_media == by_switch, (
+        f"only in one: {set(by_media) ^ set(by_switch)}; "
+        f"differing: {[k for k in by_media if by_media[k] != by_switch.get(k)]}"
+    )

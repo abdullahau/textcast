@@ -61,10 +61,29 @@
     if (follow) el.scrollIntoView({ block: "center", behavior: "smooth" });
   }
 
-  /* The browser tells us which block is playing; we only have to react. */
+  /* The browser tells us which block is playing; we only have to react.
+
+     Not activeCues[0]. At a boundary the browser reports the cue that is
+     ending and the one that is starting as both active, ordered by start
+     time — so [0] is the one just finished, and the highlight sat a block
+     behind every time you seeked to a block's start. The last one started
+     most recently, which is the one being read. */
+  function currentCueId() {
+    var active = track && track.activeCues;
+    return active && active.length ? active[active.length - 1].id : null;
+  }
+
   function onCueChange() {
-    var active = this.activeCues;
-    if (active && active.length) highlight(active[0].id);
+    var id = currentCueId();
+    if (id) highlight(id);
+  }
+
+  /* cuechange only fires when the set *changes*. A track that loads with a cue
+     already active — a fresh page, or a resume part-way in — fires nothing at
+     all, so the first block goes unhighlighted until the next boundary. */
+  function syncHighlight() {
+    var id = currentCueId();
+    if (id) highlight(id);
   }
 
   // ------------------------------------------------------------ sections
@@ -91,6 +110,7 @@
         track = el.track;
         track.mode = "hidden";
         track.addEventListener("cuechange", onCueChange);
+        syncHighlight();
       });
       audio.appendChild(el);
       audio.load();
@@ -124,18 +144,19 @@
       var landed = function () { return Math.abs(audio.currentTime * 1000 - target) < CLOSE_ENOUGH_MS; };
       var play = function () { audio.play().catch(function () { /* needs a gesture */ }); };
 
+      var onSeeked = function () {
+        audio.removeEventListener("seeked", onSeeked);
+        syncHighlight();
+        if (resume && landed()) play();
+      };
+
       if (landed()) {
         audio.currentTime = target / 1000;
+        syncHighlight();
         if (resume) play();
         return;
       }
-      if (resume) {
-        var onSeeked = function () {
-          audio.removeEventListener("seeked", onSeeked);
-          if (landed()) play();
-        };
-        audio.addEventListener("seeked", onSeeked);
-      }
+      audio.addEventListener("seeked", onSeeked);
       audio.currentTime = target / 1000;
     };
 
