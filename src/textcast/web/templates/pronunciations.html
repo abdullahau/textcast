@@ -1,0 +1,220 @@
+{% extends "base.html" %}
+{% block title %}Pronunciation — textcast<script>
+(function () {
+  var go = document.getElementById("say-go");
+  var field = document.getElementById("say-text");
+  var out = document.getElementById("say-out");
+  var err = document.getElementById("say-error");
+
+  function say() {
+    var text = field.value.trim();
+    if (!text) return;
+    go.disabled = true; go.textContent = "…";
+    err.hidden = true;
+
+    var body = new FormData();
+    body.append("text", text);
+    body.append("apply_rules", document.getElementById("say-rules").checked ? "true" : "false");
+
+    fetch("/api/say", { method: "POST", body: body })
+      .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+      .then(function (res) {
+        if (!res.ok) throw new Error(res.d.error || "could not synthesise");
+        document.getElementById("say-phonemes").textContent = res.d.phonemes || "(engine gives no phonemes)";
+        document.getElementById("say-spoken").textContent = res.d.spoken;
+        var audio = document.getElementById("say-audio");
+        audio.src = res.d.audio;
+        out.hidden = false;
+        audio.play().catch(function () { /* the controls are right there */ });
+      })
+      .catch(function (e) { err.textContent = e.message; err.hidden = false; })
+      .finally(function () { go.disabled = false; go.textContent = "Say it"; });
+  }
+
+  go.addEventListener("click", say);
+  field.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); say(); } });
+})();
+</script>
+{% endblock %}
+
+{% block content %}
+<div class="section-head">
+  <h1>Pronunciation</h1>
+  <span class="muted">{{ rows|length }} rules · {{ enabled_count }} on</span>
+</div>
+
+{% if error %}<p class="notice error">{{ error }}</p>{% endif %}
+{% if message %}<p class="notice ok">{{ message }}</p>{% endif %}
+
+<div class="card">
+  <h2>Listen</h2>
+  <p class="hint">Type a word or a respelling and hear it. This is how you tell whether <code>ee bitda</code> beats <code>ebitda</code> without knowing any IPA.</p>
+  <div class="row">
+    <input type="text" id="say-text" placeholder="EBITDA   or   ee bitda" value="EBITDA">
+    <button class="narrow" type="button" id="say-go">Say it</button>
+  </div>
+  <label class="check" style="margin-top:.6rem"><input type="checkbox" id="say-rules" checked> Apply the rules below first</label>
+  <div id="say-out" class="tryout" hidden>
+    <p class="label">Phonemes</p>
+    <p class="after mono" id="say-phonemes">—</p>
+    <p class="label">Spoken as</p>
+    <p class="after" id="say-spoken">—</p>
+    <audio id="say-audio" controls style="width:100%;margin-top:.7rem"></audio>
+  </div>
+  <p class="notice error" id="say-error" hidden></p>
+</div>
+
+<div class="card">
+  <h2>Try it</h2>
+  <p class="hint">Paste a sentence to see what the engine will actually be given, and which rules fired.</p>
+  <form method="post" action="/pronunciations/test">
+    <textarea name="sample" style="min-height:5rem">{{ sample }}</textarea>
+    <div class="row" style="margin-top:.7rem"><button class="narrow" type="submit">Test</button></div>
+  </form>
+
+  {% if tested %}
+    <div class="tryout">
+      <p class="label">On screen</p>
+      <p class="before">{{ sample }}</p>
+      <p class="label">Spoken</p>
+      <p class="after">{{ spoken }}</p>
+      {% if phonemes %}
+        <p class="label">Phonemes Kokoro will use</p>
+        <p class="after mono">{{ phonemes }}</p>
+      {% endif %}
+      <p class="label">Rules that fired ({{ hits|length }})</p>
+      {% if hits %}
+        <ul class="fired">
+          {% for h in hits %}
+            <li><code>{{ h.pattern }}</code> matched {{ h.matched|join(', ') }} → <b>{{ h.replacement }}</b></li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="hint" style="margin:0">None. The structural rules for money, percentages and dates always run.</p>
+      {% endif %}
+    </div>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>Add a rule</h2>
+  <p class="hint">
+    Just respell it. <code>GAAP</code> said as <code>gap</code>, <code>EBITDA</code> said as
+    <code>ee bitda</code> — ordinary letters, no phonetic alphabet. Only tick the IPA box for a word
+    no spelling reaches.
+  </p>
+  <p class="hint">
+    A <b>word</b> matches whole words only. A <b>phrase</b> matches anywhere, so use it for things with
+    a full stop like <code>vs.</code> A <b>regex</b> gives you lookarounds — that is how the month rules
+    fire on <code>Jul 2</code> but not on <code>Julian</code>.
+  </p>
+  <form method="post" action="/pronunciations/add">
+    <div class="row">
+      <div class="narrow" style="flex:0 0 8rem">
+        <label for="kind">Match</label>
+        <select name="kind" id="kind">
+          <option value="word">Whole word</option>
+          <option value="phrase">Phrase</option>
+          <option value="regex">Regex</option>
+        </select>
+      </div>
+      <div>
+        <label for="pattern">Written</label>
+        <input type="text" name="pattern" id="pattern" placeholder="GAAP" required>
+      </div>
+      <div>
+        <label for="replacement">Said as</label>
+        <input type="text" name="replacement" id="replacement" placeholder="gap" required>
+      </div>
+    </div>
+    <div class="row" style="margin-top:.7rem">
+      <div><label for="note">Note</label><input type="text" name="note" id="note" placeholder="optional"></div>
+      <label class="check narrow"><input type="checkbox" name="is_phonemes" value="true"> Said as is IPA, not letters</label>
+      <label class="check narrow"><input type="checkbox" name="ignore_case" value="true"> Ignore case</label>
+    </div>
+    <div class="row" style="margin-top:.9rem"><button class="narrow" type="submit">Add rule</button></div>
+  </form>
+</div>
+
+<div class="section-head"><h2>Rules</h2><span class="muted">lower order runs first</span></div>
+<div class="tablewrap">
+  <table class="plain rules">
+    <thead>
+      <tr><th>On</th><th>Match</th><th>Written</th><th>Said as</th><th>Note</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+        <tr class="{{ 'off' if not r.enabled }}">
+          <td>
+            <form method="post" action="/pronunciations/{{ r.id }}/toggle">
+              <button class="subtle sm" type="submit" title="{{ 'Disable' if r.enabled else 'Enable' }}">{{ '●' if r.enabled else '○' }}</button>
+            </form>
+          </td>
+          <td><span class="badge">{{ r.kind }}</span></td>
+          <td class="mono pattern">{{ r.pattern }}</td>
+          <td class="mono">{% if r.is_phonemes %}<span class="badge">IPA</span> {% endif %}{{ r.replacement }}</td>
+          <td class="muted-cell">{{ r.note }}</td>
+          <td>
+            <form method="post" action="/pronunciations/{{ r.id }}/delete"
+                  onsubmit="return confirm('Delete this rule?')">
+              <button class="subtle sm" type="submit">Delete</button>
+            </form>
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="card" style="margin-top:1rem">
+  <h2>Always on</h2>
+  <p class="hint">
+    Anything with a shape is handled in code, because matching it needs arithmetic rather than a lookup.
+    These run before the rules above and cannot be edited here.
+  </p>
+  <table class="plain">
+    <thead><tr><th>Written</th><th>Spoken</th></tr></thead>
+    <tbody>
+      {% for written, said in structural %}
+        <tr><td class="mono">{{ written }}</td><td>{{ said }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<script>
+(function () {
+  var go = document.getElementById("say-go");
+  var field = document.getElementById("say-text");
+  var out = document.getElementById("say-out");
+  var err = document.getElementById("say-error");
+
+  function say() {
+    var text = field.value.trim();
+    if (!text) return;
+    go.disabled = true; go.textContent = "…";
+    err.hidden = true;
+
+    var body = new FormData();
+    body.append("text", text);
+    body.append("apply_rules", document.getElementById("say-rules").checked ? "true" : "false");
+
+    fetch("/api/say", { method: "POST", body: body })
+      .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+      .then(function (res) {
+        if (!res.ok) throw new Error(res.d.error || "could not synthesise");
+        document.getElementById("say-phonemes").textContent = res.d.phonemes || "(engine gives no phonemes)";
+        document.getElementById("say-spoken").textContent = res.d.spoken;
+        var audio = document.getElementById("say-audio");
+        audio.src = res.d.audio;
+        out.hidden = false;
+        audio.play().catch(function () { /* the controls are right there */ });
+      })
+      .catch(function (e) { err.textContent = e.message; err.hidden = false; })
+      .finally(function () { go.disabled = false; go.textContent = "Say it"; });
+  }
+
+  go.addEventListener("click", say);
+  field.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); say(); } });
+})();
+</script>
+{% endblock %}

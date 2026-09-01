@@ -646,3 +646,25 @@ code {
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; scroll-behavior: auto !important; animation: none !important; }
 }
+
+/* ---------- pronunciation settings ---------- */
+
+.tryout { margin-top: 1rem; border-top: 1px solid var(--border); padding-top: .9rem; }
+.tryout .label {
+  font-size: .68rem; text-transform: uppercase; letter-spacing: .08em;
+  color: var(--muted); margin: .8rem 0 .25rem; font-weight: 600;
+}
+.tryout .label:first-child { margin-top: 0; }
+.tryout .before { color: var(--muted); margin: 0; font-size: .9rem; }
+.tryout .after { margin: 0; font-size: .9rem; }
+.tryout .fired { margin: .2rem 0 0; padding-left: 1.1rem; font-size: .82rem; color: var(--fg-soft); }
+.tryout .fired li { margin-bottom: .25rem; }
+.tryout .fired code { font-size: .95em; }
+
+.tablewrap { overflow-x: auto; }
+table.rules { min-width: 44rem; }
+table.rules td { vertical-align: middle; }
+table.rules tr.off { opacity: .45; }
+table.rules .pattern { max-width: 20rem; word-break: break-all; }
+table.rules .muted-cell { color: var(--muted); font-size: .8rem; }
+table.rules form { display: inline; }

@@ -135,3 +135,26 @@ CREATE TABLE IF NOT EXISTS article_tag (
 );
 
 CREATE INDEX IF NOT EXISTS article_tag_by_tag ON article_tag (tag, article_id);
+
+-- How to say things. Each row rewrites matching text on the way to the
+-- engine: either into different words, or into IPA phonemes that Kokoro
+-- takes verbatim.
+CREATE TABLE IF NOT EXISTS pronunciation (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- word: whole word. phrase: literal substring. regex: a raw pattern.
+    kind         TEXT    NOT NULL DEFAULT 'word',
+    pattern      TEXT    NOT NULL,
+    replacement  TEXT    NOT NULL,
+    -- 1 when the replacement is IPA, wrapped as [match](/ipa/) for misaki.
+    is_phonemes  INTEGER NOT NULL DEFAULT 0,
+    ignore_case  INTEGER NOT NULL DEFAULT 0,
+    enabled      INTEGER NOT NULL DEFAULT 1,
+    note         TEXT    NOT NULL DEFAULT '',
+    -- Lower runs first, so structural rules beat word-level ones.
+    sort_order   INTEGER NOT NULL DEFAULT 100,
+    builtin      INTEGER NOT NULL DEFAULT 0,
+    added_at     TEXT    NOT NULL,
+    UNIQUE (kind, pattern)
+);
+
+CREATE INDEX IF NOT EXISTS pronunciation_order ON pronunciation (enabled, sort_order, id);

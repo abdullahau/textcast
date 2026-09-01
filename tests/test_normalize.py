@@ -46,13 +46,21 @@ def test_rewrites(written: str, spoken: str):
     assert normalize(written) == spoken
 
 
-def test_initialisms_are_spelled_but_words_are_not():
-    assert normalize("The SEC told the CEO") == "The S E C told the C E O"
+def test_initialisms_are_spelled_and_acronyms_respelled():
+    """Word-level behaviour now comes from the pronunciation rules."""
+    from textcast import pronounce
+
+    rules = pronounce.builtin_rules()
+    say = lambda t: normalize(t, rules=rules)  # noqa: E731
+
+    assert say("The SEC told the CEO") == "The S E C told the C E O"
     # An ampersand joins letter groups; it must not be spelled itself.
-    assert normalize("the S&P 500") == "the S and P 500"
-    assert normalize("the M&A team") == "the M and A team"
-    # These are pronounced as words, so they stay whole.
-    assert normalize("EBITDA and NASDAQ") == "EBITDA and NASDAQ"
+    assert say("the S&P 500") == "the S and P 500"
+    assert say("the M&A team") == "the M and A team"
+
+    # Acronyms said as words get a respelling, not a spelled-out form.
+    assert say("GAAP rules") == "gap rules"
+    assert say("EBITDA margin") == "ee bitda margin"
 
 
 def test_smart_punctuation_is_flattened():

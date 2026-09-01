@@ -270,6 +270,185 @@ def _voices() -> list:
 
 
 # --------------------------------------------------------------------------
+# pronunciation
+# --------------------------------------------------------------------------
+
+#: What the code-level transforms do, shown on the settings page so the two
+#: layers are visible together.
+STRUCTURAL_EXAMPLES = [
+    ("$72mm  £5bn  €300k", "72 million dollars, 5 billion pounds, 300 thousand euros"),
+    ("$19 million  $1", "19 million dollars, 1 dollar"),
+    ("150bps  12x  2.5%", "150 basis points, 12 times, 2.5 percent"),
+    ("Q3  FY2024  2019-21", "quarter 3, fiscal year 2024, 2019 to 2021"),
+    ("[Footnote 3: …]", "a pause, then the footnote, then a pause"),
+    ("— … “ ” ’", "flattened to plain punctuation"),
+]
+
+
+def _pronunciation_page(request: Request, **extra):
+    rows = db.pronunciation_rows()
+    return render(
+        request,
+        "pronunciations.html",
+        rows=rows,
+        enabled_count=sum(1 for r in rows if r["enabled"]),
+        structural=STRUCTURAL_EXAMPLES,
+        sample=extra.pop("sample", ""),
+        tested=extra.pop("tested", False),
+        spoken=extra.pop("spoken", ""),
+        phonemes=extra.pop("phonemes", ""),
+        hits=extra.pop("hits", []),
+        **extra,
+    )
+
+
+@app.get("/pronunciations", response_class=HTMLResponse, dependencies=[Auth])
+def pronunciations(request: Request):
+    return _pronunciation_page(request, sample=SAMPLE_TEXT)
+
+
+SAMPLE_TEXT = (
+    "Published Jul 2 2025. Thrive led a $72mm round at 12x EBITDA, up 150bps YoY, "
+    "and the SEC asked about GAAP vs. the S&P 500."
+)
+
+
+@app.post("/pronunciations/test", response_class=HTMLResponse, dependencies=[Auth])
+def pronunciations_test(request: Request, sample: str = Form(default="")):
+    from ..normalize import normalize
+    from ..pronounce import active, preview
+
+    rules = active()
+    spoken = normalize(sample)
+    hits = [
+        {"pattern": r.pattern, "matched": m, "replacement": r.replacement}
+        for r, m in preview(normalize_structural_only(sample), rules)
+    ]
+    return _pronunciation_page(
+        request,
+        sample=sample,
+        tested=True,
+        spoken=spoken,
+        phonemes=_phonemes_for(spoken),
+        hits=hits,
+    )
+
+
+def normalize_structural_only(text: str) -> str:
+    """The text as the word rules see it, after the shape transforms have run."""
+    from ..normalize import normalize
+
+    return normalize(text, rules=[])
+
+
+@app.post("/api/say", dependencies=[Auth])
+def api_say(text: str = Form(...), apply_rules: bool = Form(default=True)):
+    """Speak a word or phrase and hand back the audio and its phonemes.
+
+    This is the whole point of the settings page: you can hear whether a
+    respelling worked instead of guessing from the IPA.
+    """
+    import base64
+
+    from ..audio import encode_opus_bytes
+    from ..normalize import normalize
+
+    raw = (text or "").strip()[:300]
+    if not raw:
+        return JSONResponse({"error": "nothing to say"}, status_code=400)
+
+    spoken = normalize(raw) if apply_rules else raw
+    try:
+        engine = get_engine(settings.engine, **settings.engine_options())
+        voice = settings.voice or ENGINES[settings.engine].default_voice
+        clip = engine.synthesize(spoken, voice=voice)
+    except Exception as exc:
+        log.warning("preview synthesis failed", exc_info=True)
+        return JSONResponse({"error": f"could not synthesise: {exc}"}, status_code=500)
+
+    if not len(clip.samples):
+        return JSONResponse({"error": "the engine produced no audio"}, status_code=500)
+
+    try:
+        audio = encode_opus_bytes(clip.samples, clip.sample_rate)
+        media = "audio/ogg"
+    except Exception:
+        # Without ffmpeg the preview still works, just larger.
+        import io
+        import wave
+
+        buffer = io.BytesIO()
+        with wave.open(buffer, "wb") as out:
+            out.setnchannels(1)
+            out.setsampwidth(2)
+            out.setframerate(clip.sample_rate)
+            out.writeframes((clip.samples * 32767).astype("int16").tobytes())
+        audio = buffer.getvalue()
+        media = "audio/wav"
+
+    return {
+        "spoken": spoken,
+        "phonemes": _phonemes_for(spoken),
+        "seconds": round(clip.duration_s, 2),
+        "audio": f"data:{media};base64,{base64.b64encode(audio).decode()}",
+    }
+
+
+def _phonemes_for(text: str) -> str:
+    """What Kokoro will actually pronounce, when Kokoro is the active engine.
+
+    Costs nothing extra: the worker in this process has the pipeline loaded.
+    """
+    if settings.engine != "kokoro":
+        return ""
+    try:
+        engine = get_engine("kokoro", **settings.engine_options())
+        pipeline = engine._pipeline
+        voice = settings.voice or "af_heart"
+        return " ".join(ps for _gs, ps, _audio in pipeline(text[:400], voice=voice) if ps)
+    except Exception:
+        log.debug("could not produce a phoneme preview", exc_info=True)
+        return ""
+
+
+@app.post("/pronunciations/add", dependencies=[Auth])
+def pronunciations_add(
+    request: Request,
+    kind: str = Form(default="word"),
+    pattern: str = Form(...),
+    replacement: str = Form(...),
+    note: str = Form(default=""),
+    is_phonemes: bool = Form(default=False),
+    ignore_case: bool = Form(default=False),
+):
+    try:
+        db.add_pronunciation(
+            kind, pattern, replacement,
+            is_phonemes=is_phonemes, ignore_case=ignore_case, note=note,
+        )
+    except ValueError as exc:
+        return _pronunciation_page(request, error=str(exc), sample=SAMPLE_TEXT)
+    return RedirectResponse("/pronunciations", status_code=303)
+
+
+@app.post("/pronunciations/{rule_id}/toggle", dependencies=[Auth])
+def pronunciations_toggle(rule_id: int):
+    row = db.connect().execute(
+        "SELECT enabled FROM pronunciation WHERE id = ?", (rule_id,)
+    ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="no such rule")
+    db.update_pronunciation(rule_id, enabled=0 if row["enabled"] else 1)
+    return RedirectResponse("/pronunciations", status_code=303)
+
+
+@app.post("/pronunciations/{rule_id}/delete", dependencies=[Auth])
+def pronunciations_delete(rule_id: int):
+    db.delete_pronunciation(rule_id)
+    return RedirectResponse("/pronunciations", status_code=303)
+
+
+# --------------------------------------------------------------------------
 # ingestion
 # --------------------------------------------------------------------------
 

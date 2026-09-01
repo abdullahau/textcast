@@ -1,8 +1,12 @@
 """Rewrite text so a TTS engine reads it the way a person would.
 
 Financial writing is dense with forms no speech model handles well:
-``$72mm``, ``£5bn``, ``150bps``, ``Q3``, ``2019-21``, ``S&P 500``. Left alone
-an engine spells them out letter by letter, mangles them, or skips them.
+``$72mm``, ``£5bn``, ``150bps``, ``Q3``, ``2019-21``. Left alone an engine
+spells them out letter by letter, mangles them, or skips them.
+
+Anything with a *shape* is handled here, because matching it needs a callback.
+Anything that is a plain lookup — abbreviations, initialisms, months, phoneme
+hints — lives in the pronunciation table instead, where it can be edited.
 
 This runs only on the text handed to the engine. What you read on screen is
 never touched, so the page keeps the author's punctuation.
@@ -11,6 +15,8 @@ never touched, so the page keeps the author's punctuation.
 from __future__ import annotations
 
 import re
+
+from . import pronounce
 
 CURRENCIES = {
     "$": "dollars",
@@ -51,46 +57,6 @@ SCALES = {
     "million": "million",
     "billion": "billion",
     "trillion": "trillion",
-}
-
-#: Initialisms to read as letters. The engine gets them spaced so it does not
-#: try to pronounce them as words.
-SPELL_OUT = {
-    "AI", "API", "ARR", "ATM", "BTC", "CDO", "CDS", "CEO", "CFO", "CFTC", "COO",
-    "CTO", "DAO", "DOJ", "EBIT", "EPS", "ESG", "ETF", "ETH", "EU", "FCA", "FDA",
-    "FTC", "FX", "GDP", "GP", "HFT", "IPO", "IRS", "KYC", "LBO", "LLC", "LP",
-    "M&A", "NAV", "NDA", "NFT", "NYSE", "OTC", "P&L", "PE", "PIK", "REIT",
-    "ROE", "ROI", "RSU", "S&P", "SEC", "SPAC", "SPV", "TAM", "UK", "US", "USD",
-    "VC", "VIX", "YTD",
-}
-
-#: Read as words, not letters.
-SAY_AS_WORD = {"EBITDA", "FAANG", "GAAP", "LIBOR", "NASDAQ", "SOFR", "SPAC", "TIPS"}
-
-ABBREVIATIONS = {
-    "approx.": "approximately",
-    "e.g.": "for example",
-    "i.e.": "that is",
-    "vs.": "versus",
-    "vs": "versus",
-    "etc.": "et cetera",
-    "cf.": "compare",
-    "Inc.": "Inc",
-    "Corp.": "Corp",
-    "Ltd.": "Limited",
-    "Co.": "Company",
-    "No.": "Number",
-    "Mr.": "Mister",
-    "Mrs.": "Missus",
-    "Dr.": "Doctor",
-    "St.": "Saint",
-    "YoY": "year over year",
-    "QoQ": "quarter over quarter",
-    "MoM": "month over month",
-    "bps": "basis points",
-    "bp": "basis points",
-    "pa": "per annum",
-    "aka": "also known as",
 }
 
 _CURRENCY_CHARS = "".join(re.escape(c) for c in "$£€¥₹")
@@ -157,40 +123,13 @@ def _year_range(match: re.Match) -> str:
     return f"{start} to {end}"
 
 
-def _spell(token: str) -> str:
-    """Space the letters so the engine reads S E C, not 'sek'.
+def normalize(text: str, rules: list[pronounce.Rule] | None = None) -> str:
+    """Rewrite one block of text for speech.
 
-    Split on "&" first: joining every character of the replacement word turns
-    S&P into "S a n d P".
+    Two layers. The structural transforms below handle anything with a shape —
+    money, percentages, quarters, spans — because those need a callback, not a
+    lookup. Word-level rules then come from the pronunciation table.
     """
-    return " and ".join(" ".join(part) for part in token.split("&") if part)
-
-
-def _initialisms(text: str) -> str:
-    def swap(match: re.Match) -> str:
-        token = match.group(0)
-        if token in SAY_AS_WORD:
-            return token
-        if token in SPELL_OUT:
-            return _spell(token)
-        return token
-
-    return re.sub(r"\b[A-Z][A-Z&]{1,5}\b", swap, text)
-
-
-def _abbreviations(text: str) -> str:
-    for source, target in ABBREVIATIONS.items():
-        pattern = re.escape(source)
-        # A trailing dot is part of the token; otherwise require a word boundary.
-        if source.endswith("."):
-            text = re.sub(rf"(?<![A-Za-z]){pattern}", target, text)
-        else:
-            text = re.sub(rf"\b{pattern}\b", target, text)
-    return text
-
-
-def normalize(text: str) -> str:
-    """Rewrite one block of text for speech."""
     if not text:
         return text
 
@@ -208,8 +147,9 @@ def normalize(text: str) -> str:
     )
     text = TIMES.sub(lambda m: f"{_strip_commas(m.group(1))} times", text)
 
-    text = _abbreviations(text)
-    text = _initialisms(text)
+    # Word-level rules come from the database, so they can be edited on the
+    # settings page rather than only here.
+    text = pronounce.apply(text, rules if rules is not None else pronounce.active())
 
     # Pauses on both sides keep the aside from running into the sentence.
     text = FOOTNOTE.sub(r"... Footnote \1. \2. ...", text)

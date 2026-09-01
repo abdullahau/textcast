@@ -29,6 +29,7 @@ def has_table(conn: sqlite3.Connection, name: str) -> bool:
 def run(conn: sqlite3.Connection) -> None:
     _add_build_options(conn)
     _series_become_tags(conn)
+    _seed_pronunciations(conn)
 
 
 def _add_build_options(conn: sqlite3.Connection) -> None:
@@ -72,3 +73,14 @@ def _series_become_tags(conn: sqlite3.Connection) -> None:
             (name, name),
         )
     log.info("migrated %d series into tags", len(moved))
+
+
+def _seed_pronunciations(conn: sqlite3.Connection) -> None:
+    """Install the shipped pronunciation rules once, on an empty table."""
+    if not has_table(conn, "pronunciation"):
+        return
+    from . import db
+
+    added = db.seed_pronunciations(conn)
+    if added:
+        log.info("seeded %d pronunciation rules", added)

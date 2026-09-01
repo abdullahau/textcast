@@ -650,3 +650,122 @@ def set_setting(key: str, value: str, conn: sqlite3.Connection | None = None) ->
         "INSERT INTO setting (key, value) VALUES (?,?) ON CONFLICT (key) DO UPDATE SET value = excluded.value",
         (key, value),
     )
+
+
+# --------------------------------------------------------------------------
+# pronunciation rules
+# --------------------------------------------------------------------------
+
+
+def _to_rule(row: sqlite3.Row):
+    from .pronounce import Rule
+
+    return Rule(
+        id=row["id"],
+        kind=row["kind"],
+        pattern=row["pattern"],
+        replacement=row["replacement"],
+        is_phonemes=bool(row["is_phonemes"]),
+        ignore_case=bool(row["ignore_case"]),
+        note=row["note"],
+        sort_order=row["sort_order"],
+    )
+
+
+def list_pronunciations(conn: sqlite3.Connection | None = None, enabled_only: bool = False) -> list:
+    conn = conn or connect()
+    where = "WHERE enabled = 1" if enabled_only else ""
+    rows = conn.execute(
+        f"SELECT * FROM pronunciation {where} ORDER BY sort_order, id"
+    ).fetchall()
+    return [_to_rule(r) for r in rows]
+
+
+def pronunciation_rows(conn: sqlite3.Connection | None = None) -> list[sqlite3.Row]:
+    """Raw rows for the settings page, which needs enabled and builtin too."""
+    conn = conn or connect()
+    return conn.execute("SELECT * FROM pronunciation ORDER BY sort_order, id").fetchall()
+
+
+def add_pronunciation(
+    kind: str,
+    pattern: str,
+    replacement: str,
+    conn: sqlite3.Connection | None = None,
+    *,
+    is_phonemes: bool = False,
+    ignore_case: bool = False,
+    note: str = "",
+    sort_order: int = 100,
+    builtin: bool = False,
+) -> int:
+    from .pronounce import KINDS, Rule, invalidate
+
+    if kind not in KINDS:
+        raise ValueError(f"kind must be one of {', '.join(KINDS)}")
+    pattern = (pattern or "").strip()
+    if not pattern:
+        raise ValueError("a rule needs something to match")
+    if Rule(kind=kind, pattern=pattern, replacement=replacement).compile() is None:
+        raise ValueError("that pattern is not a valid regular expression")
+
+    conn = conn or connect()
+    cursor = conn.execute(
+        """
+        INSERT INTO pronunciation
+            (kind, pattern, replacement, is_phonemes, ignore_case, note, sort_order, builtin, added_at)
+        VALUES (?,?,?,?,?,?,?,?,?)
+        ON CONFLICT (kind, pattern) DO UPDATE SET
+            replacement = excluded.replacement,
+            is_phonemes = excluded.is_phonemes,
+            ignore_case = excluded.ignore_case,
+            note        = excluded.note
+        """,
+        (kind, pattern, replacement, int(is_phonemes), int(ignore_case),
+         note, sort_order, int(builtin), now()),
+    )
+    invalidate()
+    return int(cursor.lastrowid)
+
+
+def update_pronunciation(rule_id: int, conn: sqlite3.Connection | None = None, **fields) -> None:
+    from .pronounce import invalidate
+
+    allowed = {"pattern", "replacement", "note", "enabled", "is_phonemes", "ignore_case", "sort_order"}
+    updates = {k: v for k, v in fields.items() if k in allowed}
+    if not updates:
+        return
+    conn = conn or connect()
+    assignments = ", ".join(f"{k} = ?" for k in updates)
+    conn.execute(f"UPDATE pronunciation SET {assignments} WHERE id = ?", [*updates.values(), rule_id])
+    invalidate()
+
+
+def delete_pronunciation(rule_id: int, conn: sqlite3.Connection | None = None) -> None:
+    from .pronounce import invalidate
+
+    conn = conn or connect()
+    conn.execute("DELETE FROM pronunciation WHERE id = ?", (rule_id,))
+    invalidate()
+
+
+def seed_pronunciations(conn: sqlite3.Connection | None = None, force: bool = False) -> int:
+    """Install the built-in rules. Skipped once anything is stored.
+
+    Re-seeding would resurrect rules the user deliberately deleted.
+    """
+    from .pronounce import builtin_rules
+
+    conn = conn or connect()
+    if not force and conn.execute("SELECT 1 FROM pronunciation LIMIT 1").fetchone():
+        return 0
+
+    added = 0
+    for rule in builtin_rules():
+        add_pronunciation(
+            rule.kind, rule.pattern, rule.replacement, conn,
+            is_phonemes=rule.is_phonemes, note=rule.note,
+            sort_order=rule.sort_order, builtin=True,
+        )
+        added += 1
+    return added

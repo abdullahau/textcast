@@ -12,7 +12,20 @@
       "Bash(oci usage-api usage-summary *)",
       "Bash(docker compose ps *)",
       "mcp__claude_ai_Hugging_Face__hf_fs",
-      "mcp__claude_ai_Hugging_Face__hub_repo_search"
+      "mcp__claude_ai_Hugging_Face__hub_repo_search",
+      "Bash(uv run pytest)",
+      "Bash(uv run pytest *)",
+      "Bash(uv run ruff check)",
+      "Bash(uv run ruff check *)",
+      "Bash(curl -I *)",
+      "Bash(uv run textcast library)",
+      "Bash(uv run textcast library *)",
+      "Bash(uv run textcast parse *)",
+      "Bash(uv run textcast engines)",
+      "Bash(uv run textcast voices *)",
+      "Bash(brew list)",
+      "Bash(tailscale status)",
+      "Bash(tailscale ip *)"
     ]
   }
 }

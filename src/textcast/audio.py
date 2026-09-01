@@ -257,3 +257,25 @@ def render_article(
     manifest.total_ms = sum(s.duration_ms for s in manifest.sections)
     (out_dir / "manifest.json").write_text(manifest.to_json(), encoding="utf-8")
     return manifest
+
+
+def encode_opus_bytes(samples: np.ndarray, sample_rate: int, bitrate: str = "48k") -> bytes:
+    """Encode to Opus in memory, for the pronunciation preview.
+
+    Ogg streams to a pipe, so nothing has to touch the disk for a two-second
+    sample.
+    """
+    cmd = [
+        ffmpeg_path(), "-hide_banner", "-loglevel", "error",
+        "-f", "f32le", "-ar", str(sample_rate), "-ac", "1", "-i", "pipe:0",
+        "-c:a", "libopus", "-b:a", bitrate, "-vbr", "on", "-application", "audio",
+        "-f", "ogg", "pipe:1",
+    ]
+    proc = subprocess.run(
+        cmd,
+        input=np.ascontiguousarray(samples, dtype=np.float32).tobytes(),
+        capture_output=True,
+    )
+    if proc.returncode != 0:
+        raise EncodeError(proc.stderr.decode(errors="replace").strip() or "ffmpeg failed")
+    return proc.stdout
