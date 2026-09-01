@@ -25,7 +25,9 @@ CREATE TABLE IF NOT EXISTS article (
     engine        TEXT    NOT NULL DEFAULT '',
     voice         TEXT    NOT NULL DEFAULT '',
     starred       INTEGER NOT NULL DEFAULT 0,
-    archived      INTEGER NOT NULL DEFAULT 0
+    archived      INTEGER NOT NULL DEFAULT 0,
+    -- How to build THIS article. Chosen when it is added, editable after.
+    build_options TEXT    NOT NULL DEFAULT '{}'
 );
 
 CREATE INDEX IF NOT EXISTS article_added   ON article (added_at DESC);
@@ -118,3 +120,18 @@ CREATE TABLE IF NOT EXISTS setting (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+
+-- Tags replace the newsletter section: one flat, user-controlled way to
+-- group and filter. A detected newsletter simply becomes a tag like any other.
+CREATE TABLE IF NOT EXISTS tag (
+    name     TEXT PRIMARY KEY,
+    added_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS article_tag (
+    article_id INTEGER NOT NULL REFERENCES article (id) ON DELETE CASCADE,
+    tag        TEXT    NOT NULL REFERENCES tag (name) ON DELETE CASCADE,
+    PRIMARY KEY (article_id, tag)
+);
+
+CREATE INDEX IF NOT EXISTS article_tag_by_tag ON article_tag (tag, article_id);

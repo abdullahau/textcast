@@ -202,13 +202,13 @@ def test_highlight_moves_during_playback(page, live):
     page.evaluate("document.getElementById('audio').pause()")
 
 
-def test_tapping_a_paragraph_seeks_to_it(page, live):
+def test_the_gutter_handle_seeks_to_its_paragraph(page, live):
     _base, _slug, manifest = live
     target = manifest.sections[0].blocks[2]
     want = target.start_ms / 1000
 
     page.evaluate("document.getElementById('audio').pause()")
-    page.locator(f"#{target.id}").click()
+    page.locator(f'[data-seek="{target.id}"]').click(force=True)
     page.wait_for_function(
         f"() => Math.abs(document.getElementById('audio').currentTime - {want}) < 1.0",
         timeout=10000,
@@ -216,19 +216,57 @@ def test_tapping_a_paragraph_seeks_to_it(page, live):
     assert abs(page.evaluate("document.getElementById('audio').currentTime") - want) < 1.0
 
 
+def test_selecting_text_does_not_seek(page, live):
+    """Selecting a paragraph used to start playback, which made copying impossible."""
+    _base, _slug, manifest = live
+    target = manifest.sections[0].blocks[1]
+
+    page.evaluate("document.getElementById('audio').pause()")
+    page.evaluate("document.getElementById('audio').currentTime = 0")
+    before = page.evaluate("document.getElementById('audio').currentTime")
+
+    selected = page.evaluate(
+        """(id) => {
+            const el = document.getElementById(id);
+            const range = document.createRange();
+            range.selectNodeContents(el);
+            const sel = window.getSelection();
+            sel.removeAllRanges();
+            sel.addRange(range);
+            el.dispatchEvent(new MouseEvent("click", {bubbles: true}));
+            return sel.toString().length;
+        }""",
+        target.id,
+    )
+
+    assert selected > 10, "the paragraph text is selectable"
+    assert page.evaluate("document.getElementById('audio').currentTime") == before
+    assert page.evaluate("document.getElementById('audio').paused")
+
+
+def test_blocks_are_paragraphs_not_buttons(page):
+    """A <button> wrapper is what broke selection in the first place."""
+    tags = page.evaluate(
+        "Array.from(document.querySelectorAll('#doc .b')).map(e => e.tagName)"
+    )
+    assert set(tags) == {"P"}
+
+
 def test_moving_to_the_next_section_loads_its_own_track(page):
     page.evaluate("document.getElementById('next').click()")
+    # Loading a section fetches and decodes a second audio file and its track,
+    # so this is the slowest step in the suite on a loaded machine.
     page.wait_for_function(
         "() => { const a = document.getElementById('audio');"
         " return a.textTracks.length && a.textTracks[a.textTracks.length - 1].cues"
         " && a.textTracks[a.textTracks.length - 1].cues.length"
         " && a.textTracks[a.textTracks.length - 1].cues[0].id.startsWith('b1-'); }",
-        timeout=20000,
+        timeout=60000,
     )
     page.wait_for_function(
         "() => { const el = document.querySelector('#doc .b.on');"
         " return el && el.id.startsWith('b1-'); }",
-        timeout=20000,
+        timeout=60000,
     )
     assert active_id(page).startswith("b1-")
 
@@ -253,23 +291,37 @@ def test_chapters_and_toggles(page, live):
     assert page.locator("#doc .b.footnote").first.is_visible()
 
 
-def test_position_is_saved_to_the_server(page, live):
-    base, _slug, _manifest = live
+def test_position_is_saved_to_the_server(page):
+    """Leaving the page writes the position, so another device resumes there."""
+    page.evaluate("document.getElementById('audio').pause()")
     page.evaluate("document.getElementById('audio').currentTime = 3")
-    page.evaluate("document.dispatchEvent(new Event('visibilitychange'))")
 
-    import json
-    import urllib.request
+    # sendBeacon fires on pagehide; visibilitychange is the same path.
+    page.evaluate(
+        "Object.defineProperty(document, 'hidden', {value: true, configurable: true});"
+        "document.dispatchEvent(new Event('visibilitychange'))"
+    )
 
-    for _ in range(30):
-        with urllib.request.urlopen(f"{base}/api/jobs", timeout=2) as r:
-            json.load(r)
-        saved = db.get_position(1, db.init())
-        if saved and saved["ms"] > 0:
+    # Which section the player actually has loaded, from the highlighted block.
+    expected = int(page.evaluate(
+        "(document.querySelector('#doc .b.on') || {dataset:{s:'0'}}).dataset.s"
+    ))
+
+    conn = db.init()
+    for _ in range(60):
+        saved = db.get_position(1, conn)
+        # An earlier test may have left a row, so wait for one that agrees
+        # with where the player is now rather than for any row at all.
+        if saved and saved["ms"] > 0 and saved["section_idx"] == expected:
             break
-        time.sleep(0.2)
+        time.sleep(0.25)
     else:
-        pytest.skip("position write did not land in time")
+        raise AssertionError(
+            f"no position written for section {expected}; last saw "
+            f"{dict(saved) if saved else None}"
+        )
+
+    assert saved["ms"] > 0
 
 
 def test_no_javascript_errors(page):

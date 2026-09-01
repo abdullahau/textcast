@@ -256,21 +256,49 @@
     this.setAttribute("aria-expanded", sheet.hidden ? "false" : "true");
   });
 
-  /* Tap any paragraph to hear it — the scrubbing a rendered video cannot do. */
-  doc.addEventListener("click", function (event) {
-    var el = event.target.closest(".b");
-    if (!el) return;
-    var idx = Number(el.dataset.s);
-    var blocks = sections[idx] && sections[idx].blocks;
+  /* Seeking must never cost you a text selection.
+     The gutter handle is the reliable way in. Clicking the text itself is
+     opt-in, and even then a click that ends a selection is left alone. */
+  var tapToSeek = store("tap", "0") === "1";
+
+  function seekToBlock(blockId, sectionIdx) {
+    var blocks = sections[sectionIdx] && sections[sectionIdx].blocks;
     if (!blocks) return;
     for (var i = 0; i < blocks.length; i++) {
-      if (blocks[i][0] === el.dataset.b) {
-        loadSection(idx, blocks[i][1], true);
-        highlight(el.dataset.b);
+      if (blocks[i][0] === blockId) {
+        loadSection(sectionIdx, blocks[i][1], true);
+        highlight(blockId);
         return;
       }
     }
+  }
+
+  doc.addEventListener("click", function (event) {
+    var handle = event.target.closest("[data-seek]");
+    if (handle) {
+      event.preventDefault();
+      var owner = handle.closest(".b");
+      seekToBlock(handle.dataset.seek, Number(owner.dataset.s));
+      return;
+    }
+
+    if (!tapToSeek) return;
+    // A click that finishes a drag-select is a selection, not a seek.
+    var selection = window.getSelection();
+    if (selection && !selection.isCollapsed) return;
+
+    var block = event.target.closest(".b");
+    if (block) seekToBlock(block.dataset.b, Number(block.dataset.s));
   });
+
+  var tapBox = $("opt-tap");
+  tapBox.checked = tapToSeek;
+  tapBox.addEventListener("change", function () {
+    tapToSeek = this.checked;
+    store("tap", "", tapToSeek ? "1" : "0");
+    doc.style.cursor = tapToSeek ? "pointer" : "";
+  });
+  doc.style.cursor = tapToSeek ? "pointer" : "";
 
   $("opt-footnotes").addEventListener("change", function () {
     document.body.classList.toggle("hide-footnotes", !this.checked);

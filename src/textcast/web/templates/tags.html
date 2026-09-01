@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Tags — textcast{% endblock %}
+
+{% block content %}
+<div class="section-head"><h1>Tags</h1></div>
+
+{% if not tags %}
+  <p class="empty">No tags yet. Add them when you add an article, or on any article page.</p>
+{% else %}
+  <div class="list">
+    {% for t in tags %}
+      <div class="item">
+        <span class="t"><a href="/?tag={{ t.name|urlencode }}">{{ t.name }}</a></span>
+        <span class="m">
+          <span>{{ t.articles }} article{{ '' if t.articles == 1 else 's' }}</span>
+          <span>{{ t.ready or 0 }} with audio</span>
+          {% if t.audio_ms %}<span>{{ t.audio_ms|duration }}</span>{% endif %}
+        </span>
+        <span class="r">
+          <form method="post" action="/api/tags/{{ t.name|urlencode }}/delete" style="display:inline"
+                onsubmit="return confirm('Remove the tag “{{ t.name }}” from every article? The articles stay.')">
+            <button class="subtle sm" type="submit">Remove</button>
+          </form>
+        </span>
+      </div>
+    {% endfor %}
+  </div>
+{% endif %}
+{% endblock %}

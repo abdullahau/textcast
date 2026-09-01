@@ -31,8 +31,8 @@ class Settings:
     data_dir: Path = field(default_factory=lambda: Path(_env("DATA_DIR", "./data")).expanduser())
 
     # --- text to speech ---
-    engine: str = field(default_factory=lambda: _env("TTS_ENGINE", "supertonic"))
-    voice: str = field(default_factory=lambda: _env("TTS_VOICE", ""))
+    engine: str = field(default_factory=lambda: _env("TTS_ENGINE", "kokoro"))
+    voice: str = field(default_factory=lambda: _env("TTS_VOICE", "af_heart"))
     quote_voice: str = field(default_factory=lambda: _env("TTS_QUOTE_VOICE", ""))
     steps: int = field(default_factory=lambda: _env_int("TTS_STEPS", 4))
     threads: int = field(default_factory=lambda: _env_int("TTS_THREADS", 0))
@@ -51,9 +51,13 @@ class Settings:
     gemini_api_key: str = field(default_factory=lambda: os.environ.get("GEMINI_API_KEY", ""))
     gemini_model: str = field(default_factory=lambda: _env("GEMINI_MODEL", "gemini-2.5-flash"))
 
-    # --- served behind tailscale, so auth is off by default ---
+    # --- access ---
+    # Off by default, which suits a private network. Turn it on in .env for
+    # anything reachable from the internet.
     require_auth: bool = field(default_factory=lambda: _env_bool("REQUIRE_AUTH", False))
     auth_token: str = field(default_factory=lambda: _env("AUTH_TOKEN", ""))
+    host: str = field(default_factory=lambda: _env("HOST", "127.0.0.1"))
+    port: int = field(default_factory=lambda: _env_int("PORT", 8000))
 
     @property
     def db_path(self) -> Path:

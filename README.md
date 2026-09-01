@@ -1,38 +1,41 @@
 # textcast
 
-Turn newsletters and articles into a private audio reader you can open on your
-phone. Self-hosted, offline-capable, and reachable only on your own tailnet.
+Turn newsletters, articles, notes and documents into a private audio reader you
+can open on your phone. Self-hosted, offline-capable, deployable anywhere.
 
-It reads footnotes **where they are cited**, marks block quotes, groups
-newsletter issues into series, and highlights each paragraph as it is spoken —
-so you can tap any paragraph to jump the audio there.
+It reads footnotes **where they are cited**, marks block quotes, rewrites
+`$72mm` and `£5bn` so they are spoken as money, and highlights each paragraph as
+it is read — with a handle beside every paragraph to jump the audio there.
 
 ---
 
 ## What it does
 
-1. **Take anything in.** A URL, a saved `.html` page, a `.eml` newsletter, a
-   bookmarklet click on a paywalled article, or the Android share sheet.
+1. **Take anything in.** Pasted text or Markdown, a URL, a PDF, a Word file, a
+   saved `.html` page, a `.eml` newsletter, a bookmarklet click on a paywalled
+   article, or the Android share sheet.
 2. **Parse it properly.** Per-publication adapters (Bloomberg, FT) with a
    content-density fallback for everything else. Footnotes are inlined into the
    sentence that cites them.
-3. **Speak it.** Supertonic 3 on ONNX, one block at a time, encoded to Opus —
-   one file per section, so playback starts before the whole article is built.
+3. **Speak it.** Kokoro by default, one block at a time, encoded to Opus — one
+   file per section, so playback starts before the whole article is built.
 4. **Read along.** The player highlights the current paragraph and follows it
-   down the page. Tap a paragraph to hear it.
+   down the page. The text stays selectable, so you can still copy from it.
 5. **Take it with you.** Install to the home screen, keep articles offline,
    control it from the lock screen.
 
 ## Quick start
 
 ```bash
-uv sync --extra supertonic --extra web
-uv run textcast add https://example.com/an-article
+uv sync --extra kokoro --extra web --extra documents
+uv run textcast add https://example.com/an-article --tag Reading
 uv run textcast worker --once          # build the audio
 uv run textcast serve                  # http://127.0.0.1:8000
 ```
 
-The first build downloads the model (~400 MB) into `data/`.
+Kokoro needs **espeak-ng** on the system (`brew install espeak-ng`, or
+`apt install espeak-ng espeak-ng-data`). textcast finds it automatically in the
+usual places. The first build downloads the model into `data/`.
 
 ## Commands
 
@@ -41,25 +44,26 @@ The first build downloads the model (~400 MB) into `data/`.
 | `textcast add <file\|url\|.eml>` | Ingest into the library and queue the audio |
 | `textcast build <file\|url>` | One-shot: parse and synthesise, no database |
 | `textcast parse <file\|url>` | Show what the parser found, without building |
-| `textcast library` | List what you have; `--series` lists newsletters |
+| `textcast library` | List what you have; `--tags` lists tags, `--tag X` filters |
 | `textcast search <query>` | Full-text search every article, located in the audio |
 | `textcast worker` | Process queued builds; `--once` runs a single job |
 | `textcast mail` | Fetch unread newsletters over IMAP |
 | `textcast engines` / `voices` | What is installed, and what it can sound like |
 | `textcast serve` | Run the web app |
 
-## Newsletters
+## Tags
 
-Newsletters are the main input, so they get their own handling.
+Tags are the only way things are grouped. There is no separate notion of a
+newsletter or a folder: a detected newsletter simply becomes a tag, alongside
+any you make yourself. Add them while adding an article, or on the article page,
+and filter the library by one from the dropdown.
 
-- **Series.** Issues are grouped automatically — Bloomberg's own analytics name
-  the newsletter, and `.eml` messages carry a `List-Id`. Each series has its own
-  voice and auto-build settings at `/series/<name>`.
-- **Chrome removal.** "View this email in your browser", tracking pixels,
-  unsubscribe footers and social rows never reach the audio.
-- **By mailbox.** Point `textcast mail` at a dedicated address or a filtered
-  folder and every unread issue becomes a queued article. IMAP only: the app
-  connects outwards, so there is no mail server to run and no spam surface.
+## Newsletters by mailbox
+
+Point `textcast mail` at a dedicated address or a filtered folder and every
+unread issue becomes a queued article, tagged with its publication. IMAP only:
+the app connects outwards, so there is no mail server to run and no spam
+surface. It checks the `List-Id` headers first, so personal mail stays unread.
 
 ```bash
 export TEXTCAST_IMAP_HOST=imap.fastmail.com
@@ -70,6 +74,21 @@ uv run textcast mail
 
 `deploy/textcast-mail.timer` runs that every 30 minutes under systemd.
 
+## Reading short forms aloud
+
+Financial writing is full of things a speech model mangles. Everything is
+rewritten on the way to the engine, and never on screen:
+
+| Written | Spoken |
+| --- | --- |
+| `$72mm`, `£5bn`, `€300k` | 72 million dollars, 5 billion pounds, 300 thousand euros |
+| `150bps`, `12x`, `2.5%` | 150 basis points, 12 times, 2.5 percent |
+| `Q3`, `FY2024`, `2019-21` | quarter 3, fiscal year 2024, 2019 to 2021 |
+| `SEC`, `S&P`, `M&A` | S E C, S and P, M and A |
+| `EBITDA`, `NASDAQ` | left alone — these are words |
+
+`src/textcast/normalize.py` holds the tables; add to them freely.
+
 ## Choosing a voice engine
 
 Both engines implement the same three-method interface, so switching is one
@@ -78,17 +97,23 @@ environment variable. Measured here on 4 ARM cores with no GPU, against a real
 
 | Engine | RTF | Speed | Rate | Install |
 | --- | --- | --- | --- | --- |
-| **Supertonic 3** (default, 4 steps) | 0.31 | 3.2× real time | 44.1 kHz | 25 packages, 144 MB |
+| **Kokoro-82M** (default, `af_heart`) | 0.65 | 1.5× real time | 24 kHz | 113 packages, 4.9 GB |
+| Supertonic 3 (4 steps) | 0.31 | 3.2× | 44.1 kHz | 25 packages, 144 MB |
 | Supertonic 3 (8 steps) | 0.49 | 2.0× | 44.1 kHz | " |
-| Kokoro-82M | 0.65 | 1.5× | 24 kHz | 113 packages, 4.9 GB |
 
-Supertonic needs only ONNX Runtime. Kokoro needs PyTorch, spaCy and the
-espeak-ng shared library, and offers 54 voices against Supertonic's 10.
+Supertonic is roughly twice as fast and needs only ONNX Runtime, but its
+delivery is thinner — volume drifts and long paragraphs can glitch. Kokoro is
+the default because it sounds steadier, and it offers 54 voices against
+Supertonic's 10.
 
 ```bash
-uv sync --extra kokoro
-TEXTCAST_TTS_ENGINE=kokoro TEXTCAST_TTS_VOICE=af_heart uv run textcast serve
+uv sync --extra supertonic
+TEXTCAST_TTS_ENGINE=supertonic TEXTCAST_TTS_VOICE=M1 uv run textcast serve
 ```
+
+Voice, quote voice, engine and footnote handling are set **per article** — when
+you add it, or on its page afterwards. Nothing is inherited from a folder or a
+feed.
 
 `TEXTCAST_TTS_STEPS` trades quality against speed on Supertonic: 2 is fastest,
 8 is the vendor default, 4 is the best trade on a small CPU.
@@ -104,28 +129,32 @@ The two hard parts are not hand-written:
   vendored as one 41 KB gzipped file, no build step) — play/pause, seek bar,
   time display, playback rate, keyboard, ARIA.
 
-What is custom is what no library provides: highlighting, tap-to-seek, section
-advance, and Media Session for the lock screen.
+What is custom is what no library provides: highlighting, the per-paragraph
+seek handle, section advance, and Media Session for the lock screen.
+
+Paragraphs are plain `<p>` elements, so selecting and copying works normally.
+Seeking is the small handle in the gutter, or — if you switch it on in the
+player sheet — a tap on the text itself, which still yields to a selection.
 
 Both are covered by browser tests in `tests/test_player.py`, driven through
 Chromium rather than asserted by inspection.
 
 ## Deploying with Docker
 
-The app never binds a host port. It shares the Tailscale container's network
-namespace, so your tailnet is the only way in.
-
 ```bash
-cp .env.example .env      # set TS_AUTHKEY, and IMAP details if you want them
+cp .env.example .env
 docker compose up -d --build
 ```
 
-Then open `https://textcast.<your-tailnet>.ts.net` from any of your devices and
-add it to the home screen.
+Two services, `app` and `worker` (CPU limited so synthesis cannot starve the web
+process), and one volume `/data` holding the database, the model, the audio and
+the saved sources.
 
-Three services: `tailscale` (the network), `app` (web), `worker` (synthesis, CPU
-limited so the web process stays responsive). One volume, `/data`, holds the
-database, the model, the audio and the saved sources.
+textcast takes no view on how you reach it. Put a reverse proxy, a VPN or a
+tailnet in front, or nothing at all on a private LAN. Auth is off by default,
+which suits a private network; set `TEXTCAST_REQUIRE_AUTH=1` and a token for
+anything internet-facing. `TEXTCAST_HOST` and `TEXTCAST_PORT` control where it
+listens.
 
 ## Data model
 
@@ -160,7 +189,7 @@ matches and so must stay last.
 ## Tests
 
 ```bash
-uv run pytest                    # 50 tests
+uv run pytest                        # 56 tests
 uv run playwright install chromium   # once, for the browser tests
 ```
 
@@ -169,12 +198,15 @@ uv run playwright install chromium   # once, for the browser tests
 ```
 src/textcast/
 ├── document.py     the block model
+├── normalize.py    money, abbreviations and initialisms for speech
 ├── ingest/         adapters + the shared DOM walker
 │   ├── dom.py      selectolax helpers
-│   └── extract.py  content-density fallback
+│   ├── extract.py  content-density fallback
+│   └── documents.py text, Markdown, PDF and DOCX readers
 ├── tts/            engine registry; supertonic.py, kokoro.py
 ├── audio.py        synthesis, Opus encoding, WebVTT
-├── db.py           SQLite, search, jobs, positions
+├── db.py           SQLite, search, tags, jobs, positions
+├── migrate.py      schema migrations, run on every start
 ├── jobs.py         the build worker
 ├── service.py      ingestion shared by the CLI and the web app
 ├── mail.py         IMAP newsletter fetch
@@ -183,4 +215,5 @@ src/textcast/
 
 ## Licence
 
-MIT. Supertonic 3's weights are OpenRAIL-M; Kokoro's are Apache-2.0.
+MIT. Kokoro's weights are Apache-2.0; Supertonic 3's are OpenRAIL-M.
+Bundles [media-chrome](https://github.com/muxinc/media-chrome) (MIT).

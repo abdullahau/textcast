@@ -109,15 +109,18 @@ class Worker:
         if article is None:
             raise ValueError(f"article {article_id} is gone")
 
-        options = json.loads(job["options"] or "{}")
         row = db.get_article(article_id, conn)
-        series = db.get_series(article.series, conn) if article.series else None
+
+        # Three layers, most specific first: what this job asked for, what the
+        # article was saved with, then the global default.
+        stored = db.get_build_options(article_id, conn)
+        options = {**stored, **json.loads(job["options"] or "{}")}
 
         settings = self.settings
         engine_name = options.get("engine") or settings.engine
         steps = int(options.get("steps") or settings.steps)
-        voice = options.get("voice") or (series["voice"] if series else "") or settings.voice
-        quote_voice = options.get("quote_voice") or (series["quote_voice"] if series else "") or settings.quote_voice
+        voice = options.get("voice") or settings.voice
+        quote_voice = options.get("quote_voice") or settings.quote_voice
 
         engine = self.engine_for(engine_name, steps)
         if not voice:
@@ -126,10 +129,7 @@ class Worker:
             voice = ENGINES[engine_name].default_voice
 
         include = set(BlockKind)
-        skip_footnotes = options.get("skip_footnotes")
-        if skip_footnotes is None and series is not None:
-            skip_footnotes = bool(series["skip_footnotes"])
-        if skip_footnotes:
+        if options.get("skip_footnotes"):
             include.discard(BlockKind.FOOTNOTE)
         if options.get("skip_summaries"):
             include.discard(BlockKind.SUMMARY)

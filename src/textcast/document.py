@@ -41,14 +41,19 @@ class Block:
         return f"b{self.section_idx}-{self.idx}"
 
     def spoken(self, quote_markers: bool = True) -> str:
-        """The text handed to the TTS engine, which is not always what is shown.
+        """The text handed to the TTS engine, which is not what is shown.
 
-        A block quote reads badly without a cue, so we speak one unless the
-        engine is voicing quotes separately.
+        Two differences from the displayed text. A block quote reads badly
+        without a cue, so we speak one unless the engine is voicing quotes in a
+        second voice. And everything runs through the normaliser, so "$72mm"
+        is read as money rather than spelled out.
         """
+        from .normalize import normalize
+
+        spoken = normalize(self.text)
         if self.kind is BlockKind.QUOTE and quote_markers:
-            return f"Start quote. {self.text} End quote."
-        return self.text
+            return f"Start quote. {spoken} End quote."
+        return spoken
 
 
 @dataclass

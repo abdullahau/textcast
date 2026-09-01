@@ -6,40 +6,70 @@ readme = "README.md"
 requires-python = ">=3.12"
 license = { file = "LICENSE" }
 dependencies = [
-    "numpy>=2.1",
-    "python-dotenv>=1.0.1",
-    "requests>=2.32.5",
-    "selectolax>=0.4.11",
+    "numpy>=2.5",
+    "python-dotenv>=1.2",
+    "requests>=2.34",
+    "selectolax>=0.4",
 ]
 
 [project.optional-dependencies]
-# The default engine. ONNX Runtime only — no PyTorch, no espeak-ng.
-supertonic = ["supertonic>=0.3.0"]
-# The alternative engine. Pulls PyTorch and spaCy; needs espeak-ng installed.
-kokoro = ["kokoro>=0.9.4"]
-web = [
-    "fastapi>=0.115",
-    "jinja2>=3.1.4",
-    "python-multipart>=0.0.18",
-    "uvicorn[standard]>=0.32",
+# The alternative engine: about twice as fast on CPU, thinner delivery.
+# ONNX Runtime only, so no PyTorch and no espeak-ng.
+supertonic = ["supertonic>=1.3"]
+# The default engine. Pulls PyTorch and spaCy, and needs espeak-ng on the
+# system, but the delivery is steadier and there are 54 voices.
+kokoro = [
+    "kokoro>=0.9",
+    # Declared explicitly so [tool.uv.sources] can pin it to the CPU index;
+    # a source only binds a direct dependency, and kokoro pulls torch itself.
+    "torch>=2.4",
+    # Pinned explicitly: kokoro otherwise pip-installs this spaCy model at
+    # first synthesis, which needs network and write access to the venv —
+    # both wrong inside a container.
+    "en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl",
 ]
-summaries = ["google-genai>=1.0.0"]
+web = [
+    "fastapi>=0.141",
+    "jinja2>=3.1",
+    "python-multipart>=0.0.32",
+    "uvicorn[standard]>=0.52",
+]
+summaries = ["google-genai>=2.20"]
+documents = [
+    "pypdf>=6.16",
+    "python-docx>=1.2",
+]
 
 [project.scripts]
 textcast = "textcast.cli:main"
 
 [dependency-groups]
 dev = [
-    "pytest>=8.3",
-    "ruff>=0.13.2",
+    "pytest>=9.1",
+    "ruff>=0.16",
     # Browser tests for the read-along player; run `playwright install chromium`.
-    "playwright>=1.49",
+    "playwright>=1.62",
     "httpx>=0.28",
 ]
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+# Kokoro depends on torch, which defaults to the CUDA build and drags in
+# ~4 GB of NVIDIA runtime. This box has no GPU and neither does the container,
+# so take torch from PyTorch's CPU index instead.
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.hatch.metadata]
+# The pinned spaCy model wheel is a direct URL reference.
+allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/textcast"]

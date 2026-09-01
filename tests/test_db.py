@@ -68,11 +68,54 @@ def test_different_articles_with_the_same_title_get_distinct_slugs(conn):
     assert len(set(slugs)) == 2
 
 
-def test_saving_a_series_registers_it(conn):
-    db.save_article(make_article(), conn)
-    rows = db.list_series(conn)
+def test_a_detected_newsletter_becomes_an_ordinary_tag(conn):
+    """Newsletters are not a separate concept; they are just a tag."""
+    article_id = db.save_article(make_article(), conn)
+    assert db.tags_for(article_id, conn) == ["Money Stuff"]
+
+    rows = db.list_tags(conn)
     assert [r["name"] for r in rows] == ["Money Stuff"]
-    assert rows[0]["issues"] == 1
+    assert rows[0]["articles"] == 1
+    assert [a["id"] for a in db.list_articles(conn, tag="Money Stuff")] == [article_id]
+
+
+def test_tags_are_replaced_wholesale_and_created_on_demand(conn):
+    article_id = db.save_article(make_article(), conn)
+    applied = db.set_tags(article_id, ["Finance", " Reading list ", "Finance", ""], conn)
+
+    assert applied == ["Finance", "Reading list"], "trimmed, deduplicated, blanks dropped"
+    assert db.tags_for(article_id, conn) == ["Finance", "Reading list"]
+    assert "Money Stuff" not in db.tags_for(article_id, conn), "set replaces, it does not add"
+
+    db.add_tag(article_id, "Later", conn)
+    assert "Later" in db.tags_for(article_id, conn)
+    db.remove_tag(article_id, "Later", conn)
+    assert "Later" not in db.tags_for(article_id, conn)
+
+
+def test_deleting_a_tag_keeps_the_articles(conn):
+    article_id = db.save_article(make_article(), conn)
+    db.set_tags(article_id, ["Finance"], conn)
+    db.delete_tag("Finance", conn)
+
+    assert db.tags_for(article_id, conn) == []
+    assert db.get_article(article_id, conn) is not None
+
+
+def test_build_options_are_per_article(conn):
+    first = db.save_article(make_article(), conn)
+    other = make_article(title="Another Issue")
+    other.sections[0].blocks[0].text = "A different opening paragraph entirely."
+    second = db.save_article(other, conn)
+
+    db.set_build_options(first, {"voice": "af_heart", "skip_footnotes": True}, conn)
+
+    assert db.get_build_options(first, conn) == {"voice": "af_heart", "skip_footnotes": True}
+    assert db.get_build_options(second, conn) == {}, "settings do not leak between articles"
+
+    # Blanks mean "use the default" and are not stored.
+    db.set_build_options(first, {"voice": "", "quote_voice": "bm_george"}, conn)
+    assert db.get_build_options(first, conn) == {"quote_voice": "bm_george"}
 
 
 def test_full_text_search_finds_a_block_and_locates_it(conn):

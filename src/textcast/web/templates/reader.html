@@ -7,7 +7,8 @@
     <h1>{{ article.title }}</h1>
     {% if article.subtitle %}<p class="dek">{{ article.subtitle }}</p>{% endif %}
     <div class="m">
-      {% if row.series %}<a class="pill series" href="/series/{{ row.series }}">{{ row.series }}</a>{% endif %}
+      {% if row.status != 'ready' %}<span class="badge {{ row.status }}">{{ row.status }}</span>{% endif %}
+      {% for t in tags %}<a class="tag" href="/?tag={{ t|urlencode }}">{{ t }}</a>{% endfor %}
       <span>{{ row.source }}</span>
       {% if row.author %}<span>{{ row.author }}</span>{% endif %}
       {% if row.published_at %}<span>{{ row.published_at|date }}</span>{% endif %}
@@ -30,31 +31,6 @@
         <h2>No audio yet</h2>
         <p class="hint">You can read it now, or build the audio below.</p>
       {% endif %}
-
-      <form method="post" action="/api/articles/{{ row.id }}/rebuild" style="margin-top:.9rem">
-        <div class="row">
-          {% if voices %}
-          <div>
-            <label for="voice">Voice</label>
-            <select name="voice" id="voice">
-              {% for v in voices %}<option value="{{ v }}" {{ 'selected' if v == row.voice }}>{{ v }}</option>{% endfor %}
-            </select>
-          </div>
-          <div>
-            <label for="quote_voice">Quote voice</label>
-            <select name="quote_voice" id="quote_voice">
-              <option value="">Same, with spoken cues</option>
-              {% for v in voices %}<option value="{{ v }}">{{ v }}</option>{% endfor %}
-            </select>
-          </div>
-          {% endif %}
-          <div class="narrow">
-            <label for="steps">Quality</label>
-            <input type="number" name="steps" id="steps" min="2" max="16" value="4">
-          </div>
-        </div>
-        <button type="submit">{{ 'Rebuild' if row.status == 'failed' else 'Build audio' }}</button>
-      </form>
     </div>
   {% endif %}
 
@@ -62,33 +38,79 @@
     {% for section in article.sections %}
       <h2 id="s{{ section.idx }}">{{ section.title }}</h2>
       {% for block in section.blocks %}
-        <button type="button" class="b {{ block.kind }}" id="{{ block.id }}"
-                data-b="{{ block.id }}" data-s="{{ section.idx }}">{{ block.text }}</button>
+        <p class="b {{ block.kind }}" id="{{ block.id }}" data-b="{{ block.id }}" data-s="{{ section.idx }}">{% if row.status == 'ready' %}<button type="button" class="seek" data-seek="{{ block.id }}" aria-label="Play from here" tabindex="-1"><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg></button>{% endif %}{{ block.text }}</p>
       {% endfor %}
     {% endfor %}
   </div>
 
   <div class="card" style="margin-top:2.5rem">
+    <h2>Tags</h2>
+    <p class="hint">Tags are how the library filters. Type to create a new one.</p>
+    <form method="post" action="/api/articles/{{ row.id }}/tags">
+      <div class="tag-input" data-tag-input>
+        <input type="text" placeholder="Add a tag, press Enter" autocomplete="off" data-tag-entry>
+      </div>
+      <input type="hidden" name="tags" data-tag-values value="{{ tags|join(',') }}">
+      {% if all_tags %}
+        <div class="tag-suggestions">
+          {% for t in all_tags[:14] %}<button type="button" class="tag" data-tag-suggest="{{ t.name }}">{{ t.name }}</button>{% endfor %}
+        </div>
+      {% endif %}
+      <div class="row" style="margin-top:.8rem"><button class="ghost narrow" type="submit">Save tags</button></div>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>{{ 'Rebuild' if row.status == 'ready' else 'Build' }} audio</h2>
+    <p class="hint">These settings belong to this article alone.</p>
+    <form method="post" action="/api/articles/{{ row.id }}/rebuild">
+      <div class="row">
+        <div>
+          <label for="voice">Voice</label>
+          <select name="voice" id="voice">
+            <option value="">Default ({{ default_voice }})</option>
+            {% for v in voices %}<option value="{{ v.id }}" {{ 'selected' if v.id == build.get('voice') }}>{{ v.name }} · {{ v.gender }}</option>{% endfor %}
+          </select>
+        </div>
+        <div>
+          <label for="quote_voice">Quote voice</label>
+          <select name="quote_voice" id="quote_voice">
+            <option value="">Same voice, spoken cues</option>
+            {% for v in voices %}<option value="{{ v.id }}" {{ 'selected' if v.id == build.get('quote_voice') }}>{{ v.name }} · {{ v.gender }}</option>{% endfor %}
+          </select>
+        </div>
+        <div>
+          <label for="engine">Engine</label>
+          <select name="engine" id="engine">
+            {% for e in engines %}<option value="{{ e }}" {{ 'selected' if e == (build.get('engine') or active_engine) }}>{{ e }}</option>{% endfor %}
+          </select>
+        </div>
+      </div>
+      <div class="row" style="margin-top:.7rem">
+        <label class="check"><input type="checkbox" name="skip_footnotes" value="true" {{ 'checked' if build.get('skip_footnotes') }}> Skip footnotes</label>
+      </div>
+      <div class="row" style="margin-top:.9rem">
+        <button class="narrow" type="submit">{{ 'Rebuild' if row.status == 'ready' else 'Build' }}</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="card">
     <div class="row" style="margin:0">
-      <form method="post" action="/api/articles/{{ row.id }}/flag" style="flex:0 0 auto">
+      <form method="post" action="/api/articles/{{ row.id }}/flag" class="narrow">
         <input type="hidden" name="field" value="starred">
         <input type="hidden" name="value" value="{{ 'false' if row.starred else 'true' }}">
         <button class="ghost" type="submit">{{ 'Unstar' if row.starred else 'Star' }}</button>
       </form>
-      <form method="post" action="/api/articles/{{ row.id }}/flag" style="flex:0 0 auto">
+      <form method="post" action="/api/articles/{{ row.id }}/flag" class="narrow">
         <input type="hidden" name="field" value="archived">
         <input type="hidden" name="value" value="{{ 'false' if row.archived else 'true' }}">
         <button class="ghost" type="submit">{{ 'Unarchive' if row.archived else 'Archive' }}</button>
       </form>
-      {% if row.status == 'ready' %}
-      <form method="post" action="/api/articles/{{ row.id }}/rebuild" style="flex:0 0 auto">
-        <button class="ghost" type="submit">Rebuild audio</button>
-      </form>
-      {% endif %}
-      <form method="post" action="/api/articles/{{ row.id }}/reparse" style="flex:0 0 auto">
+      <form method="post" action="/api/articles/{{ row.id }}/reparse" class="narrow">
         <button class="ghost" type="submit" title="Re-run the parser over the saved source">Re-parse</button>
       </form>
-      <form method="post" action="/api/articles/{{ row.id }}/delete" style="flex:0 0 auto"
+      <form method="post" action="/api/articles/{{ row.id }}/delete" class="narrow"
             onsubmit="return confirm('Delete this article and its audio?')">
         <button class="danger" type="submit">Delete</button>
       </form>
@@ -100,30 +122,26 @@
 <div class="player" id="player" hidden>
   <media-controller audio class="player-inner">
     <audio slot="media" id="audio" preload="metadata" crossorigin="anonymous"></audio>
-
     <media-control-bar>
       <button class="ctl" id="prev" title="Previous section" aria-label="Previous section">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 6h2v12H7zm3 6 8-6v12z"/></svg>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 6h2v12H7zm3 6 8-6v12z"/></svg>
       </button>
       <media-seek-backward-button seekoffset="15"></media-seek-backward-button>
       <media-play-button></media-play-button>
       <media-seek-forward-button seekoffset="30"></media-seek-forward-button>
       <button class="ctl" id="next" title="Next section" aria-label="Next section">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M15 6h2v12h-2zM6 18V6l8 6z"/></svg>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M15 6h2v12h-2zM6 18V6l8 6z"/></svg>
       </button>
-
       <media-time-display></media-time-display>
       <media-time-range></media-time-range>
       <media-duration-display></media-duration-display>
-
       <media-playback-rate-button rates="0.9 1 1.15 1.3 1.5 1.75 2"></media-playback-rate-button>
-
       <span class="now" id="now-title"></span>
       <button class="ctl" id="follow" aria-pressed="true" title="Scroll with the audio" aria-label="Scroll with the audio">
-        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14"/><path d="m6 13 6 6 6-6"/></svg>
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14"/><path d="m6 13 6 6 6-6"/></svg>
       </button>
       <button class="ctl" id="menu" title="Sections and settings" aria-label="Sections and settings" aria-expanded="false">
-        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
       </button>
     </media-control-bar>
   </media-controller>
@@ -138,6 +156,7 @@
       <label class="check"><input type="checkbox" id="opt-summaries" checked> Show summaries</label>
       <label class="check"><input type="checkbox" id="opt-sleep"> Sleep at end of section</label>
       <label class="check"><input type="checkbox" id="opt-offline"> Keep offline</label>
+      <label class="check"><input type="checkbox" id="opt-tap"> Tap text to seek</label>
     </div>
   </div>
 </div>
@@ -148,13 +167,14 @@
     articleId: {{ row.id }},
     slug: {{ row.slug|tojson }},
     title: {{ row.title|tojson }},
-    series: {{ (row.series or row.source)|tojson }},
+    series: {{ (tags[0] if tags else row.source)|tojson }},
     start: { section: {{ position.section_idx if position else 0 }}, ms: {{ position.ms if position else 0 }} }
   };
 </script>
 <script src="/static/vendor/media-chrome-4.19.2.js" defer></script>
-<script src="/static/player.js?v=2" defer></script>
+<script src="/static/player.js?v=3" defer></script>
 {% elif row.status in ('queued', 'building') %}
-<script src="/static/progress.js?v=1" defer></script>
+<script src="/static/progress.js?v=2" defer></script>
 {% endif %}
+<script src="/static/tags.js?v=1" defer></script>
 {% endblock %}

@@ -54,8 +54,11 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
 
 
 def init(path: Path | None = None) -> sqlite3.Connection:
+    from . import migrate
+
     conn = connect(path)
     conn.executescript(SCHEMA.read_text(encoding="utf-8"))
+    migrate.run(conn)
     return conn
 
 
@@ -149,10 +152,14 @@ def save_article(article: Article, conn: sqlite3.Connection | None = None) -> in
                 for _s, b in article.blocks()
             ],
         )
+        # A detected newsletter is just a tag, so it filters like any other.
         if article.series:
             conn.execute(
-                "INSERT OR IGNORE INTO series (name, display, added_at) VALUES (?,?,?)",
-                (article.series, article.series, now()),
+                "INSERT OR IGNORE INTO tag (name, added_at) VALUES (?,?)", (article.series, now())
+            )
+            conn.execute(
+                "INSERT OR IGNORE INTO article_tag (article_id, tag) VALUES (?,?)",
+                (article_id, article.series),
             )
     return article_id
 
@@ -267,10 +274,11 @@ def set_flag(article_id: int, field: str, value: bool, conn: sqlite3.Connection 
 def list_articles(
     conn: sqlite3.Connection | None = None,
     *,
-    series: str | None = None,
+    tag: str | None = None,
     status: str | None = None,
     starred: bool = False,
     archived: bool = False,
+    query: str | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> list[sqlite3.Row]:
@@ -278,20 +286,25 @@ def list_articles(
     conn = conn or connect()
     where = ["a.archived = ?"]
     params: list[Any] = [int(archived)]
-    if series:
-        where.append("a.series = ?")
-        params.append(series)
+    join = ""
+    if tag:
+        join = "JOIN article_tag at ON at.article_id = a.id AND at.tag = ?"
+        params.insert(0, tag)
     if status:
         where.append("a.status = ?")
         params.append(status)
     if starred:
         where.append("a.starred = 1")
+    if query:
+        where.append("(a.title LIKE ? OR a.subtitle LIKE ?)")
+        params.extend([f"%{query}%", f"%{query}%"])
 
     params.extend([limit, offset])
     return conn.execute(
         f"""
         SELECT a.*, p.ms AS position_ms, p.section_idx AS position_section, p.finished
           FROM article a
+          {join}
           LEFT JOIN position p ON p.article_id = a.id
          WHERE {" AND ".join(where)}
          ORDER BY COALESCE(a.published_at, a.added_at) DESC, a.id DESC
@@ -307,37 +320,142 @@ def count_articles(conn: sqlite3.Connection | None = None, *, archived: bool = F
     return int(row["n"])
 
 
-def list_series(conn: sqlite3.Connection | None = None) -> list[sqlite3.Row]:
-    """Newsletters, with issue counts — the spine of the library view."""
+def list_tags(conn: sqlite3.Connection | None = None, with_counts: bool = True) -> list[sqlite3.Row]:
+    """Every tag, with how many live articles carry it."""
     conn = conn or connect()
+    if not with_counts:
+        return conn.execute("SELECT name FROM tag ORDER BY name").fetchall()
     return conn.execute(
         """
-        SELECT s.*,
-               COUNT(a.id) AS issues,
+        SELECT t.name,
+               COUNT(a.id) AS articles,
                SUM(CASE WHEN a.status = 'ready' THEN 1 ELSE 0 END) AS ready,
-               SUM(a.audio_ms) AS audio_ms,
+               COALESCE(SUM(a.audio_ms), 0) AS audio_ms,
                MAX(COALESCE(a.published_at, a.added_at)) AS latest
-          FROM series s
-          LEFT JOIN article a ON a.series = s.name AND a.archived = 0
-         GROUP BY s.name
-         ORDER BY latest DESC
+          FROM tag t
+          LEFT JOIN article_tag at ON at.tag = t.name
+          LEFT JOIN article a ON a.id = at.article_id AND a.archived = 0
+         GROUP BY t.name
+         ORDER BY articles DESC, t.name
         """
     ).fetchall()
 
 
-def get_series(name: str, conn: sqlite3.Connection | None = None) -> sqlite3.Row | None:
+def tags_for(article_id: int, conn: sqlite3.Connection | None = None) -> list[str]:
     conn = conn or connect()
-    return conn.execute("SELECT * FROM series WHERE name = ?", (name,)).fetchone()
+    return [
+        r["tag"]
+        for r in conn.execute(
+            "SELECT tag FROM article_tag WHERE article_id = ? ORDER BY tag", (article_id,)
+        )
+    ]
 
 
-def update_series(name: str, conn: sqlite3.Connection | None = None, **fields) -> None:
-    allowed = {"display", "voice", "quote_voice", "auto_build", "skip_footnotes"}
-    updates = {k: v for k, v in fields.items() if k in allowed}
-    if not updates:
-        return
+def tags_for_many(article_ids: list[int], conn: sqlite3.Connection | None = None) -> dict[int, list[str]]:
+    """One query for a whole list page, rather than one per row."""
+    if not article_ids:
+        return {}
     conn = conn or connect()
-    assignments = ", ".join(f"{k} = ?" for k in updates)
-    conn.execute(f"UPDATE series SET {assignments} WHERE name = ?", [*updates.values(), name])
+    placeholders = ",".join("?" * len(article_ids))
+    out: dict[int, list[str]] = {i: [] for i in article_ids}
+    for row in conn.execute(
+        f"SELECT article_id, tag FROM article_tag WHERE article_id IN ({placeholders}) ORDER BY tag",
+        article_ids,
+    ):
+        out[row["article_id"]].append(row["tag"])
+    return out
+
+
+def create_tag(name: str, conn: sqlite3.Connection | None = None) -> str:
+    name = clean_tag(name)
+    if not name:
+        raise ValueError("a tag needs a name")
+    conn = conn or connect()
+    conn.execute("INSERT OR IGNORE INTO tag (name, added_at) VALUES (?,?)", (name, now()))
+    return name
+
+
+def clean_tag(name: str) -> str:
+    """Collapse whitespace and cap the length; tags are labels, not sentences."""
+    return " ".join((name or "").split())[:48].strip()
+
+
+def set_tags(article_id: int, names: list[str], conn: sqlite3.Connection | None = None) -> list[str]:
+    """Replace an article's tags, creating any that are new."""
+    conn = conn or connect()
+    wanted = []
+    for raw in names:
+        name = clean_tag(raw)
+        if name and name not in wanted:
+            wanted.append(name)
+
+    with transaction(conn):
+        conn.execute("DELETE FROM article_tag WHERE article_id = ?", (article_id,))
+        for name in wanted:
+            conn.execute("INSERT OR IGNORE INTO tag (name, added_at) VALUES (?,?)", (name, now()))
+            conn.execute(
+                "INSERT OR IGNORE INTO article_tag (article_id, tag) VALUES (?,?)",
+                (article_id, name),
+            )
+    return wanted
+
+
+def add_tag(article_id: int, name: str, conn: sqlite3.Connection | None = None) -> None:
+    conn = conn or connect()
+    name = create_tag(name, conn)
+    conn.execute(
+        "INSERT OR IGNORE INTO article_tag (article_id, tag) VALUES (?,?)", (article_id, name)
+    )
+
+
+def remove_tag(article_id: int, name: str, conn: sqlite3.Connection | None = None) -> None:
+    conn = conn or connect()
+    conn.execute(
+        "DELETE FROM article_tag WHERE article_id = ? AND tag = ?", (article_id, name)
+    )
+
+
+def delete_tag(name: str, conn: sqlite3.Connection | None = None) -> None:
+    """Remove a tag everywhere. The articles themselves are untouched."""
+    conn = conn or connect()
+    with transaction(conn):
+        conn.execute("DELETE FROM article_tag WHERE tag = ?", (name,))
+        conn.execute("DELETE FROM tag WHERE name = ?", (name,))
+
+
+def rename_tag(old: str, new: str, conn: sqlite3.Connection | None = None) -> str:
+    conn = conn or connect()
+    new = clean_tag(new)
+    if not new:
+        raise ValueError("a tag needs a name")
+    with transaction(conn):
+        conn.execute("INSERT OR IGNORE INTO tag (name, added_at) VALUES (?,?)", (new, now()))
+        conn.execute(
+            "UPDATE OR IGNORE article_tag SET tag = ? WHERE tag = ?", (new, old)
+        )
+        conn.execute("DELETE FROM article_tag WHERE tag = ?", (old,))
+        conn.execute("DELETE FROM tag WHERE name = ?", (old,))
+    return new
+
+
+def get_build_options(article_id: int, conn: sqlite3.Connection | None = None) -> dict:
+    conn = conn or connect()
+    row = conn.execute("SELECT build_options FROM article WHERE id = ?", (article_id,)).fetchone()
+    if row is None:
+        return {}
+    try:
+        return json.loads(row["build_options"] or "{}")
+    except json.JSONDecodeError:
+        return {}
+
+
+def set_build_options(article_id: int, options: dict, conn: sqlite3.Connection | None = None) -> None:
+    """How this one article should be built: voice, quote voice, footnotes."""
+    conn = conn or connect()
+    clean = {k: v for k, v in (options or {}).items() if v not in (None, "")}
+    conn.execute(
+        "UPDATE article SET build_options = ? WHERE id = ?", (json.dumps(clean), article_id)
+    )
 
 
 def stats(conn: sqlite3.Connection | None = None) -> dict[str, Any]:

@@ -11,6 +11,7 @@ import json
 import logging
 import mimetypes
 from contextlib import asynccontextmanager
+from functools import lru_cache
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request, UploadFile
@@ -63,7 +64,10 @@ templates = Jinja2Templates(directory=str(TEMPLATES))
 
 
 def require_auth(request: Request) -> None:
-    """Off by default: the app is served to one person over Tailscale."""
+    """Off by default, which suits a private network.
+
+    Set TEXTCAST_REQUIRE_AUTH=1 and a token for anything internet-facing.
+    """
     if not settings.require_auth:
         return
     token = request.cookies.get("textcast_token") or request.headers.get("x-textcast-token")
@@ -156,39 +160,37 @@ def build_payload(article_id: int) -> dict:
 
 
 @app.get("/", response_class=HTMLResponse, dependencies=[Auth])
-def library(request: Request, status: str | None = None, archived: bool = False):
+def library(
+    request: Request,
+    tag: str | None = None,
+    status: str | None = None,
+    shelf: str = "",
+):
     conn = db.connect()
+    archived = shelf == "archived"
+    starred = shelf == "starred"
+    articles = db.list_articles(
+        conn, tag=tag, status=status, archived=archived, starred=starred, limit=200
+    )
     return render(
         request,
         "library.html",
-        articles=db.list_articles(conn, status=status, archived=archived, limit=100),
-        resume=db.continue_listening(conn),
-        series=db.list_series(conn),
+        articles=articles,
+        article_tags=db.tags_for_many([a["id"] for a in articles], conn),
+        resume=db.continue_listening(conn) if not (tag or status or shelf) else [],
+        tags=db.list_tags(conn),
         stats=db.stats(conn),
         jobs=db.active_jobs(conn),
+        tag=tag,
         status=status,
         archived=archived,
+        starred=starred,
     )
 
 
-@app.get("/series", response_class=HTMLResponse, dependencies=[Auth])
-def series_index(request: Request):
-    return render(request, "series.html", series=db.list_series(), voices=_voice_ids())
-
-
-@app.get("/series/{name}", response_class=HTMLResponse, dependencies=[Auth])
-def series_detail(request: Request, name: str):
-    conn = db.connect()
-    row = db.get_series(name, conn)
-    if row is None:
-        raise HTTPException(status_code=404, detail="no such newsletter")
-    return render(
-        request,
-        "series_detail.html",
-        series=row,
-        articles=db.list_articles(conn, series=name, limit=200),
-        voices=_voice_ids(),
-    )
+@app.get("/tags", response_class=HTMLResponse, dependencies=[Auth])
+def tags_page(request: Request):
+    return render(request, "tags.html", tags=db.list_tags())
 
 
 @app.get("/a/{slug}", response_class=HTMLResponse, dependencies=[Auth])
@@ -209,7 +211,12 @@ def reader(request: Request, slug: str):
         payload=json.dumps(build_payload(row["id"]), separators=(",", ":")),
         position=position,
         job=job,
-        voices=_voice_ids(),
+        tags=db.tags_for(row["id"], conn),
+        all_tags=db.list_tags(conn),
+        build=db.get_build_options(row["id"], conn),
+        voices=_voices(),
+        default_voice=settings.voice or "default",
+        active_engine=settings.engine,
     )
 
 
@@ -221,7 +228,15 @@ def search_page(request: Request, q: str = ""):
 @app.get("/add", response_class=HTMLResponse, dependencies=[Auth])
 def add_page(request: Request, url: str = "", title: str = "", text: str = ""):
     # The share target lands here on a GET from some clients.
-    return render(request, "add.html", url=url or text, shared_title=title)
+    return render(
+        request,
+        "add.html",
+        url=url or text,
+        shared_title=title,
+        all_tags=db.list_tags(),
+        voices=_voices(),
+        default_voice=settings.voice or "default",
+    )
 
 
 @app.get("/jobs", response_class=HTMLResponse, dependencies=[Auth])
@@ -229,12 +244,18 @@ def jobs_page(request: Request):
     return render(request, "jobs.html", jobs=db.recent_jobs(limit=40))
 
 
-def _voice_ids() -> list[str]:
-    """Voices for the active engine, or the empty list if it cannot load."""
+@lru_cache(maxsize=4)
+def _voices_cached(engine: str) -> tuple:
+    """Voices for an engine. Cached: building one loads the whole model."""
     try:
-        return [v.id for v in get_engine(settings.engine, **settings.engine_options()).voices()]
+        return tuple(get_engine(engine, **settings.engine_options()).voices())
     except Exception:
-        return []
+        log.warning("could not list voices for %s", engine, exc_info=True)
+        return ()
+
+
+def _voices() -> list:
+    return list(_voices_cached(settings.engine))
 
 
 # --------------------------------------------------------------------------
@@ -242,34 +263,86 @@ def _voice_ids() -> list[str]:
 # --------------------------------------------------------------------------
 
 
+def _parse_tags(raw: str | None) -> list[str]:
+    return [t.strip() for t in (raw or "").split(",") if t.strip()]
+
+
+def _build_options(voice: str, quote_voice: str, engine: str, skip_footnotes: bool) -> dict:
+    """Only what was actually chosen; blanks mean "use the default"."""
+    options = {
+        "voice": voice.strip(),
+        "quote_voice": quote_voice.strip(),
+        "engine": engine.strip(),
+    }
+    options = {k: v for k, v in options.items() if v}
+    if skip_footnotes:
+        options["skip_footnotes"] = True
+    return options
+
+
 @app.post("/api/ingest", dependencies=[Auth])
 async def api_ingest(
     request: Request,
+    kind: str = Form(default=""),
     url: str | None = Form(default=None),
     html: str | None = Form(default=None),
+    text: str | None = Form(default=None),
+    title: str | None = Form(default=None),
     adapter: str | None = Form(default=None),
+    tags: str | None = Form(default=None),
+    voice: str = Form(default=""),
+    quote_voice: str = Form(default=""),
+    engine: str = Form(default=""),
+    skip_footnotes: bool = Form(default=False),
     build: bool = Form(default=True),
     file: UploadFile | None = None,
 ):
-    """The single ingestion door: URL, pasted HTML, or an uploaded file.
+    """The single ingestion door: text, URL, page source, or a file.
 
     The bookmarklet and the share target both post here.
     """
+    upload = None
     eml = None
     if file is not None and file.filename:
-        raw = await file.read()
-        if file.filename.lower().endswith((".eml", ".mbox", ".msg")):
-            eml = raw
+        data = await file.read()
+        name = file.filename.lower()
+        if name.endswith((".eml", ".mbox", ".msg")):
+            eml = data
+        elif name.endswith((".html", ".htm")):
+            html = data.decode("utf-8", errors="replace")
         else:
-            html = raw.decode("utf-8", errors="replace")
+            upload = (data, file.filename)
 
     # A share sheet often sends the URL inside a text field.
     if url and not url.startswith(("http://", "https://")):
         found = [w for w in url.split() if w.startswith(("http://", "https://"))]
         url = found[0] if found else None
 
+    # Each form on the Add page posts every field; honour the one it names.
+    if kind == "text":
+        url = html = None
+    elif kind == "url":
+        html = text = None
+    elif kind == "html":
+        url_only = url
+        text = None
+        url = url_only
+    elif kind == "file":
+        html = text = url = None
+
     try:
-        result = ingest(html=html, url=url, eml=eml, adapter=adapter, build=build)
+        result = ingest(
+            html=html,
+            url=url,
+            eml=eml,
+            text=text,
+            title=title,
+            upload=upload,
+            adapter=adapter,
+            build=build,
+            tags=_parse_tags(tags),
+            options=_build_options(voice, quote_voice, engine, skip_footnotes),
+        )
     except IngestError as exc:
         return _ingest_error(request, str(exc))
 
@@ -281,7 +354,7 @@ async def api_ingest(
             "slug": result.slug,
             "title": result.title,
             "words": result.word_count,
-            "series": result.series,
+            "tags": result.tags,
             "job": result.job_id,
             "duplicate": result.duplicate,
             "url": f"/a/{result.slug}",
@@ -295,7 +368,15 @@ def _wants_html(request: Request) -> bool:
 
 def _ingest_error(request: Request, message: str):
     if _wants_html(request):
-        return render(request, "add.html", url="", error=message)
+        return render(
+            request,
+            "add.html",
+            url="",
+            error=message,
+            all_tags=db.list_tags(),
+            voices=_voices(),
+            default_voice=settings.voice or "default",
+        )
     return JSONResponse({"error": message}, status_code=400)
 
 
@@ -307,12 +388,16 @@ async def share_target(
     url: str = Form(default=""),
 ):
     """PWA share target: Android's share sheet posts here."""
-    candidate = url or text or title
+    candidate = (url or text or title or "").strip()
+    is_link = candidate.startswith(("http://", "https://"))
     try:
-        result = ingest(url=candidate if candidate.startswith("http") else None,
-                        html=None if candidate.startswith("http") else candidate)
+        result = ingest(
+            url=candidate if is_link else None,
+            text=None if is_link else candidate,
+            title=title if not is_link else None,
+        )
     except IngestError as exc:
-        return render(request, "add.html", url=candidate, error=str(exc))
+        return _ingest_error(request, str(exc))
     return RedirectResponse(f"/a/{result.slug}", status_code=303)
 
 
@@ -328,14 +413,11 @@ def api_rebuild(
     voice: str = Form(default=""),
     quote_voice: str = Form(default=""),
     engine: str = Form(default=""),
-    steps: int = Form(default=0),
     skip_footnotes: bool = Form(default=False),
 ):
-    options = {k: v for k, v in {
-        "voice": voice, "quote_voice": quote_voice, "engine": engine,
-        "steps": steps or None, "skip_footnotes": skip_footnotes,
-    }.items() if v}
-
+    options = _build_options(voice, quote_voice, engine, skip_footnotes)
+    # Remember the choice, so a later rebuild does not silently revert.
+    db.set_build_options(article_id, options)
     job_id = rebuild(article_id, options=options)
     row = db.get_article(article_id)
     if _wants_html(request):
@@ -405,25 +487,28 @@ def api_manifest(article_id: int):
     return build_payload(article_id)
 
 
-@app.post("/api/series/{name}", dependencies=[Auth])
-def api_series(
-    request: Request,
-    name: str,
-    voice: str = Form(default=""),
-    quote_voice: str = Form(default=""),
-    auto_build: bool = Form(default=False),
-    skip_footnotes: bool = Form(default=False),
-):
-    db.update_series(
-        name,
-        voice=voice,
-        quote_voice=quote_voice,
-        auto_build=int(auto_build),
-        skip_footnotes=int(skip_footnotes),
-    )
+@app.post("/api/articles/{article_id}/tags", dependencies=[Auth])
+def api_set_tags(request: Request, article_id: int, tags: str = Form(default="")):
+    row = db.get_article(article_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="no such article")
+    applied = db.set_tags(article_id, _parse_tags(tags))
     if _wants_html(request):
-        return RedirectResponse(f"/series/{name}", status_code=303)
+        return RedirectResponse(f"/a/{row['slug']}", status_code=303)
+    return {"tags": applied}
+
+
+@app.post("/api/tags/{name}/delete", dependencies=[Auth])
+def api_delete_tag(request: Request, name: str):
+    db.delete_tag(name)
+    if _wants_html(request):
+        return RedirectResponse("/tags", status_code=303)
     return {"ok": True}
+
+
+@app.get("/api/tags", dependencies=[Auth])
+def api_tags():
+    return {"tags": [dict(t) for t in db.list_tags()]}
 
 
 @app.get("/api/jobs", dependencies=[Auth])

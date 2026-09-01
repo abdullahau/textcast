@@ -163,24 +163,34 @@ def cmd_add(args: argparse.Namespace) -> int:
     db.init(settings.db_path)
 
     source = args.source
-    kwargs: dict = {"adapter": args.adapter, "build": not args.no_build}
+    kwargs: dict = {
+        "adapter": args.adapter,
+        "build": not args.no_build,
+        "tags": [t for t in (args.tag or [])],
+    }
+    options = {k: v for k, v in {"voice": args.voice, "engine": args.engine}.items() if v}
+    if options:
+        kwargs["options"] = options
     if source.startswith(("http://", "https://")):
         kwargs["url"] = source
     else:
         path = Path(source)
         raw = path.read_bytes()
-        if path.suffix.lower() in (".eml", ".mbox", ".msg"):
+        suffix = path.suffix.lower()
+        if suffix in (".eml", ".mbox", ".msg"):
             kwargs["eml"] = raw
-        else:
+        elif suffix in (".html", ".htm"):
             kwargs["html"] = raw.decode("utf-8", errors="replace")
+        else:
+            kwargs["upload"] = (raw, path.name)
 
     result = ingest(**kwargs)
     if result.duplicate:
         print(f"already stored as #{result.article_id} ({result.slug})")
         return 0
 
-    series = f"  [{result.series}]" if result.series else ""
-    print(f"#{result.article_id}  {result.title}{series}  {result.word_count} words")
+    labels = f"  [{', '.join(result.tags)}]" if result.tags else ""
+    print(f"#{result.article_id}  {result.title}{labels}  {result.word_count} words")
     if result.job_id:
         print(f"queued build as job {result.job_id} — run `textcast worker` to process it")
     return 0
@@ -199,17 +209,19 @@ def cmd_library(args: argparse.Namespace) -> int:
     db.init(get_settings().db_path)
     conn = db.connect()
 
-    if args.series:
-        for row in db.list_series(conn):
-            print(f"  {row['name']:<28} {row['issues']:>3} issues  {row['ready']:>3} ready  {_duration(row['audio_ms'] or 0):>7}")
+    if args.tags:
+        for row in db.list_tags(conn):
+            print(f"  {row['name']:<28} {row['articles']:>3} articles  {row['ready'] or 0:>3} ready  {_duration(row['audio_ms'] or 0):>7}")
         return 0
 
-    rows = db.list_articles(conn, series=args.of, status=args.status, limit=args.limit)
+    rows = db.list_articles(conn, tag=args.tag, status=args.status, limit=args.limit)
+    labels = db.tags_for_many([r["id"] for r in rows], conn)
     for row in rows:
         flag = "*" if row["starred"] else " "
+        joined = ", ".join(labels.get(row["id"], [])) or row["source"]
         print(
             f"{flag}#{row['id']:<4} {row['status']:<9} {_duration(row['audio_ms']):>7}  "
-            f"{(row['series'] or row['source'])[:16]:<17} {row['title'][:52]}"
+            f"{joined[:18]:<19} {row['title'][:50]}"
         )
     summary = db.stats(conn)
     print(f"\n{summary['articles']} articles, {summary['ready']} ready, {_duration(summary['audio_ms'])} of audio, {summary['audio_bytes'] / 1e6:.0f} MB")
@@ -267,10 +279,11 @@ def cmd_serve(args: argparse.Namespace) -> int:
     import uvicorn
 
     get_settings().ensure_dirs()
+    settings = get_settings()
     uvicorn.run(
         "textcast.web.app:app",
-        host=args.host,
-        port=args.port,
+        host=args.host or settings.host,
+        port=args.port or settings.port,
         reload=args.reload,
         log_level="info",
     )
@@ -309,12 +322,15 @@ def build_parser() -> argparse.ArgumentParser:
     add = sub.add_parser("add", help="ingest a file, .eml or URL into the library and queue a build")
     add.add_argument("source")
     add.add_argument("--adapter")
+    add.add_argument("--tag", action="append", help="tag it; repeat for several")
+    add.add_argument("--voice", help="voice for this article only")
+    add.add_argument("--engine", help="engine for this article only")
     add.add_argument("--no-build", action="store_true", help="store it without queueing audio")
     add.set_defaults(func=cmd_add)
 
     library = sub.add_parser("library", help="list stored articles, newest first")
-    library.add_argument("--series", action="store_true", help="list newsletters instead")
-    library.add_argument("--of", help="only this series")
+    library.add_argument("--tags", action="store_true", help="list tags instead")
+    library.add_argument("--tag", help="only articles with this tag")
     library.add_argument("--status", choices=["new", "queued", "building", "ready", "failed"])
     library.add_argument("--limit", type=int, default=40)
     library.set_defaults(func=cmd_library)
@@ -333,8 +349,8 @@ def build_parser() -> argparse.ArgumentParser:
     mail.set_defaults(func=cmd_mail)
 
     serve = sub.add_parser("serve", help="run the web app")
-    serve.add_argument("--host", default="127.0.0.1")
-    serve.add_argument("--port", type=int, default=8000)
+    serve.add_argument("--host", default="", help="overrides TEXTCAST_HOST")
+    serve.add_argument("--port", type=int, default=0, help="overrides TEXTCAST_PORT")
     serve.add_argument("--reload", action="store_true")
     serve.set_defaults(func=cmd_serve)
 
