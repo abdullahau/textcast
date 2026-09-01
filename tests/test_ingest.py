@@ -11,7 +11,7 @@ from textcast.ingest.base import is_junk_block
 from textcast.ingest.dom import parse as parse_tree
 from textcast.ingest.newsletter import article_from_eml, is_cutoff, parse_eml
 
-CORPUS = Path(__file__).resolve().parents[1] / "raw-html-pages"
+CORPUS = Path(__file__).with_name("corpus")
 PAGES = sorted(CORPUS.glob("*.html"))
 
 
