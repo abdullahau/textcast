@@ -1,8 +1,9 @@
 """Download TTS weights at image build time.
 
-Run during the Docker build so the first synthesis needs no network. Only the
-weights are fetched — no engine is constructed, so this does not need
-espeak-ng or any of the runtime environment.
+Downloads only. The model is never constructed and never run here: a build
+should assemble the image, not do the work the app does at runtime. The point
+is simply that the weights are already on disk when the container starts, so a
+fresh deploy needs no network and no first-run wait.
 """
 
 from __future__ import annotations
@@ -10,34 +11,43 @@ from __future__ import annotations
 import sys
 
 KOKORO_REPO = "hexgrad/Kokoro-82M"
+SUPERTONIC_REPO = "Supertone/supertonic-3"
 
 
-def bake_kokoro() -> None:
+def bake_kokoro() -> str:
     from huggingface_hub import snapshot_download
 
-    path = snapshot_download(
+    return snapshot_download(
         KOKORO_REPO,
         # The PyTorch weights and every voice, but not the ONNX duplicates.
         allow_patterns=["*.json", "*.pth", "voices/*.pt", "config.json"],
     )
-    print(f"kokoro weights at {path}")
 
 
-def bake_supertonic() -> None:
-    from supertonic import TTS
+def bake_supertonic() -> str:
+    """Fetch the ONNX files directly.
 
-    TTS(auto_download=True)
-    print("supertonic weights downloaded")
+    Constructing supertonic.TTS would also download them, but it opens ONNX
+    Runtime sessions as a side effect — loading a model during a build, which
+    is what this script exists to avoid.
+    """
+    from huggingface_hub import snapshot_download
+
+    return snapshot_download(
+        SUPERTONIC_REPO,
+        allow_patterns=["onnx/*", "voice_styles/*", "config.json"],
+    )
+
+
+BAKERS = {"kokoro": bake_kokoro, "supertonic": bake_supertonic}
 
 
 def main(engine: str) -> int:
-    if engine == "kokoro":
-        bake_kokoro()
-    elif engine == "supertonic":
-        bake_supertonic()
-    else:
+    baker = BAKERS.get(engine)
+    if baker is None:
         print(f"nothing to bake for {engine!r}", file=sys.stderr)
         return 1
+    print(f"{engine} weights at {baker()}")
     return 0
 
 

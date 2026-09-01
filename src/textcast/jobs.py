@@ -30,8 +30,8 @@ class Worker:
     def __init__(self, settings: Settings | None = None, poll_seconds: float = 2.0) -> None:
         self.settings = settings or get_settings()
         self.poll_seconds = poll_seconds
-        self._engine: TTSEngine | None = None
-        self._engine_key: tuple[str, int] | None = None
+        self._engines: list[TTSEngine] = []
+        self._engine_key: tuple[str, int, int] | None = None
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -73,16 +73,28 @@ class Worker:
 
     # -- work --------------------------------------------------------------
 
-    def engine_for(self, name: str, steps: int) -> TTSEngine:
-        key = (name, steps)
-        if self._engine is None or self._engine_key != key:
-            options = dict(self.settings.engine_options())
-            if name == "supertonic":
-                options["steps"] = steps
-            log.info("loading engine %s %s", name, options)
-            self._engine = get_engine(name, **options)
-            self._engine_key = key
-        return self._engine
+    def engines_for(self, name: str, steps: int) -> list[TTSEngine]:
+        """A pool of instances, kept between jobs because loading is slow.
+
+        The pipelines are not safe to share, so parallelism means one instance
+        per worker rather than one instance driven by several threads.
+        """
+        count = self.settings.build_concurrency()
+        key = (name, steps, count)
+        if self._engines and self._engine_key == key:
+            return self._engines
+
+        options = dict(self.settings.engine_options())
+        if name == "supertonic":
+            options["steps"] = steps
+        if count > 1:
+            # Each instance takes one core; the pool provides the parallelism.
+            options["threads"] = 1
+
+        log.info("loading %d %s instance(s) %s", count, name, options)
+        self._engines = [get_engine(name, **options) for _ in range(count)]
+        self._engine_key = key
+        return self._engines
 
     def step(self) -> bool:
         """Run one job. Returns False when the queue is empty."""
@@ -122,7 +134,8 @@ class Worker:
         voice = options.get("voice") or settings.voice
         quote_voice = options.get("quote_voice") or settings.quote_voice
 
-        engine = self.engine_for(engine_name, steps)
+        engines = self.engines_for(engine_name, steps)
+        engine = engines[0]
         if not voice:
             from .tts import ENGINES
 
@@ -153,6 +166,7 @@ class Worker:
             article,
             engine,
             out_dir,
+            pool=engines[1:],
             voice=voice,
             quote_voice=quote_voice or None,
             bitrate=settings.bitrate,

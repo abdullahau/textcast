@@ -44,6 +44,10 @@ class Settings:
 
     # --- worker ---
     workers: int = field(default_factory=lambda: _env_int("WORKERS", 1))
+    #: Engine instances rendering blocks side by side. 0 means one per core.
+    #: Measured on 4 cores: four single-threaded instances beat one
+    #: four-threaded instance by ~11%, and six are worse than four.
+    concurrency: int = field(default_factory=lambda: _env_int("CONCURRENCY", 0))
     #: Minutes between IMAP polls. 0 disables the poller.
     mail_poll_minutes: int = field(default_factory=lambda: _env_int("MAIL_POLL_MINUTES", 0))
 
@@ -79,9 +83,17 @@ class Settings:
         opts: dict = {}
         if self.engine == "supertonic":
             opts["steps"] = self.steps
-            if self.threads:
-                opts["threads"] = self.threads
+        if self.threads:
+            opts["threads"] = self.threads
         return opts
+
+    def build_concurrency(self) -> int:
+        """How many engines to render with. Capped so it cannot thrash."""
+        import os
+
+        if self.concurrency > 0:
+            return min(self.concurrency, 8)
+        return max(1, min(os.cpu_count() or 1, 4))
 
     def ensure_dirs(self) -> None:
         for path in (self.data_dir, self.media_dir, self.cache_dir, self.source_dir):

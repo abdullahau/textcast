@@ -107,10 +107,18 @@ class KokoroEngine:
         self,
         repo_id: str = "hexgrad/Kokoro-82M",
         lang_code: str = "a",
+        threads: int | None = None,
         **_ignored,
     ) -> None:
         os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
         _configure_espeak()
+
+        if threads:
+            import torch
+
+            # Several single-threaded instances beat one wide one here, so the
+            # pool sets this to 1 and gets its parallelism from the pool.
+            torch.set_num_threads(threads)
 
         from kokoro import KPipeline
 
