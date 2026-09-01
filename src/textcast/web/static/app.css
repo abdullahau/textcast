@@ -415,6 +415,22 @@ button.q:hover, button.q:focus-visible { color: var(--fg); border-color: var(--f
 .badge.queued   { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 35%, transparent); }
 .badge.failed   { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 35%, transparent); }
 
+/* Says which kind of hit this is, next to the title. */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  font-size: .64rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  line-height: 1.6;
+  padding: 0 .42rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+}
+
 .tag {
   display: inline-flex;
   align-items: center;

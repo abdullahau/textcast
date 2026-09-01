@@ -7,14 +7,19 @@
 </div>
 
 {% if not q %}
-  <p class="empty">Search every word of every article you have ever added.</p>
+  <p class="empty">
+    Search the title, the byline, the publication and the tags, and every word of
+    every article — summaries, quotes and footnotes included.
+  </p>
 {% elif not hits %}
   <p class="empty">Nothing matched “{{ q }}”.</p>
 {% else %}
   <div class="list">
     {% for h in hits %}
-      <a class="hit" href="/a/{{ h.slug }}#{{ h.block_id }}">
+      {# An article match has no block to open at, so it opens at the top. #}
+      <a class="hit" href="/a/{{ h.slug }}{{ '#' ~ h.block_id if h.block_id }}">
         <span class="t">
+          {% if h.kind == 'article' %}<span class="pill">article</span>{% endif %}
           {% if h.series %}<span class="pill series">{{ h.series }}</span>{% endif %}
           <span>{{ h.title }}</span>
           {% if h.start_ms is not none %}<span>at {{ h.start_ms|duration }}</span>{% endif %}

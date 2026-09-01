@@ -7,7 +7,9 @@ share a database but never a connection: each thread gets its own through
 
 from __future__ import annotations
 
+import html
 import json
+import re
 import sqlite3
 import threading
 from collections.abc import Iterator
@@ -535,16 +537,114 @@ def stats(conn: sqlite3.Connection | None = None) -> dict[str, Any]:
     return dict(row)
 
 
-def search(query: str, conn: sqlite3.Connection | None = None, limit: int = 40) -> list[sqlite3.Row]:
-    """Full-text search across every block ever ingested.
+#: Fields on the article itself. They are not blocks, so no amount of
+#: block_fts will find them, and "who wrote this" is a fair thing to search.
+ARTICLE_FIELDS = ("title", "subtitle", "author", "source")
 
-    Returns one row per matching block with a highlighted snippet, so a hit can
-    link straight to that block's position in the audio.
+
+def fts_query(text: str) -> str:
+    """What someone typed, as an expression FTS5 will accept.
+
+    Every term is quoted as a phrase. A hyphen, an ampersand or a trailing OR
+    is a syntax error to FTS5 and a perfectly ordinary thing to type: before
+    this, searching for "Drug-Trial" or "roll-up" — words in the titles of
+    articles in the library — answered with a 500.
+    """
+    out = []
+    for term in re.findall(r'"[^"]*"|\S+', text or ""):
+        cleaned = re.sub(r'[^\w\s\'-]', " ", term.replace('"', " "), flags=re.UNICODE).strip()
+        if cleaned:
+            out.append('"' + cleaned + '"')
+    return " ".join(out)
+
+
+def _mark(text: str, term: str) -> str:
+    """The field with the match wrapped, escaped for the page."""
+    safe = html.escape(text or "")
+    if not term:
+        return safe
+    needle = html.escape(term)
+    at = safe.lower().find(needle.lower())
+    if at < 0:
+        return safe
+    return f"{safe[:at]}<mark>{safe[at:at + len(needle)]}</mark>{safe[at + len(needle):]}"
+
+
+def search_articles(query: str, conn: sqlite3.Connection | None = None, limit: int = 10) -> list[dict]:
+    """Articles whose title, byline, publication or tags match.
+
+    A plain substring match, not FTS: these are names, and typing half of one
+    should find it. Cheap at a few hundred articles; measure past that.
     """
     conn = conn or connect()
-    if not query.strip():
+    term = (query or "").strip()
+    if not term:
         return []
-    return conn.execute(
+
+    like = f"%{term}%"
+    fields = " OR ".join(f"a.{name} LIKE ?" for name in ARTICLE_FIELDS)
+    rows = conn.execute(
+        f"""
+        SELECT a.id AS article_id, a.slug, a.title, a.series, a.status,
+               a.subtitle, a.author, a.source, a.audio_ms
+          FROM article a
+         WHERE a.archived = 0
+           AND ({fields}
+                OR EXISTS (SELECT 1 FROM article_tag t
+                            WHERE t.article_id = a.id AND t.tag LIKE ?))
+         ORDER BY a.added_at DESC
+         LIMIT ?
+        """,
+        (*([like] * len(ARTICLE_FIELDS)), like, limit),
+    ).fetchall()
+
+    hits = []
+    needle = term.lower()
+    for row in rows:
+        # Only the fields that actually matched. The title is already the
+        # heading of the row, so repeating it says nothing.
+        fields = [row["subtitle"], row["author"], row["source"], *tags_for(row["article_id"], conn)]
+        parts = [_mark(v, term) for v in fields if v and needle in v.lower()]
+        if needle in (row["title"] or "").lower():
+            parts.insert(0, _mark(row["title"], term))
+        hits.append(
+            {
+                "article_id": row["article_id"],
+                "slug": row["slug"],
+                "title": row["title"],
+                "series": row["series"],
+                "status": row["status"],
+                "block_id": None,
+                "section_idx": None,
+                "start_ms": None,
+                "kind": "article",
+                "snippet": " · ".join(parts),
+                "rank": -1.0,
+            }
+        )
+    return hits
+
+
+def search(query: str, conn: sqlite3.Connection | None = None, limit: int = 40) -> list[dict]:
+    """Everything, article by article and then block by block.
+
+    Two searches, because there are two kinds of answer. An article matches on
+    its title, byline, publication or tags, and the hit opens it at the top. A
+    block matches on its text — including summaries, quotes and footnotes,
+    which are blocks like any other — and the hit opens at that block, and at
+    its position in the audio.
+    """
+    conn = conn or connect()
+    if not (query or "").strip():
+        return []
+
+    hits = search_articles(query, conn)
+
+    expression = fts_query(query)
+    if not expression:
+        return hits
+
+    rows = conn.execute(
         """
         SELECT a.id AS article_id, a.slug, a.title, a.series, a.status,
                b.block_id, b.section_idx, b.start_ms, b.kind,
@@ -558,8 +658,11 @@ def search(query: str, conn: sqlite3.Connection | None = None, limit: int = 40) 
          ORDER BY rank
          LIMIT ?
         """,
-        (query, limit),
+        (expression, limit),
     ).fetchall()
+    # An article listed by name still shows its matching passages below: the
+    # two answer different questions, and the block hits carry a position.
+    return hits + [dict(r) for r in rows]
 
 
 # --------------------------------------------------------------------------

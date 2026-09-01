@@ -238,3 +238,42 @@ def test_forgetting_audio_leaves_the_text_and_takes_the_timings(conn):
         "SELECT COUNT(*) c FROM section WHERE article_id = ? AND file IS NOT NULL", (article_id,)
     ).fetchone()["c"] == 0
     assert db.load_article(article_id, conn).word_count > 0, "the text is untouched"
+
+
+def test_a_hyphen_in_a_search_is_not_a_syntax_error(conn):
+    """Raw input went to FTS5 MATCH, so searching for a word in one of your own
+    titles — Drug-Trial, roll-up — answered with a 500."""
+    db.save_article(make_article(title="Drug-Trial Stock Sale"), conn)
+
+    for query in ("Drug-Trial", "roll-up", "AT&T", "C++", "levine OR", 'say "hello"', "NEAR("):
+        db.search(query, conn)  # must not raise
+
+    assert [h["slug"] for h in db.search("Drug-Trial", conn)] == ["drug-trial-stock-sale"]
+
+
+def test_search_covers_the_article_as_well_as_its_blocks(conn):
+    """Title, byline, publication and tags are not blocks, so block_fts could
+    never find them however the query was written."""
+    article_id = db.save_article(
+        make_article(title="A Quiet Week", series=None), conn
+    )
+    conn.execute("UPDATE article SET author='Matt Levine', source='Bloomberg' WHERE id=?", (article_id,))
+    db.set_tags(article_id, ["Money Stuff"], conn)
+
+    for query in ("Matt Levine", "Bloomberg", "Money Stuff", "Quiet Week"):
+        kinds = {h["kind"] for h in db.search(query, conn)}
+        assert "article" in kinds, f"{query!r} found no article-level hit"
+
+    hit = db.search("Matt Levine", conn)[0]
+    assert hit["block_id"] is None, "an article hit opens at the top, not at a block"
+    assert "<mark>Matt Levine</mark>" in hit["snippet"]
+
+
+def test_a_search_still_finds_the_words_inside_a_block(conn):
+    article_id = db.save_article(make_article(), conn)
+    db.save_manifest(article_id, manifest_for(), audio_bytes=1, conn=conn)
+
+    hits = [h for h in db.search("biotech", conn) if h["kind"] != "article"]
+
+    assert hits, "block text is still indexed"
+    assert hits[0]["block_id"] and hits[0]["start_ms"] is not None
