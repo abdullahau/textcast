@@ -394,3 +394,32 @@ def test_the_library_row_reads_star_title_length_status_then_who(client, conn):
     assert '<span class="badge new">new</span>' in row, "ready is not the only status shown"
     order = [row.index(x) for x in ("Matt Levine", "Bloomberg", "words", "Money Stuff")]
     assert order == sorted(order), "author, publication, word count, then tags"
+
+
+def test_a_batch_upload_keeps_going_past_a_file_it_cannot_read(client, conn):
+    """The promise of a batch is that one bad file does not cost the rest."""
+    good = ("note.md", b"# A note\n\nA paragraph of prose, long enough to parse.\n", "text/markdown")
+    bad = ("broken.pdf", b"not a pdf at all", "application/pdf")
+    other = ("second.md", b"# Another\n\nA different paragraph, also long enough.\n", "text/markdown")
+
+    response = client.post(
+        "/api/ingest",
+        data={"kind": "file"},
+        files=[("files", good), ("files", bad), ("files", other)],
+    )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert sorted(body["added"]) == ["a-note", "another"]
+    assert len(body["failed"]) == 1 and "broken.pdf" in body["failed"][0]
+
+
+def test_one_unreadable_file_is_a_bad_request_not_a_crash(client, conn):
+    response = client.post(
+        "/api/ingest",
+        data={"kind": "file"},
+        files={"files": ("broken.pdf", b"not a pdf", "application/pdf")},
+    )
+
+    assert response.status_code == 400
+    assert "could not be read" in response.json()["error"]

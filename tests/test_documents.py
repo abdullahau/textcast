@@ -170,3 +170,16 @@ def test_a_quotation_ending_at_a_new_paragraph_does_not_swallow_it():
 
     assert [b.kind for b in blocks] == [BlockKind.QUOTE, BlockKind.PARA]
     assert blocks[1].text == "Straight back to prose without a blank line."
+
+
+def test_a_file_that_is_not_the_document_it_claims_says_so():
+    """pypdf raises its own errors, and they reached the browser as a 500."""
+    import pytest as _pytest
+
+    from textcast.ingest.documents import UnsupportedDocument, article_from_file
+
+    with _pytest.raises(UnsupportedDocument, match="could not be read"):
+        article_from_file(b"not a pdf at all", "pretend.pdf")
+
+    with _pytest.raises(UnsupportedDocument, match="could not be read"):
+        article_from_file(b"not a word file", "pretend.docx")

@@ -207,7 +207,14 @@ def text_from_pdf(data: bytes) -> str:
             "PDF support needs the documents extra: uv sync --extra documents"
         ) from exc
 
-    reader = PdfReader(io.BytesIO(data))
+    # A file named .pdf is not always a PDF, and a real one can be truncated.
+    # pypdf raises its own errors for both, and they used to reach the browser
+    # as a 500 rather than "that file could not be read".
+    try:
+        reader = PdfReader(io.BytesIO(data))
+    except Exception as exc:
+        raise UnsupportedDocument(f"that PDF could not be read: {exc}") from exc
+
     pages = []
     for page in reader.pages:
         try:
@@ -264,7 +271,11 @@ def text_from_docx(data: bytes) -> tuple[str, str]:
             "DOCX support needs the documents extra: uv sync --extra documents"
         ) from exc
 
-    document = docx.Document(io.BytesIO(data))
+    try:
+        document = docx.Document(io.BytesIO(data))
+    except Exception as exc:
+        raise UnsupportedDocument(f"that Word file could not be read: {exc}") from exc
+
     title = (document.core_properties.title or "").strip()
 
     lines: list[str] = []

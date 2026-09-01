@@ -879,7 +879,11 @@ async def _ingest_many(request: Request, files: list[UploadFile], tags: list[str
             kwargs["upload"] = (data, upload.filename)
         try:
             added.append(ingest(**kwargs))
-        except IngestError as exc:
+        except Exception as exc:
+            # Deliberately broad. The promise of a batch is that one bad file
+            # does not cost you the other nineteen, and a parser can fail in
+            # whatever way its library chooses.
+            log.warning("batch import failed for %s", upload.filename, exc_info=True)
             failed.append(f"{upload.filename}: {exc}")
 
     if _wants_html(request):

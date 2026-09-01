@@ -570,31 +570,45 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
 textarea { min-height: 9rem; resize: vertical; line-height: 1.55; }
 textarea.code { font-family: var(--mono); font-size: .78rem; min-height: 7rem; }
 /* A file input is a button and a label the browser draws itself, so it lines
-   up with nothing unless it is given the same box as every other field. */
+   up with nothing unless it is given the same box as every other field.
+
+   A fixed height, not a minimum: the button inside pushed the box taller than
+   the control beside it, and the row aligns on the bottom edge, so the two
+   sat with their centres a few pixels apart. line-height centres the "no file
+   chosen" text; vertical-align centres the button against it. */
 input[type=file] {
-  width: 100%;
-  min-height: 2.1rem;
-  padding: .34rem .4rem .34rem .34rem;
+  height: 2.1rem;
+  padding: 0 .45rem 0 .28rem;
   font: inherit;
   font-size: .82rem;
+  line-height: 2.1rem;
   color: var(--muted);
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
+  /* Wraps to its own line rather than being squeezed when the button beside
+     it grows — "Upload 3 files" is wider than "Upload". */
+  flex: 1 1 13rem;
 }
+input[type=file]::-webkit-file-upload-button,
 input[type=file]::file-selector-button {
-  margin-right: .6rem;
-  height: 1.6rem;
-  padding: 0 .7rem;
+  height: 1.55rem;
+  margin-right: .55rem;
+  padding: 0 .65rem;
   font: inherit;
   font-size: .8rem;
   font-weight: 500;
+  line-height: 1;
+  vertical-align: middle;
   color: var(--fg-soft);
   background: var(--sunk);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
 }
+input[type=file]::-webkit-file-upload-button:hover,
 input[type=file]::file-selector-button:hover { background: var(--raised); color: var(--fg); }
 
 .row { display: flex; gap: .55rem; flex-wrap: wrap; align-items: flex-end; }
