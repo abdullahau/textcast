@@ -2,6 +2,19 @@
 {% block title %}textcast{% endblock %}
 
 {% block content %}
+{% if jobs %}
+  <div class="card" id="job-strip" style="margin-bottom:1rem">
+    <h2>In progress</h2>
+    {% for j in jobs %}
+      <p class="hint" style="margin:.5rem 0 .3rem">
+        <span class="badge {{ 'queued' if j.kind == 'summarise' else 'building' }}">{{ 'summary' if j.kind == 'summarise' else 'audio' }}</span>
+        {{ j.title }} — <span data-job-message="{{ j.id }}">{{ j.message or j.state }}</span>
+      </p>
+      <span class="meter"><i data-job-meter="{{ j.id }}" style="width: {{ (j.progress * 100)|round(1) }}%"></i></span>
+    {% endfor %}
+  </div>
+{% endif %}
+
 {% if resume %}
   <div class="section-head"><h2>Continue listening</h2></div>
   <div class="list">
@@ -46,19 +59,6 @@
   {% endif %}
   <span class="count">{{ articles|length }} shown</span>
 </form>
-
-{% if jobs %}
-  <div class="card" id="job-strip" style="margin-bottom:1rem">
-    <h2>In progress</h2>
-    {% for j in jobs %}
-      <p class="hint" style="margin:.5rem 0 .3rem">
-        <span class="badge {{ 'queued' if j.kind == 'summarise' else 'building' }}">{{ 'summary' if j.kind == 'summarise' else 'audio' }}</span>
-        {{ j.title }} — <span data-job-message="{{ j.id }}">{{ j.message or j.state }}</span>
-      </p>
-      <span class="meter"><i data-job-meter="{{ j.id }}" style="width: {{ (j.progress * 100)|round(1) }}%"></i></span>
-    {% endfor %}
-  </div>
-{% endif %}
 
 {% if articles %}
   <div class="list">
