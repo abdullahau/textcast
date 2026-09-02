@@ -129,6 +129,21 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
 }
 .brand:hover { text-decoration: none; }
 
+/* Beside the wordmark, which already goes home and never said so. Square, so
+   it stays a thumb-sized target on a phone. */
+.home {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  flex: none;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.home:hover { color: var(--fg); border-color: var(--fg); text-decoration: none; }
+
 /* A search field, not a search banner. */
 .find { flex: 0 1 15rem; min-width: 0; margin-left: auto; }
 .find input {

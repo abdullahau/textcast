@@ -3,31 +3,22 @@
 
 {% block scripts %}
 <script>
-/* Choosing a provider fills its address and suggests its models. Both fields
-   stay editable: the list is a starting point, not a menu. */
+/* Choosing a provider fills its address and one model worth starting on.
+   Both fields stay editable, and the model is typed: a datalist put a
+   dropdown arrow on the field with nothing behind it until a provider was
+   picked, which is a control that promises a menu and has none. */
 (function () {
   var provider = document.getElementById("provider");
   var endpoint = document.getElementById("base_url");
-  var suggestions = document.getElementById("model-suggestions");
   var model = document.getElementById("model");
 
-  function refresh(fillModel) {
+  provider.addEventListener("change", function () {
     var picked = provider.options[provider.selectedIndex];
+    if (!picked.value) return;
+    endpoint.value = picked.value;
     var models = (picked.dataset.models || "").split(",").filter(Boolean);
-    suggestions.textContent = "";
-    models.forEach(function (name) {
-      var opt = document.createElement("option");
-      opt.value = name;
-      suggestions.appendChild(opt);
-    });
-    if (picked.value) {
-      endpoint.value = picked.value;
-      if (fillModel && models.length) model.value = models[0];
-    }
-  }
-
-  provider.addEventListener("change", function () { refresh(true); });
-  refresh(false);
+    if (models.length) model.value = models[0];
+  });
 })();
 </script>
 {% endblock %}
@@ -69,8 +60,9 @@
     <span class="tip">
       <button type="button" class="q" aria-label="Which models work">?</button>
       <span class="tip-body" role="tooltip">Any endpoint that speaks the OpenAI protocol works, which
-      today is nearly all of them. Picking a provider fills in its address and suggests models; you can
-      type any model name the endpoint accepts, and edit the address for anything not listed.</span>
+      today is nearly all of them. Picking a provider fills in its address and one model worth
+      starting on; the model is a typed name, so anything the endpoint accepts works, and the
+      address is editable for anything not listed.</span>
     </span>
   </div>
   <form method="post" action="/summaries">
@@ -87,9 +79,8 @@
       </div>
       <div>
         <label for="model">Model</label>
-        <input type="text" name="model" id="model" value="{{ cfg.model }}" list="model-suggestions"
-               autocomplete="off" spellcheck="false">
-        <datalist id="model-suggestions"></datalist>
+        <input type="text" name="model" id="model" value="{{ cfg.model }}"
+               autocomplete="off" spellcheck="false" placeholder="{{ default_model }}">
       </div>
     </div>
     <div class="row" style="margin-top:.7rem">

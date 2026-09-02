@@ -202,6 +202,25 @@ def test_the_reader_polls_while_a_summary_runs(client, conn, monkeypatch):
     assert 'id="build-meter"' in body, "the poller needs something to paint"
 
 
+def test_every_page_carries_a_home_button(client):
+    """The wordmark went home and nothing said so."""
+    body = client.get("/summaries").text
+    head = body[: body.index("</header>")]
+
+    assert 'class="home"' in head
+    assert head.count('href="/"') == 2, "the wordmark and the house, both home"
+
+
+def test_the_model_field_is_typed_and_offers_no_menu(client):
+    """A datalist drew a dropdown arrow on the field with nothing behind it
+    until a provider was picked: a control that promises a menu and has none."""
+    body = client.get("/summaries").text
+
+    assert "<datalist" not in body
+    assert 'list="model-suggestions"' not in body
+    assert 'name="model"' in body, "the field itself stays, typed by hand"
+
+
 def test_a_failed_summary_says_so_on_the_article(client, conn, monkeypatch):
     """It only reached the worker's log. A summary leaves article.status alone,
     and the card was tied to that, so the page showed nothing at all."""

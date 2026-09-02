@@ -663,6 +663,7 @@ def _summaries_page(request: Request, **extra):
         cfg=cfg,
         installed=summaries.is_installed(),
         default_prompt=summaries.DEFAULT_PROMPT,
+        default_model=summaries.DEFAULT_MODEL,
         providers=summaries.PROVIDERS,
         provider_name=summaries.provider_for(cfg.base_url),
         pending=db.summarisable(),

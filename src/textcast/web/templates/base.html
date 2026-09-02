@@ -31,6 +31,14 @@
     <span>textcast</span>
   </a>
 
+  {# The wordmark already goes home, but nothing said so. A house does. #}
+  <a class="home" href="/" aria-label="Home" title="Home">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M3 10.5 12 3l9 7.5"/><path d="M5.5 9.5V20h13V9.5"/><path d="M9.75 20v-5.5h4.5V20"/>
+    </svg>
+  </a>
+
   <form class="find" action="/search" method="get" role="search">
     <input type="search" name="q" value="{{ q }}" placeholder="Search" aria-label="Search everything" enterkeyhint="search">
   </form>
