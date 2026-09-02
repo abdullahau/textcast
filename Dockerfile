@@ -58,6 +58,12 @@ ENV PATH="/app/.venv/bin:$PATH" \
     # every model load to revalidate them: it works offline either way, but it
     # is a round trip and a second of startup for nothing.
     HF_HUB_OFFLINE=1 \
+    # The app user has no home, so HOME is "/", which is not writable.
+    # libespeak-ng links pulseaudio, which tries to make ~/.config/pulse on
+    # every engine it phonemises with and prints three lines when it cannot.
+    # Only the ONNX engine hits it: misaki's phonemizer-fork does not ask for
+    # audio output. Four engines in a pool made twelve lines a build.
+    HOME=/tmp \
     TEXTCAST_HOST=0.0.0.0
 
 # Create /data owned by the app user *before* declaring the volume: Docker
