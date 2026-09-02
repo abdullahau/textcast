@@ -337,24 +337,37 @@ button.sm, .btn.sm { height: var(--bar-control); padding: 0 .7rem; font-size: .7
    element expanded on click instead, which on a phone meant two taps and a
    panel that stayed open. */
 .tip { position: relative; display: inline-flex; }
+/* Sized against the label beside it, not against a button: at 1.15rem the
+   circle was half again the height of a .78rem label and read as a control of
+   its own. */
 button.q {
-  width: 1.15rem;
-  height: 1.15rem;
-  min-width: 1.15rem;
+  position: relative;
+  width: .95rem;
+  height: .95rem;
+  min-width: .95rem;
   padding: 0;
   border: 1px solid var(--border-hi);
   border-radius: 50%;
   background: transparent;
-  font-size: .7rem;
+  font-size: .6rem;
   font-weight: 600;
   line-height: 1;
   color: var(--muted);
+}
+/* A circle small enough to sit beside 12 px text is too small for a finger.
+   The hit area is padded out to a comfortable size without moving the circle,
+   and hovering it still counts as hovering the .tip that wraps it. */
+button.q::after {
+  content: "";
+  position: absolute;
+  inset: -.5rem;
+  border-radius: 50%;
 }
 button.q:hover, button.q:focus-visible { color: var(--fg); border-color: var(--fg-soft); opacity: 1; }
 
 .tip .tip-body {
   position: absolute;
-  top: 1.6rem;
+  top: 1.45rem;
   left: 0;
   z-index: 30;
   display: none;
@@ -377,6 +390,8 @@ button.q:hover, button.q:focus-visible { color: var(--fg); border-color: var(--f
 
 /* Near the right edge there is no room to open leftwards. */
 .tip.right .tip-body { left: auto; right: 0; }
+/* At the foot of the page there is nothing below to open into. */
+.tip.up .tip-body { top: auto; bottom: 1.45rem; }
 
 /* On a phone there is no room to open anywhere: a tip anchored to a button
    two thirds across a 390 px screen ran off the edge, and what was left could
@@ -384,7 +399,8 @@ button.q:hover, button.q:focus-visible { color: var(--fg); border-color: var(--f
    width less a margin, and scrolling inside itself when it is long. */
 @media (max-width: 44rem) {
   .tip .tip-body,
-  .tip.right .tip-body {
+  .tip.right .tip-body,
+  .tip.up .tip-body {
     position: fixed;
     top: auto;
     bottom: max(.75rem, env(safe-area-inset-bottom));
@@ -589,6 +605,17 @@ button.q:hover, button.q:focus-visible { color: var(--fg); border-color: var(--f
 
 .stats { display: flex; flex-wrap: wrap; gap: .25rem 1.1rem; font-size: .78rem; color: var(--muted); margin-top: 1.5rem; font-variant-numeric: tabular-nums; }
 
+/* The tally and the export links close the page rather than compete with it:
+   an export is wanted once a year, and as a card with a button it outweighed
+   the library above it. One rule, then two quiet lines. */
+.footnotes { margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--border); }
+.footnotes .stats { margin-top: 0; }
+.footnotes .stats + .stats { margin-top: .45rem; }
+.exports { align-items: center; gap: .25rem .9rem; }
+.exports .what { display: inline-flex; align-items: center; gap: .4rem; color: var(--fg-soft); font-weight: 500; }
+.exports a { color: var(--muted); text-decoration: underline; text-underline-offset: 2px; text-decoration-color: var(--border-hi); }
+.exports a:hover { color: var(--fg); text-decoration-color: currentColor; }
+
 /* ---------- cards and forms ---------- */
 
 .card {
@@ -674,6 +701,11 @@ input[type=file]::file-selector-button:hover { background: var(--raised); color:
    took an equal share of the row, so two of them sat a third of the width
    apart with nothing between them and neither lined up with anything above. */
 .row > .check { flex: 0 0 auto; align-self: center; }
+/* Beside a labelled field, centring on the row hangs the checkbox above the
+   field it belongs beside: the row is a label plus a box, and the checkbox is
+   neither. Given the height of a field and pinned to the same bottom edge, it
+   centres on the box instead. */
+.row:has(> :not(.check)) > .check { align-self: flex-end; min-height: 2.1rem; }
 /* A row of nothing but checkboxes sits under the fields above it, not level
    with their bottom edge. */
 .row:has(> .check:only-child), .row:has(> .check + .check) { align-items: center; }

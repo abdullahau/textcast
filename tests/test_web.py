@@ -681,3 +681,112 @@ def test_removing_a_block_keeps_the_cache_for_the_rebuild(conn, settings):
     edit_blocks(stored.article_id, {}, {"b0-1"})
 
     assert len(list(settings.cache_dir.glob("*.f32"))) == before, "nothing goes back to the model"
+
+
+# --------------------------------------------------------------------------
+# export
+# --------------------------------------------------------------------------
+
+
+def _exportable(conn, settings):
+    """An article with a stored original, a summary and built audio beside it."""
+    from textcast.document import Article, Block, BlockKind, Section
+
+    doc = Article(title="A Drug-Trial Stock Sale", author="Matt Levine", source="Bloomberg",
+                  sections=[Section(title="INMB", blocks=[
+                      Block(kind=BlockKind.SUMMARY, text="What the section says, shorter."),
+                      Block(kind=BlockKind.PARA, text="The body of it."),
+                  ])]).renumber()
+    article_id = db.save_article(doc, conn)
+    slug = db.get_article(article_id, conn)["slug"]
+    (settings.source_dir / f"{slug}.html").write_bytes(b"<html>the original</html>")
+    media = settings.media_dir / slug
+    media.mkdir(parents=True, exist_ok=True)
+    (media / "section-000.opus").write_bytes(b"OggS")
+    (media / "section-000.vtt").write_text("WEBVTT\n")
+    return article_id, slug
+
+
+def _zip_names(response) -> list[str]:
+    import io
+    import zipfile
+
+    assert response.headers["content-type"] == "application/zip"
+    return zipfile.ZipFile(io.BytesIO(response.content)).namelist()
+
+
+def test_each_export_is_named_for_the_article_not_its_slug(client, conn, settings):
+    """A zip is read by a person, and the library shows titles."""
+    _exportable(conn, settings)
+
+    assert _zip_names(client.get("/api/export/sources.zip")) == ["A Drug-Trial Stock Sale.html"]
+    assert _zip_names(client.get("/api/export/text.zip")) == ["A Drug-Trial Stock Sale.md"]
+    assert _zip_names(client.get("/api/export/audio.zip")) == [
+        "A Drug-Trial Stock Sale/section-000.opus",
+        "A Drug-Trial Stock Sale/section-000.vtt",
+    ]
+
+
+def test_the_text_export_carries_the_summaries(client, conn, settings):
+    """A summary is a block, so it comes out wherever it sits."""
+    import io
+    import zipfile
+
+    _exportable(conn, settings)
+
+    archive = zipfile.ZipFile(io.BytesIO(client.get("/api/export/text.zip").content))
+    text = archive.read("A Drug-Trial Stock Sale.md").decode()
+
+    assert "# A Drug-Trial Stock Sale" in text
+    assert "Matt Levine · Bloomberg" in text
+    assert text.index("What the section says") < text.index("The body of it.")
+
+
+def test_an_export_with_nothing_in_it_is_a_404_not_an_empty_zip(client, conn):
+    """A zip of nothing downloads and opens to nothing, which reads as a bug."""
+    assert client.get("/api/export/audio.zip").status_code == 404
+
+
+def test_a_source_left_behind_by_a_deleted_article_is_not_exported(client, conn, settings):
+    """Its name would have to come from its slug, and nothing links it back."""
+    _exportable(conn, settings)
+    (settings.source_dir / "gone.html").write_bytes(b"<html>orphan</html>")
+
+    assert _zip_names(client.get("/api/export/sources.zip")) == ["A Drug-Trial Stock Sale.html"]
+
+
+def test_the_library_offers_all_three_exports_with_their_sizes(client, conn, settings):
+    _exportable(conn, settings)
+
+    page = client.get("/").text
+
+    assert "/api/export/sources.zip" in page
+    assert "/api/export/text.zip" in page
+    assert "/api/export/audio.zip" in page
+
+
+def test_markdown_export_keeps_each_kind_of_block_distinct():
+    """The export is read by a person, so a quote must not read as a paragraph."""
+    from textcast.document import Article, Block, BlockKind, Section, to_markdown
+
+    doc = Article(title="A piece", subtitle="A standfirst", author="Matt Levine",
+                  source="Bloomberg", url="https://example.com/x",
+                  sections=[Section(title="One", blocks=[
+                      Block(kind=BlockKind.SUMMARY, text="The gist."),
+                      Block(kind=BlockKind.HEADING, text="A heading"),
+                      Block(kind=BlockKind.PARA, text="A paragraph."),
+                      Block(kind=BlockKind.QUOTE, text="A quotation."),
+                      Block(kind=BlockKind.LIST_ITEM, text="An item."),
+                      Block(kind=BlockKind.FOOTNOTE, text="An aside.", footnote_ref="1"),
+                  ])]).renumber()
+
+    text = to_markdown(doc)
+
+    assert text.startswith("# A piece\n\n*A standfirst*\n\nMatt Levine · Bloomberg")
+    assert "<https://example.com/x>" in text
+    assert "## One" in text and "### A heading" in text
+    assert "**Summary.** The gist." in text
+    assert "> A quotation." in text
+    assert "- An item." in text
+    assert "[1] An aside." in text
+    assert text.endswith("\n")

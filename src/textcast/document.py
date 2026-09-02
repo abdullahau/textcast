@@ -143,6 +143,44 @@ class Article:
         return cls(sections=sections, **{k: v for k, v in data.items() if k in known}).renumber()
 
 
+def to_markdown(article: Article) -> str:
+    """The article as text, for reading outside the app.
+
+    The displayed text, not the spoken form: ``Block.spoken()`` is derived at
+    build time and belongs to the engine, not to a reader. A summary is a
+    block like any other, so it comes out wherever it sits.
+    """
+    head = [f"# {article.title}"]
+    if article.subtitle:
+        head.append(f"*{article.subtitle}*")
+    byline = " · ".join(x for x in (article.author, article.source, article.published_at) if x)
+    if byline:
+        head.append(byline)
+    if article.url:
+        head.append(f"<{article.url}>")
+
+    body = []
+    for section in article.sections:
+        if section.title:
+            body.append(f"## {section.title}")
+        for block in section.blocks:
+            if block.kind is BlockKind.HEADING:
+                body.append(f"### {block.text}")
+            elif block.kind is BlockKind.QUOTE:
+                body.append("\n".join(f"> {line}" for line in block.text.splitlines()))
+            elif block.kind is BlockKind.LIST_ITEM:
+                body.append(f"- {block.text}")
+            elif block.kind is BlockKind.SUMMARY:
+                body.append(f"**Summary.** {block.text}")
+            elif block.kind is BlockKind.FOOTNOTE:
+                mark = f"[{block.footnote_ref}] " if block.footnote_ref else ""
+                body.append(f"{mark}{block.text}")
+            else:
+                body.append(block.text)
+
+    return "\n\n".join([*head, *body]) + "\n"
+
+
 _SLUG_STRIP = re.compile(r"[^a-z0-9]+")
 
 

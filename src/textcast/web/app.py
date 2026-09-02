@@ -11,6 +11,7 @@ import json
 import logging
 import mimetypes
 import re
+from collections.abc import Iterable
 from contextlib import asynccontextmanager
 from functools import lru_cache
 from pathlib import Path
@@ -22,7 +23,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from .. import __version__, db
-from ..document import BlockKind
+from ..document import BlockKind, to_markdown
 from ..jobs import Worker
 from ..prefs import save_voice_defaults, voice_defaults
 
@@ -193,10 +194,29 @@ def render(request: Request, name: str, **context) -> HTMLResponse:
     return templates.TemplateResponse(request, name, context)
 
 
-def _stored_sources() -> dict:
-    """How many originals are kept, and how much they weigh."""
-    files = [p for p in settings.source_dir.glob("*") if p.is_file()]
-    return {"count": len(files), "bytes": sum(p.stat().st_size for p in files)}
+def _export_totals() -> dict:
+    """What each export would hold, so a link can say before it is clicked.
+
+    Counted off the file system rather than the ``article`` columns, because
+    ``audio_bytes`` is what the build recorded and a deleted media directory
+    would not have told it.
+    """
+    conn = db.connect()
+    slugs = [row["slug"] for row in conn.execute("SELECT slug FROM article")]
+
+    sources = [p for p in settings.source_dir.glob("*") if p.is_file() and p.stem in slugs]
+    audio = {
+        slug: [p for p in (settings.media_dir / slug).glob("*") if p.is_file()] for slug in slugs
+    }
+    played = {slug: files for slug, files in audio.items() if files}
+    return {
+        "sources": {"count": len(sources), "bytes": sum(p.stat().st_size for p in sources)},
+        "text": {"count": len(slugs)},
+        "audio": {
+            "count": len(played),
+            "bytes": sum(p.stat().st_size for files in played.values() for p in files),
+        },
+    }
 
 
 def article_or_404(slug: str):
@@ -283,7 +303,7 @@ def library(
         starred=starred,
         added=added,
         failed=failed,
-        sources=_stored_sources(),
+        exports=_export_totals(),
     )
 
 
@@ -539,7 +559,7 @@ def pronunciations_rebuild(kind: str = Form(default=""), pattern: str = Form(def
 
 SAMPLE_TEXT = (
     "Published Jul 2nd 2025. Thrive led a $72mm round at 12x EBITDA, up 150bps YoY, "
-    "and the SEC asked about GAAP vs. the S&P 500."
+    "and the SEC asked about GAAP vs. the S&P 500 before the £1.5bn buyout."
 )
 
 
@@ -1250,35 +1270,104 @@ def media(slug: str, name: str):
     )
 
 
-@app.get("/api/sources.zip", dependencies=[Auth])
-def api_sources_zip():
-    """Every original, as it arrived, in one zip.
+# --------------------------------------------------------------------------
+# export
+# --------------------------------------------------------------------------
+#
+# Three zips, because the library holds three different things and they are
+# wanted for different reasons. The originals cannot be made again. The text
+# can, from the originals, but only by this app. The audio can, from the text,
+# but it costs hours of synthesis.
 
-    These are the bytes each article was parsed from. They are what Re-parse
-    replays, and the only part of the library that cannot be regenerated.
+
+def _zip_response(files: Iterable[tuple[str, Path | bytes]], name: str) -> Response:
+    """Build a zip in memory and hand it back as a download.
+
+    The library is a few hundred megabytes at most, so nothing here streams.
+    Measure before that stops being true.
     """
     import io
     import zipfile
 
-    conn = db.connect()
-    titles = {row["slug"]: row["title"] for row in conn.execute("SELECT slug, title FROM article")}
-
     buffer = io.BytesIO()
+    empty = True
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
-        for path in sorted(settings.source_dir.glob("*")):
-            if path.is_file():
-                # Named for the article it belongs to, not its slug, so the
-                # zip reads like the library does.
-                title = titles.get(path.stem, path.stem).replace("/", "-")
-                archive.write(path, f"{title}{path.suffix}")
-    if not buffer.tell():
-        raise HTTPException(status_code=404, detail="no sources are stored")
+        for arcname, item in files:
+            if isinstance(item, bytes):
+                archive.writestr(arcname, item)
+            else:
+                archive.write(item, arcname)
+            empty = False
+    if empty:
+        raise HTTPException(status_code=404, detail="there is nothing to export")
 
     return Response(
         buffer.getvalue(),
         media_type="application/zip",
-        headers={"Content-Disposition": 'attachment; filename="textcast-sources.zip"'},
+        headers={"Content-Disposition": f'attachment; filename="{name}"'},
     )
+
+
+def _export_name(row) -> str:
+    """A file name that reads like the library does, not like a slug."""
+    return (row["title"] or row["slug"]).replace("/", "-").strip() or row["slug"]
+
+
+@app.get("/api/export/sources.zip", dependencies=[Auth])
+def api_export_sources():
+    """Every original, as it arrived.
+
+    These are the bytes each article was parsed from. They are what Re-parse
+    replays, and the only part of the library that cannot be made again.
+    """
+    conn = db.connect()
+    rows = {row["slug"]: row for row in conn.execute("SELECT slug, title FROM article")}
+
+    def files():
+        for path in sorted(settings.source_dir.glob("*")):
+            row = rows.get(path.stem)
+            if path.is_file() and row is not None:
+                yield f"{_export_name(row)}{path.suffix}", path
+
+    return _zip_response(files(), "textcast-sources.zip")
+
+
+@app.get("/api/export/text.zip", dependencies=[Auth])
+def api_export_text():
+    """Every article as Markdown, summaries included where they exist.
+
+    The displayed text, not the spoken form: what the engine is handed is
+    derived at build time and is nobody's reading copy.
+    """
+    conn = db.connect()
+
+    def files():
+        for row in conn.execute("SELECT id, slug, title FROM article ORDER BY id"):
+            article = db.load_article(row["id"], conn)
+            if article is not None:
+                yield f"{_export_name(row)}.md", to_markdown(article).encode()
+
+    return _zip_response(files(), "textcast-text.zip")
+
+
+@app.get("/api/export/audio.zip", dependencies=[Auth])
+def api_export_audio():
+    """The built audio, one directory per article.
+
+    The timing map and the manifest go with it: the Opus files alone lose the
+    read-along, and the manifest is the only copy of the timings outside the
+    database.
+    """
+    conn = db.connect()
+
+    def files():
+        for row in conn.execute("SELECT slug, title FROM article ORDER BY id"):
+            directory = settings.media_dir / row["slug"]
+            for path in sorted(directory.glob("*")):
+                if path.is_file():
+                    yield f"{_export_name(row)}/{path.name}", path
+
+    return _zip_response(files(), "textcast-audio.zip")
 
 
 @app.get("/manifest.webmanifest", include_in_schema=False)

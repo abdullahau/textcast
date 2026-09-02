@@ -86,31 +86,40 @@
   </p>
 {% endif %}
 
-<p class="stats">
-  <span>{{ stats.articles }} articles</span>
-  <span>{{ stats.ready }} with audio</span>
-  <span>{{ stats.audio_ms|duration or '0:00' }} total</span>
-  <span>{{ "%.0f"|format(stats.audio_bytes / 1e6) }} MB</span>
-</p>
+<div class="footnotes">
+  <p class="stats">
+    <span>{{ stats.articles }} articles</span>
+    <span>{{ stats.ready }} with audio</span>
+    <span>{{ stats.audio_ms|duration or '0:00' }} total</span>
+    <span>{{ "%.0f"|format(stats.audio_bytes / 1e6) }} MB</span>
+  </p>
 
-{% if sources.count %}
-  <div class="card">
-    <div class="titled">
-      <h2>Keep the originals</h2>
-      <span class="tip">
-        <button type="button" class="q" aria-label="What is in the zip">?</button>
-        <span class="tip-body" role="tooltip">The bytes each article was parsed from — the pages,
-        the PDFs, the newsletters, the text you pasted. Re-parse replays them, and they are the
-        one part of the library that cannot be made again.</span>
+  {# Three zips, not one: the originals cannot be made again, the text can be
+     made from them, and the audio costs hours of synthesis. #}
+  <p class="stats exports">
+    <span class="what">
+      Export
+      <span class="tip up">
+        <button type="button" class="q" aria-label="What each export holds">?</button>
+        <span class="tip-body" role="tooltip"><b>Originals</b> are the bytes each article was
+        parsed from — the pages, the PDFs, the newsletters, the text you pasted. Re-parse replays
+        them, and they are the one part of the library that cannot be made again.
+        <b>Text</b> is one Markdown file per article, as the reader shows it, with any summary in
+        place. <b>Audio</b> is one directory per article: the Opus files, the timing map and the
+        manifest, so the read-along survives outside the app.</span>
       </span>
-    </div>
-    <div class="row">
-      <a class="btn ghost narrow" href="/api/sources.zip">
-        Download {{ sources.count }} originals ({{ "%.1f"|format(sources.bytes / 1e6) }} MB)
-      </a>
-    </div>
-  </div>
-{% endif %}
+    </span>
+    {% if exports.sources.count %}
+      <a href="/api/export/sources.zip">Originals ({{ exports.sources.count }}, {{ "%.1f"|format(exports.sources.bytes / 1e6) }} MB)</a>
+    {% endif %}
+    {% if exports.text.count %}
+      <a href="/api/export/text.zip">Text ({{ exports.text.count }})</a>
+    {% endif %}
+    {% if exports.audio.count %}
+      <a href="/api/export/audio.zip">Audio ({{ exports.audio.count }}, {{ "%.0f"|format(exports.audio.bytes / 1e6) }} MB)</a>
+    {% endif %}
+  </p>
+</div>
 {% endblock %}
 
 {% block scripts %}{% if jobs %}<script src="/static/progress.js?v={{ assets }}" defer></script>{% endif %}{% endblock %}
