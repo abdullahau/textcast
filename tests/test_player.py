@@ -556,3 +556,29 @@ def test_the_highlight_needs_no_cues_at_all(still_page, live):
 
     assert still_page.evaluate("(document.querySelector('#doc .b.on') || {}).id") == target.id
     still_page.evaluate("document.getElementById('audio').textTracks[0].mode = 'hidden'")
+
+
+def test_playback_starts_where_it_was_asked_even_deep_into_the_file(still_page, live):
+    """`seeked` means the playhead moved, not that anything is decoded there.
+    Starting anyway runs the clock while no sound comes out — the first word
+    or two of the block, gone, most visibly on a slow connection."""
+    _base, _slug, manifest = live
+    target = manifest.sections[0].blocks[-1]
+
+    still_page.evaluate("""() => {
+      const a = document.getElementById('audio');
+      a.pause(); a.currentTime = 0;
+      window.FIRST_SOUND = null;
+      a.addEventListener('playing', () => {
+        if (window.FIRST_SOUND === null) window.FIRST_SOUND = a.currentTime * 1000;
+      });
+    }""")
+    still_page.click(f"#{target.id} [data-seek]")
+    still_page.wait_for_function("() => window.FIRST_SOUND !== null", timeout=15000)
+
+    began = still_page.evaluate("window.FIRST_SOUND")
+    assert abs(began - target.start_ms) < 250, (
+        f"sound began at {began:.0f}ms, {began - target.start_ms:+.0f}ms from the block"
+    )
+    assert still_page.evaluate("document.getElementById('audio').readyState") >= 3
+    still_page.evaluate("document.getElementById('audio').pause()")

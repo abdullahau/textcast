@@ -171,7 +171,23 @@
       if (!audio.paused) audio.pause();
 
       var landed = function () { return Math.abs(audio.currentTime * 1000 - target) < CLOSE_ENOUGH_MS; };
-      var play = function () { audio.play().catch(function () { /* needs a gesture */ }); };
+
+      /* `seeked` says the playhead moved, not that there is anything decoded
+         to play from there. Start anyway and the clock runs while no sound
+         comes out — on iOS that is the first word or two of the block, gone.
+         HAVE_FUTURE_DATA is the readyState that means it can actually begin.
+         The timeout is a backstop: never refuse to play because an event did
+         not arrive. */
+      var play = function () {
+        var start = function () {
+          audio.removeEventListener("canplay", start);
+          clearTimeout(waiting);
+          audio.play().catch(function () { /* needs a gesture */ });
+        };
+        if (audio.readyState >= 3) { start(); return; }
+        var waiting = setTimeout(start, 1500);
+        audio.addEventListener("canplay", start);
+      };
 
       var onSeeked = function () {
         audio.removeEventListener("seeked", onSeeked);
