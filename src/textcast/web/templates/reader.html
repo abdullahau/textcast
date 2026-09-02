@@ -164,15 +164,26 @@
     </div>
   {% endif %}
 
-  {% if edited %}<p class="notice ok">Saved {{ edited }} block{{ '' if edited == 1 else 's' }}. Rebuild the audio to hear the change — only what you edited is synthesised again.</p>{% endif %}
+  {% if edited or removed %}
+    <p class="notice ok">
+      {% if removed %}
+        Removed {{ removed }} block{{ '' if removed == 1 else 's' }}. Every id after them moved, so
+        the audio went with them — rebuild it, which costs an encode and no synthesis.
+      {% else %}
+        Saved {{ edited }} block{{ '' if edited == 1 else 's' }}. Rebuild the audio to hear the
+        change; only what you edited is read again.
+      {% endif %}
+    </p>
+  {% endif %}
 
   {% if editing %}
     <form method="post" action="/api/articles/{{ row.id }}/blocks" class="doc-edit">
       <div class="card">
         <h2>Editing the text</h2>
         <p class="hint">
-          Fix what the parser got wrong, or cut a line the page should not have kept. Ids do not
-          move, so your audio stays; rebuilding re-reads only the blocks you changed.
+          Fix what the parser got wrong. Editing text leaves your audio alone — rebuilding re-reads
+          only what changed. <b>Removing</b> a block moves every id after it, so the audio goes with
+          it; the rebuild is still cheap, because nothing goes back to the model.
         </p>
         <div class="row" style="margin:0">
           <button class="narrow" type="submit">Save changes</button>
@@ -183,9 +194,14 @@
         <h2 class="edit-section">{{ section.title }}</h2>
         {% for block in section.blocks %}
           <div class="edit-block">
-            <select name="kind:{{ block.id }}" aria-label="Kind of block">
-              {% for k in kinds %}<option value="{{ k }}" {{ 'selected' if k == block.kind|string }}>{{ k }}</option>{% endfor %}
-            </select>
+            <div class="edit-side">
+              <select name="kind:{{ block.id }}" aria-label="Kind of block">
+                {% for k in kinds %}<option value="{{ k }}" {{ 'selected' if k == block.kind|string }}>{{ k }}</option>{% endfor %}
+              </select>
+              <label class="check remove">
+                <input type="checkbox" name="remove:{{ block.id }}" value="1"> Remove
+              </label>
+            </div>
             <textarea name="text:{{ block.id }}" rows="3" aria-label="Block text">{{ block.text }}</textarea>
           </div>
         {% endfor %}
@@ -195,6 +211,16 @@
         <a class="btn ghost narrow" href="/a/{{ row.slug }}">Cancel</a>
       </div>
     </form>
+    <script>
+      /* Removing is the one thing here that cannot be undone by editing back. */
+      document.querySelector(".doc-edit").addEventListener("submit", function (event) {
+        var going = this.querySelectorAll('input[name^="remove:"]:checked').length;
+        if (going && !confirm("Remove " + going + " block" + (going === 1 ? "" : "s") +
+                              "? The audio goes with them, and you rebuild it after.")) {
+          event.preventDefault();
+        }
+      });
+    </script>
   {% else %}
   <div class="doc" id="doc">
     {% for section in article.sections %}

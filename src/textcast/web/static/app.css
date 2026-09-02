@@ -374,7 +374,10 @@ button.q:hover, button.q:focus-visible { color: var(--fg); border-color: var(--f
 .edit-section { font-family: var(--sans); font-size: .72rem; font-weight: 600; text-transform: uppercase;
   letter-spacing: .09em; color: var(--muted); margin: 1.6rem 0 .6rem; }
 .edit-block { display: flex; gap: .5rem; align-items: flex-start; margin-bottom: .5rem; }
-.edit-block select { flex: 0 0 7rem; }
+.edit-side { flex: 0 0 7rem; display: flex; flex-direction: column; gap: .4rem; }
+.edit-side select { width: 100%; }
+.check.remove { font-size: .78rem; color: var(--muted); }
+.check.remove:has(input:checked) { color: var(--bad); }
 .edit-block textarea { flex: 1 1 auto; min-height: 4rem; font-family: var(--serif); font-size: .95rem; }
 
 /* ---------- article list ---------- */

@@ -29,6 +29,7 @@ from ..prefs import save_voice_defaults, voice_defaults
 # summarize is renamed: the ingest form has a field of the same name.
 from ..service import IngestError, delete_audio, delete_summaries, ingest, rebuild, rebuild_many, reparse
 from ..service import delete as delete_article
+from ..service import edit_blocks as save_block_edits
 from ..service import summarize as queue_summary
 from ..settings import get_settings
 from ..summarize import config as summaries_config
@@ -284,7 +285,7 @@ def tags_page(request: Request):
 
 
 @app.get("/a/{slug}", response_class=HTMLResponse, dependencies=[Auth])
-def reader(request: Request, slug: str, edit: bool = False, edited: int = 0):
+def reader(request: Request, slug: str, edit: bool = False, edited: int = 0, removed: int = 0):
     row = article_or_404(slug)
     conn = db.connect()
     article = db.load_article(row["id"], conn)
@@ -319,6 +320,7 @@ def reader(request: Request, slug: str, edit: bool = False, edited: int = 0):
         has_summary=has_summary,
         editing=edit,
         edited=edited,
+        removed=removed,
         kinds=[str(k) for k in BlockKind],
         summary_model=summaries_config(conn).model,
         build_on_top=build_on_top,
@@ -993,15 +995,25 @@ async def api_edit_blocks(request: Request, article_id: int):
 
     form = await request.form()
     edits: dict[str, dict] = {}
+    removed: set[str] = set()
     for field, value in form.multi_items():
         name, _, block_id = field.partition(":")
-        if name in ("text", "kind") and block_id:
+        if not block_id:
+            continue
+        if name in ("text", "kind"):
             edits.setdefault(block_id, {})[name] = str(value)
+        elif name == "remove":
+            removed.add(block_id)
 
-    changed = db.edit_blocks(article_id, edits)
+    try:
+        result = save_block_edits(article_id, edits, removed)
+    except IngestError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     if _wants_html(request):
-        return RedirectResponse(f"/a/{row['slug']}?edited={changed}", status_code=303)
-    return {"changed": changed}
+        query = urlencode({"edited": result["changed"], "removed": result["removed"]})
+        return RedirectResponse(f"/a/{row['slug']}?{query}", status_code=303)
+    return result
 
 
 @app.post("/api/articles/{article_id}/audio/delete", dependencies=[Auth])

@@ -465,3 +465,75 @@ def test_an_edit_that_empties_a_block_is_ignored(client, conn):
     client.post(f"/api/articles/{article_id}/blocks", data={"text:b0-0": "   "})
 
     assert db.load_article(article_id, conn).sections[0].blocks[0].text == "The only line."
+
+
+def test_a_block_can_be_removed_outright(client, conn, monkeypatch):
+    """The parser keeps bylines, datelines and subscription pitches. Removing
+    one moves every id after it, so the audio has to go with it."""
+    from textcast.document import Article, Block, BlockKind, Section
+
+    monkeypatch.setattr(web, "_voices", lambda: [])
+    doc = Article(title="Has junk in it", sections=[Section(title="One", blocks=[
+        Block(kind=BlockKind.PARA, text="Sign up for our newsletter here."),
+        Block(kind=BlockKind.PARA, text="The first real paragraph of the piece."),
+        Block(kind=BlockKind.PARA, text="The second real paragraph of the piece."),
+    ])]).renumber()
+    article_id = db.save_article(doc, conn)
+    conn.execute("UPDATE article SET status='ready', audio_ms=9000 WHERE id=?", (article_id,))
+    conn.execute("UPDATE block SET start_ms=0 WHERE article_id=?", (article_id,))
+
+    assert 'name="remove:b0-0"' in client.get("/a/has-junk-in-it?edit=1").text
+
+    response = client.post(
+        f"/api/articles/{article_id}/blocks",
+        data={
+            "remove:b0-0": "1",
+            "text:b0-0": "Sign up for our newsletter here.",
+            "text:b0-1": "The first real paragraph of the piece.",
+            "text:b0-2": "The second real paragraph of the piece.",
+        },
+    )
+
+    assert response.json() == {"changed": 2, "removed": 1}
+    after = db.load_article(article_id, conn)
+    assert [b.text for _s, b in after.blocks()] == [
+        "The first real paragraph of the piece.",
+        "The second real paragraph of the piece.",
+    ]
+    assert [b.id for _s, b in after.blocks()] == ["b0-0", "b0-1"], "the ids close up"
+    row = db.get_article(article_id, conn)
+    assert (row["status"], row["audio_ms"]) == ("new", 0), "the audio no longer describes this"
+    assert conn.execute(
+        "SELECT COUNT(*) c FROM block WHERE article_id=? AND start_ms IS NOT NULL", (article_id,)
+    ).fetchone()["c"] == 0
+
+
+def test_removing_every_block_is_refused(client, conn):
+    from textcast.document import Article, Block, BlockKind, Section
+
+    doc = Article(title="All of it", sections=[Section(title="One", blocks=[
+        Block(kind=BlockKind.PARA, text="The only line there is."),
+    ])]).renumber()
+    article_id = db.save_article(doc, conn)
+
+    response = client.post(f"/api/articles/{article_id}/blocks", data={"remove:b0-0": "1"})
+
+    assert response.status_code == 400
+    assert "nothing in it" in response.json()["detail"]
+    assert db.load_article(article_id, conn).sections[0].blocks[0].text == "The only line there is."
+
+
+def test_removing_a_block_keeps_the_cache_for_the_rebuild(conn, settings):
+    """It is keyed by the text, so every surviving block is still a hit."""
+    from textcast.service import cached_renders, edit_blocks, ingest
+
+    stored = ingest(text="# One\n\nFirst paragraph here.\n\nSecond paragraph here.\n",
+                    title="Cached", build=False)
+    for path in cached_renders(stored.article_id, conn, settings):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"\0" * 8)
+    before = len(list(settings.cache_dir.glob("*.f32")))
+
+    edit_blocks(stored.article_id, {}, {"b0-1"})
+
+    assert len(list(settings.cache_dir.glob("*.f32"))) == before, "nothing goes back to the model"

@@ -279,6 +279,68 @@ def cached_renders(article_id: int, conn, settings: Settings) -> list[Path]:
     return paths
 
 
+def edit_blocks(
+    article_id: int,
+    edits: dict[str, dict],
+    removed: set[str] | None = None,
+    settings: Settings | None = None,
+) -> dict:
+    """Apply hand edits, and remove blocks outright.
+
+    Editing text leaves the ids alone, so the audio and its timing map stay
+    valid and only what changed needs re-reading. Removing a block moves every
+    id after it, which the timing map is keyed by — so the audio goes, and the
+    rebuild is encode-only, since the cache is keyed by the text and every
+    surviving block is still in it.
+    """
+    from .document import BlockKind
+
+    settings = settings or get_settings()
+    conn = db.connect(settings.db_path)
+    row = db.get_article(article_id, conn)
+    if row is None:
+        raise IngestError(f"no article {article_id}")
+
+    removed = removed or set()
+    if not removed:
+        return {"changed": db.edit_blocks(article_id, edits, conn), "removed": 0}
+
+    article = db.load_article(article_id, conn)
+    kinds = {str(k) for k in BlockKind}
+    kept = 0
+    for section in article.sections:
+        surviving = []
+        for block in section.blocks:
+            if block.id in removed:
+                continue
+            edit = edits.get(block.id) or {}
+            text = (edit.get("text") or "").strip()
+            if text:
+                block.text = text
+            if edit.get("kind") in kinds:
+                block.kind = BlockKind(edit["kind"])
+            surviving.append(block)
+            kept += 1
+        section.blocks = surviving
+
+    if not kept:
+        raise IngestError("that would leave the article with nothing in it")
+
+    article.renumber()
+    db.replace_blocks(article_id, article, conn)
+
+    # The ids moved, so the files no longer describe this article. The cache
+    # stays: it is keyed by the text, so rebuilding costs an encode, not a
+    # trip back to the model.
+    media = settings.media_dir / row["slug"]
+    for child in media.glob("*"):
+        child.unlink(missing_ok=True)
+    if media.exists():
+        media.rmdir()
+
+    return {"changed": kept, "removed": len(removed)}
+
+
 def delete_audio(article_id: int, settings: Settings | None = None) -> int:
     """Throw the audio away and keep the article. Returns files removed.
 

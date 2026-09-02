@@ -221,8 +221,11 @@ def replace_blocks(article_id: int, article: Article, conn: sqlite3.Connection |
                 for _s, b in article.blocks()
             ],
         )
+        # Status describes the audio, and there is none that matches this text
+        # any more. Leaving it `ready` claimed audio the article did not have.
         conn.execute(
-            "UPDATE article SET word_count = ?, audio_ms = 0, audio_bytes = 0 WHERE id = ?",
+            "UPDATE article SET word_count = ?, audio_ms = 0, audio_bytes = 0, status = 'new'"
+            " WHERE id = ?",
             (article.word_count, article_id),
         )
         conn.execute(
