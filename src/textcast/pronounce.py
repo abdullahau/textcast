@@ -7,18 +7,33 @@ Each rule rewrites text on its way to the engine. Two flavours:
 * **Respellings.** "GAAP" becomes "gap", "EBITDA" becomes "ee bitda". This is
   the first choice for an acronym said as a word: anyone can read and edit it,
   and it needs no phonetic alphabet.
-* **Phonemes.** A last resort for a word no respelling reaches. The replacement
-  is IPA, wrapped as ``[word](/ipa/)``, which misaki hands to Kokoro verbatim.
+* **Phonemes.** A last resort for a word no respelling reaches. The
+  replacement is IPA, wrapped as ``[word](/ipa/)``, which the engine hands to
+  the model verbatim.
 
-A phoneme rule is the only one that is not engine-agnostic. misaki's notation
-is not standard IPA — capital ``A`` is the /eɪ/ of "day", ``I`` the /aɪ/ of
-"eye" — and the ONNX engine's G2P is espeak, which has never heard of it. So a
-phoneme rule carries **two** spellings of the same sound, one per G2P, and
-``substitution`` picks the one the target engine reads. A rule with no spelling
-for the engine in hand does not fire at all: the word is left as written and
-spoken however the engine reads it, which is wrong in a small way rather than
-absurd. An engine that cannot take injected phonemes at all skips every
-phoneme rule, which is the same outcome by a shorter road.
+A rule therefore has up to three replacements, and all three are optional:
+
+======================  =============================================
+``replacement``         plain text. Works on every engine, because it
+                        is only text and the engine never knows a rule
+                        ran.
+``misaki``              IPA for engines whose G2P is misaki: ``kokoro``.
+``espeak``              IPA for engines whose G2P is espeak:
+                        ``kokoro-onnx``.
+======================  =============================================
+
+The phonemisers do not share an alphabet, which is why there are two IPA
+fields rather than one. misaki's notation is not standard IPA — capital ``A``
+is the /eɪ/ of "day", ``I`` the /aɪ/ of "eye" — and espeak writes those out
+and marks length. One spelling handed to the other phonemiser is read as
+letters.
+
+For each engine the rule takes the IPA written for its phonemiser if there is
+any, and the plain replacement otherwise. A rule with neither does not fire
+there at all: the word is left as written and spoken however the engine reads
+it, which is wrong in a small way rather than absurd. So a rule can be written
+once for everything, or aimed at one phonemiser, or both — and a respelling
+that already works everywhere needs neither IPA field.
 
 Rules live in the database so they can be edited from the settings page, and
 they are cached in the worker because a build applies them thousands of times.
@@ -46,46 +61,55 @@ DEFAULT_G2P = "misaki"
 class Rule:
     kind: str
     pattern: str
-    replacement: str
-    is_phonemes: bool = False
+    #: Plain text, for any engine. Empty is allowed, when the rule speaks only
+    #: in phonemes.
+    replacement: str = ""
+    #: The same word in IPA, one field per phonemiser. Both optional.
+    misaki: str = ""
+    espeak: str = ""
     ignore_case: bool = False
     note: str = ""
     sort_order: int = 100
     id: int | None = None
-    #: The same sound in espeak's notation, for a phoneme rule. Empty means
-    #: the rule has nothing to say to an espeak engine and will not fire there.
-    #: Ignored entirely when ``is_phonemes`` is false.
-    espeak: str = ""
+
+    @property
+    def is_phonemes(self) -> bool:
+        """Whether this rule speaks in phonemes to anything.
+
+        Derived rather than stored: the field you fill is what decides, and a
+        flag that could disagree with the fields is a flag that will.
+        """
+        return bool(self.misaki or self.espeak)
 
     def phonemes_for(self, g2p: str = DEFAULT_G2P) -> str:
-        """The IPA this rule offers that G2P, or an empty string."""
-        if not self.is_phonemes:
-            return ""
-        source = self.espeak if g2p == "espeak" else self.replacement
+        """The IPA this rule offers that phonemiser, or an empty string."""
+        source = self.espeak if g2p == "espeak" else self.misaki
         return source.strip().strip("/")
+
+    def says_anything(self) -> bool:
+        """A rule with all three replacements empty is not a rule."""
+        return bool(self.replacement.strip() or self.misaki.strip() or self.espeak.strip())
 
     def compile(self) -> re.Pattern | None:
         """Build the matching pattern, or None when it cannot be compiled."""
         return _compiled(self.kind, self.pattern, self.ignore_case)
 
-    def substitution(self, g2p: str = DEFAULT_G2P) -> str:
-        r"""What to put in place of a match.
+    def substitution(self, g2p: str = DEFAULT_G2P, phonemes: bool = True) -> str:
+        r"""What to put in place of a match, for this engine.
 
-        Phoneme rules keep the original text visible to the tokeniser and put
-        the IPA in the link target, so ``\g<0>`` carries the match through.
-        A phoneme rule with nothing written for this G2P substitutes the match
-        for itself, which is the same as not firing.
+        The IPA written for the engine's own phonemiser if there is any, and
+        the plain replacement otherwise. Phonemes keep the original text
+        visible to the tokeniser and go in the link target, so ``\g<0>``
+        carries the match through.
         """
-        if self.is_phonemes:
-            ipa = self.phonemes_for(g2p)
-            return rf"[\g<0>](/{ipa}/)" if ipa else r"\g<0>"
-        return self.replacement
+        ipa = self.phonemes_for(g2p) if phonemes else ""
+        return rf"[\g<0>](/{ipa}/)" if ipa else self.replacement
 
     def fires_for(self, g2p: str = DEFAULT_G2P, phonemes: bool = True) -> bool:
-        """Whether this rule changes anything for that engine."""
-        if not self.is_phonemes:
+        """Whether this rule has anything to say to that engine."""
+        if phonemes and self.phonemes_for(g2p):
             return True
-        return phonemes and bool(self.phonemes_for(g2p))
+        return bool(self.replacement)
 
 
 @lru_cache(maxsize=2048)
@@ -128,7 +152,7 @@ def apply(
         if pattern is None:
             continue
         try:
-            text = pattern.sub(rule.substitution(g2p), text)
+            text = pattern.sub(rule.substitution(g2p, phonemes), text)
         except re.error as exc:
             log.warning("rule %r failed to substitute: %s", rule.pattern, exc)
     return text
@@ -157,7 +181,7 @@ def preview(
         if found:
             hits.append((rule, found))
             try:
-                text = pattern.sub(rule.substitution(g2p), text)
+                text = pattern.sub(rule.substitution(g2p, phonemes), text)
             except re.error:
                 continue
     return hits
@@ -262,7 +286,7 @@ SAY_AS_WORD = {
 #: ``lˈaɪ bˈɔːɹ``, which is where ``lˈaɪbɔːɹ`` comes from. Left to itself
 #: espeak says ``lˈɪbɚ``, "LIB-er", so the rule is worth as much there.
 PHONEME_HINTS = {
-    "LIBOR": ("lˈIbɔɹ", "lˈaɪbɔːɹ"),
+    "LIBOR": {"misaki": "lˈIbɔɹ", "espeak": "lˈaɪbɔːɹ"},
 }
 
 #: Names and words both phonemisers get wrong, respelled. Each was measured on
@@ -473,13 +497,14 @@ def builtin_rules() -> list[Rule]:
             sort_order=30,
         ))
 
-    for token, (misaki_ipa, espeak_ipa) in PHONEME_HINTS.items():
+    for token, spellings in PHONEME_HINTS.items():
         add(Rule(
             kind="word",
             pattern=token,
-            replacement=misaki_ipa,
-            is_phonemes=True,
-            espeak=espeak_ipa,
+            # No plain replacement: this table exists for the words where
+            # every respelling was worse than the engine's own guess.
+            misaki=spellings["misaki"],
+            espeak=spellings["espeak"],
             note="phonemes, where no respelling reaches it",
             sort_order=30,
         ))

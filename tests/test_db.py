@@ -282,7 +282,7 @@ def test_a_search_still_finds_the_words_inside_a_block(conn):
 def test_rules_survive_a_round_trip_through_a_file(conn):
     """The rules are the part worth carrying between machines."""
     db.add_pronunciation("word", "SOFR", "sofer", conn, note="mine")
-    db.add_pronunciation("word", "LIBOR", "lˈIbɔɹ", conn, is_phonemes=True)
+    db.add_pronunciation("word", "LIBOR", "", conn, misaki="lˈIbɔɹ")
     before = db.export_pronunciations(conn)
 
     conn.execute("DELETE FROM pronunciation")

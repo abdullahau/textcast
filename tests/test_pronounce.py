@@ -53,12 +53,12 @@ def test_a_broken_pattern_is_skipped_not_fatal():
 
 
 def test_phoneme_rules_wrap_the_match_for_misaki():
-    rules = [Rule(kind="word", pattern="LIBOR", replacement="lˈIbɔɹ", is_phonemes=True)]
+    rules = [Rule(kind="word", pattern="LIBOR", misaki="lˈIbɔɹ")]
     assert apply("the LIBOR rate", rules) == "the [LIBOR](/lˈIbɔɹ/) rate"
 
 
 def test_phoneme_replacement_tolerates_wrapping_slashes():
-    rules = [Rule(kind="word", pattern="X", replacement="/eks/", is_phonemes=True)]
+    rules = [Rule(kind="word", pattern="X", misaki="/eks/")]
     assert apply("X", rules) == "[X](/eks/)"
 
 
@@ -312,8 +312,7 @@ def test_a_phoneme_rule_carries_a_spelling_for_each_phonemiser():
     """misaki's notation is not IPA — its capital I is the /aɪ/ of "eye" —
     and espeak reads that as the letter. One sound, two spellings."""
     rule = Rule(
-        kind="word", pattern="LIBOR", replacement="lˈIbɔɹ",
-        is_phonemes=True, espeak="lˈaɪbɔːɹ",
+        kind="word", pattern="LIBOR", misaki="lˈIbɔɹ", espeak="lˈaɪbɔːɹ",
     )
 
     assert rule.substitution("misaki") == r"[\g<0>](/lˈIbɔɹ/)"
@@ -323,7 +322,7 @@ def test_a_phoneme_rule_carries_a_spelling_for_each_phonemiser():
 def test_a_phoneme_rule_with_nothing_for_this_engine_does_not_fire():
     """Handing misaki's markup to espeak made it read the notation aloud —
     "libber slash el stress eye bee open-or turned-ar slash"."""
-    rule = Rule(kind="word", pattern="LIBOR", replacement="lˈIbɔɹ", is_phonemes=True)
+    rule = Rule(kind="word", pattern="LIBOR", misaki="lˈIbɔɹ")
 
     assert rule.fires_for("misaki") is True
     assert rule.fires_for("espeak") is False
@@ -334,8 +333,7 @@ def test_a_phoneme_rule_with_nothing_for_this_engine_does_not_fire():
 def test_an_engine_that_takes_no_phonemes_gets_only_the_other_rules():
     """The safety net for an engine that understands no phoneme markup at all:
     every IPA rule is dropped and every respelling still lands."""
-    ipa = Rule(kind="word", pattern="LIBOR", replacement="lˈIbɔɹ",
-               is_phonemes=True, espeak="lˈaɪbɔːɹ")
+    ipa = Rule(kind="word", pattern="LIBOR", misaki="lˈIbɔɹ", espeak="lˈaɪbɔːɹ")
     respelling = Rule(kind="word", pattern="GAAP", replacement="gap")
 
     out = apply("GAAP and LIBOR", [respelling, ipa], g2p="misaki", phonemes=False)
@@ -417,3 +415,41 @@ def test_the_names_both_engines_mispronounced_are_respelled(conn):
 def test_openai_gets_its_word_boundary_back(conn):
     """misaki ran it together as ˌOpᵊnˈAˌI."""
     assert "Open AI" in normalize("SpaceX and OpenAI remain private")
+
+
+def test_a_rule_can_carry_a_respelling_and_phonemes_at_once():
+    """The respelling is the fallback for any phonemiser the rule says
+    nothing to, so one rule can cover every engine."""
+    rule = Rule(
+        kind="word", pattern="LIBOR", replacement="lye bore",
+        misaki="lˈIbɔɹ",
+    )
+
+    assert apply("the LIBOR rate", [rule], g2p="misaki") == "the [LIBOR](/lˈIbɔɹ/) rate"
+    assert apply("the LIBOR rate", [rule], g2p="espeak") == "the lye bore rate"
+    # An engine that takes no phonemes falls back the same way.
+    assert apply("the LIBOR rate", [rule], g2p="misaki", phonemes=False) == "the lye bore rate"
+
+
+def test_every_replacement_is_optional_but_not_all_of_them(conn):
+    from textcast import db
+
+    db.add_pronunciation("word", "OnlyEspeak", "", conn, espeak="ˈoʊnli")
+    db.add_pronunciation("word", "OnlyText", "plain", conn)
+
+    with pytest.raises(ValueError, match="something to say"):
+        db.add_pronunciation("word", "Nothing", "", conn)
+
+
+def test_the_ipa_flag_follows_the_fields(conn):
+    """It used to be a checkbox that could disagree with them."""
+    from textcast import db
+
+    assert Rule(kind="word", pattern="a", replacement="b").is_phonemes is False
+    assert Rule(kind="word", pattern="a", espeak="ˈbiː").is_phonemes is True
+
+    db.add_pronunciation("word", "Spoken", "", conn, misaki="spˈOkən")
+    row = conn.execute("SELECT * FROM pronunciation WHERE pattern = 'Spoken'").fetchone()
+    assert row["is_phonemes"] == 1
+    assert row["replacement_misaki"] == "spˈOkən"
+    assert row["replacement"] == ""

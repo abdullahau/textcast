@@ -133,11 +133,14 @@ CREATE TABLE IF NOT EXISTS pronunciation (
     kind         TEXT    NOT NULL DEFAULT 'word',
     pattern      TEXT    NOT NULL,
     replacement  TEXT    NOT NULL,
-    -- 1 when the replacement is IPA, wrapped as [match](/ipa/) for misaki.
+    -- Derived, not chosen: 1 when either IPA field is filled. Kept because
+    -- the rules table badges it and an old export reads it.
     is_phonemes  INTEGER NOT NULL DEFAULT 0,
-    -- The same sound in espeak's notation, for an engine whose G2P is espeak
-    -- rather than misaki. misaki's capital A is /eI/ and its I is /aI/, which
-    -- espeak reads as the letters. Empty means the rule does not fire there.
+    -- The same word in IPA, one field per phonemiser, both optional. They do
+    -- not share an alphabet: misaki's capital A is /eI/ and its I is /aI/,
+    -- which espeak reads as the letters. Empty means the rule has nothing to
+    -- say to that phonemiser and falls back to `replacement`.
+    replacement_misaki TEXT NOT NULL DEFAULT '',
     replacement_espeak TEXT NOT NULL DEFAULT '',
     ignore_case  INTEGER NOT NULL DEFAULT 0,
     enabled      INTEGER NOT NULL DEFAULT 1,

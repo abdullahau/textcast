@@ -405,6 +405,14 @@ def _engines() -> list[dict]:
     return listed
 
 
+def _engines_by_g2p() -> dict[str, list[str]]:
+    """Installed engines grouped by the phonemiser they use."""
+    grouped: dict[str, list[str]] = {}
+    for entry in _engines():
+        grouped.setdefault(g2p_of(entry["id"])[0], []).append(entry["id"])
+    return grouped
+
+
 def _voices_by_engine() -> dict[str, list]:
     """Every installed engine's voices, keyed by engine.
 
@@ -446,6 +454,9 @@ def _pronunciation_page(request: Request, **extra):
         # share every voice id, so a merged list offers "Heart" twice.
         voices=_voices(chosen.engine),
         engines=_engines(),
+        # Which installed engines each phonemiser speaks for, so the IPA
+        # fields can name them rather than talk about "misaki" in the abstract.
+        by_g2p=_engines_by_g2p(),
         voices_json=json.dumps(
             {
                 name: [{"id": v.id, "name": v.name, "gender": v.gender} for v in list_]
@@ -574,7 +585,7 @@ def api_say(
         {
             "pattern": r.pattern,
             "matched": m,
-            "replacement": r.phonemes_for(g2p) or r.replacement,
+            "replacement": r.phonemes_for(g2p) if takes_ipa and r.phonemes_for(g2p) else r.replacement,
         }
         for r, m in preview(
             normalize(raw, rules=[], g2p=g2p, phonemes=takes_ipa), active(), g2p, takes_ipa
@@ -650,16 +661,16 @@ def pronunciations_add(
     request: Request,
     kind: str = Form(default="word"),
     pattern: str = Form(...),
-    replacement: str = Form(...),
+    replacement: str = Form(default=""),
     note: str = Form(default=""),
-    is_phonemes: bool = Form(default=False),
+    replacement_misaki: str = Form(default=""),
     replacement_espeak: str = Form(default=""),
     ignore_case: bool = Form(default=False),
 ):
     try:
         db.add_pronunciation(
             kind, pattern, replacement,
-            is_phonemes=is_phonemes, espeak=replacement_espeak,
+            misaki=replacement_misaki, espeak=replacement_espeak,
             ignore_case=ignore_case, note=note,
         )
     except ValueError as exc:

@@ -15,9 +15,10 @@ ONNX by `thewh1teagle/kokoro-onnx`. What differs is everything around them:
   demand. Put them in ``data/models`` and this engine appears; leave them out
   and it says so.
 
-The voices carry the same ids as the PyTorch engine's, so the display name
-says which is which. An article built with one and an article built with the
-other must never look like the same choice.
+The voices are the same voices, with the same ids and the same names. Nothing
+in a picker distinguishes them, because nothing needs to: a picker shows one
+engine's voices at a time, and the engine select above it says which. What an
+article was *built* with is recorded on the article itself.
 """
 
 from __future__ import annotations
@@ -34,9 +35,6 @@ import numpy as np
 from .base import Clip, Voice
 
 log = logging.getLogger("textcast.tts.kokoro_onnx")
-
-#: What the engine is called everywhere a person can see it.
-LABEL = "ONNX"
 
 MODEL_FILE = "kokoro-v1.0.onnx"
 VOICES_FILE = "voices-v1.0.bin"
@@ -113,13 +111,14 @@ def model_paths(models_dir: Path | None = None) -> tuple[Path, Path]:
 def voices(lang_code: str = "a") -> list[Voice]:
     """The voice list, without loading the model.
 
-    Every name carries the label. The ids are identical to the PyTorch
-    engine's, so a picker showing both would otherwise offer "Heart" twice.
+    The same names as the PyTorch engine's, because they are the same voices.
+    Which engine is speaking them is the engine picker's job to say; a list
+    that repeats it on every line says it twenty times and adds nothing.
     """
     return [
         Voice(
             id=v,
-            name=f"{v.split('_', 1)[1].title()} ({LABEL})",
+            name=v.split("_", 1)[1].title(),
             gender="female" if v[1] == "f" else "male",
             lang=_LANGS.get(v[0], "en-us"),
         )

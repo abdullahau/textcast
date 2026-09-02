@@ -330,17 +330,16 @@ def test_only_the_named_warnings_are_silenced():
     assert [str(w.message) for w in caught] == ["phonemizer words count mismatch"]
 
 
-def test_the_onnx_voices_say_which_engine_they_are():
-    """Both engines run the same weights and the same voice ids. A picker
-    offering "Heart" twice is not offering a choice."""
+def test_the_two_engines_offer_the_same_voices_by_the_same_names():
+    """They are the same voices. A picker shows one engine's at a time and the
+    engine select says which, so a label on every line only repeats it."""
     from textcast.tts import kokoro, kokoro_onnx
 
-    torch_ids = {v.id for v in kokoro.voices()}
-    onnx = kokoro_onnx.voices()
+    torch = {(v.id, v.name, v.gender) for v in kokoro.voices()}
+    onnx = {(v.id, v.name, v.gender) for v in kokoro_onnx.voices()}
 
-    assert {v.id for v in onnx} == torch_ids, "the ids are the same by design"
-    assert all(v.name.endswith("(ONNX)") for v in onnx)
-    assert not any(v.name.endswith("(ONNX)") for v in kokoro.voices())
+    assert onnx == torch
+    assert not any("ONNX" in v.name for v in kokoro_onnx.voices())
 
 
 def test_misaki_ipa_markup_never_reaches_the_onnx_engine():
@@ -368,7 +367,7 @@ def test_the_engine_decides_which_notation_the_text_carries(conn):
     from textcast.tts import g2p_of
 
     db.add_pronunciation(
-        "word", "LIBOR", "lˈIbɔɹ", conn, is_phonemes=True, espeak="lˈaɪbɔːɹ"
+        "word", "LIBOR", "", conn, misaki="lˈIbɔɹ", espeak="lˈaɪbɔːɹ"
     )
     block = Block(kind=BlockKind.PARA, text="The LIBOR rate.")
 

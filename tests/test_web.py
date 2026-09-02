@@ -381,6 +381,35 @@ def test_an_article_that_already_has_summaries_is_not_offered_them_again(client,
     assert body.index("Modify article") > text, "so modify goes back to the bottom"
 
 
+def test_a_rule_can_be_added_with_any_of_its_three_replacements(client, conn):
+    """Plain text, misaki IPA, espeak IPA. All optional, one required — and
+    the IPA flag follows the fields rather than a checkbox beside them."""
+    from textcast import db
+
+    client.post("/pronunciations/add", data={
+        "kind": "word", "pattern": "Onlyspeak", "replacement": "",
+        "replacement_espeak": "ˈoʊnli", "note": "espeak only",
+    })
+    client.post("/pronunciations/add", data={
+        "kind": "word", "pattern": "Bothways", "replacement": "both ways",
+        "replacement_misaki": "bˈOθ", "note": "a respelling and phonemes",
+    })
+
+    rules = {r.pattern: r for r in db.list_pronunciations(conn)}
+    assert rules["Onlyspeak"].espeak == "ˈoʊnli"
+    assert rules["Onlyspeak"].is_phonemes is True
+    assert rules["Onlyspeak"].fires_for("misaki") is False, "nothing to say there"
+    assert rules["Bothways"].fires_for("espeak") is True, "it falls back to the text"
+
+
+def test_a_rule_with_nothing_to_say_is_refused(client, conn):
+    body = client.post("/pronunciations/add", data={
+        "kind": "word", "pattern": "Empty", "replacement": "",
+    }).text
+
+    assert "something to say" in body
+
+
 def test_the_voice_picker_never_offers_one_value_twice(client, conn, monkeypatch):
     """Both engines carry `af_heart`. Rendering both engines' options into one
     select put the same value in it twice, and nothing selecting by value
@@ -411,7 +440,11 @@ def test_the_voice_picker_never_offers_one_value_twice(client, conn, monkeypatch
     if payload:  # only rendered when a second engine is installed
         by_engine = _json.loads(payload.group(1))
         assert len(by_engine) > 1
-        assert any(v["name"].endswith("(ONNX)") for v in by_engine["kokoro-onnx"])
+        # One list per engine, so the payload is what keeps them apart — not
+        # a label on every voice.
+        for voices in by_engine.values():
+            ids = [v["id"] for v in voices]
+            assert len(ids) == len(set(ids))
 
 
 def test_every_control_in_the_bar_is_one_height():

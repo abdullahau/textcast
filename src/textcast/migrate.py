@@ -35,47 +35,68 @@ def has_column(conn: sqlite3.Connection, table: str, name: str) -> bool:
 
 
 def run(conn: sqlite3.Connection) -> None:
-    _add_espeak_column(conn)
-    # Separate from adding the column, and run every start: the column may
-    # have been added by a release that shipped no espeak spellings yet, and
-    # it only ever writes where nothing is written.
-    _fill_builtin_espeak(conn)
+    _add_phoneme_columns(conn)
+    _move_ipa_into_its_own_field(conn)
+    # Separate from adding the columns, and run every start: a column may have
+    # been added by a release that shipped no spelling for it yet, and this
+    # only ever writes where nothing is written.
+    _fill_builtin_phonemes(conn)
     _seed_pronunciations(conn)
 
 
-def _add_espeak_column(conn: sqlite3.Connection) -> None:
-    """A phoneme rule needs a second spelling, for an engine whose G2P is
-    espeak rather than misaki.
+def _add_phoneme_columns(conn: sqlite3.Connection) -> None:
+    """A rule has three replacements now: plain text, and IPA per phonemiser.
 
     `CREATE TABLE IF NOT EXISTS` cannot add a column to a table that already
-    exists, and this one is new. It is a plain `ADD COLUMN` with a default, so
-    it costs nothing and every existing rule gets an empty espeak spelling —
-    which is what "this rule has nothing to say to that engine" means.
+    exists. These are plain `ADD COLUMN`s with a default, so they cost nothing
+    and every existing rule gets an empty spelling — which is what "this rule
+    has nothing to say to that phonemiser" means.
     """
     if not has_table(conn, "pronunciation"):
         return
-    if has_column(conn, "pronunciation", "replacement_espeak"):
+    for column in ("replacement_misaki", "replacement_espeak"):
+        if has_column(conn, "pronunciation", column):
+            continue
+        conn.execute(
+            f"ALTER TABLE pronunciation ADD COLUMN {column} TEXT NOT NULL DEFAULT ''"
+        )
+        log.info("added pronunciation.%s", column)
+
+
+def _move_ipa_into_its_own_field(conn: sqlite3.Connection) -> None:
+    """An IPA rule used to keep its phonemes in `replacement`, with a flag.
+
+    That worked while there was one phonemiser. With two, the plain
+    replacement and the phonemes are different things and need different
+    boxes: left where it was, misaki's notation would be read as a respelling
+    by anything that is not misaki.
+    """
+    if not has_column(conn, "pronunciation", "replacement_misaki"):
         return
-    conn.execute(
-        "ALTER TABLE pronunciation ADD COLUMN replacement_espeak TEXT NOT NULL DEFAULT ''"
-    )
-    log.info("added pronunciation.replacement_espeak")
+    moved = conn.execute(
+        """
+        UPDATE pronunciation
+           SET replacement_misaki = replacement, replacement = ''
+         WHERE is_phonemes = 1 AND replacement_misaki = '' AND replacement <> ''
+        """
+    ).rowcount
+    if moved:
+        log.info("moved %d IPA rule(s) into replacement_misaki", moved)
 
 
-def _fill_builtin_espeak(conn: sqlite3.Connection) -> None:
-    """Give the shipped phoneme rules their espeak spelling.
+def _fill_builtin_phonemes(conn: sqlite3.Connection) -> None:
+    """Give the shipped phoneme rules any spelling they are missing.
 
     Seeding cannot do this: it skips any rule it has offered before, which is
     what keeps a deleted built-in deleted. A library that already holds LIBOR
     would otherwise carry an empty espeak column for ever and the rule would
     never fire on an espeak engine.
 
-    Matched on the misaki spelling rather than the ``builtin`` flag: a rule
-    that arrived through import carries ``builtin = 0`` even when it is
-    word-for-word the shipped one, and this library's LIBOR is exactly that.
-    A rule still holding the spelling this release ships is the same rule
-    whatever the flag says; an edited one is left alone, because the espeak
-    spelling of a sound nobody can see would be a guess.
+    Matched on the misaki spelling rather than the `builtin` flag: a rule that
+    arrived through import carries `builtin = 0` even when it is word for word
+    the shipped one. A rule still holding the spelling this release ships is
+    the same rule whatever the flag says; an edited one is left alone, because
+    the other notation for a sound nobody can see would be a guess.
     """
     from .pronounce import builtin_rules
 
@@ -84,19 +105,24 @@ def _fill_builtin_espeak(conn: sqlite3.Connection) -> None:
 
     filled = 0
     for rule in builtin_rules():
-        if not (rule.is_phonemes and rule.espeak):
+        if not rule.misaki:
             continue
-        cursor = conn.execute(
-            """
-            UPDATE pronunciation SET replacement_espeak = ?
-             WHERE kind = ? AND pattern = ?
-               AND replacement = ? AND replacement_espeak = ''
-            """,
-            (rule.espeak, rule.kind, rule.pattern, rule.replacement),
-        )
-        filled += cursor.rowcount
+        for column, value in (
+            ("replacement_misaki", rule.misaki),
+            ("replacement_espeak", rule.espeak),
+        ):
+            if not value:
+                continue
+            filled += conn.execute(
+                f"""
+                UPDATE pronunciation SET {column} = ?
+                 WHERE kind = ? AND pattern = ? AND {column} = ''
+                   AND (replacement_misaki = ? OR replacement_misaki = '')
+                """,
+                (value, rule.kind, rule.pattern, rule.misaki),
+            ).rowcount
     if filled:
-        log.info("filled the espeak spelling of %d built-in rule(s)", filled)
+        log.info("filled %d missing phoneme spelling(s) on built-in rules", filled)
 
 
 def _seed_pronunciations(conn: sqlite3.Connection) -> None:
