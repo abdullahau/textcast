@@ -338,6 +338,10 @@
       <label class="check"><input type="checkbox" id="opt-sleep"> Stop at end of section</label>
       <label class="check"><input type="checkbox" id="opt-offline"> Keep offline</label>
     </div>
+    <div class="sheet-foot">
+      <button type="button" class="danger sm" id="stop">Stop and forget my place</button>
+      <p class="note">Goes back to the start and takes this article out of “Continue listening”.</p>
+    </div>
   </div>
 </div>
 
@@ -348,7 +352,11 @@
     slug: {{ row.slug|tojson }},
     title: {{ row.title|tojson }},
     series: {{ (tags[0] if tags else row.source)|tojson }},
-    start: { section: {{ position.section_idx if position else 0 }}, ms: {{ position.ms if position else 0 }} }
+    start: {
+      section: {{ position.section_idx if position else 0 }},
+      ms: {{ position.ms if position else 0 }},
+      finished: {{ 1 if position and position.finished else 0 }}
+    }
   };
 </script>
 <script src="/static/vendor/media-chrome-4.19.2.js" defer></script>

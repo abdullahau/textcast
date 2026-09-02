@@ -176,6 +176,80 @@ def test_position_survives_and_feeds_continue_listening(conn):
     assert db.continue_listening(conn) == []
 
 
+def test_clearing_a_position_takes_the_article_out_of_continue_listening(conn):
+    """Stopping an article has to leave nothing behind. A row set back to zero
+    would still resume the reader at the top and still read as unfinished."""
+    article_id = db.save_article(make_article(), conn)
+    db.save_manifest(article_id, manifest_for(), audio_bytes=1, conn=conn)
+    db.save_position(article_id, section_idx=1, ms=42000, conn=conn)
+    assert [r["id"] for r in db.continue_listening(conn)] == [article_id]
+
+    db.clear_position(article_id, conn)
+
+    assert db.get_position(article_id, conn) is None
+    assert db.continue_listening(conn) == []
+
+
+def test_completed_asks_the_position_row_not_the_article_status(conn):
+    """`article.status` describes the audio and never says "completed". The
+    filter reads it off the saved position instead."""
+    listened = db.save_article(make_article(), conn)
+    unheard = db.save_article(make_article(title="Another Trade"), conn)
+    for article_id in (listened, unheard):
+        db.save_manifest(article_id, manifest_for(), audio_bytes=1, conn=conn)
+
+    db.save_position(listened, section_idx=1, ms=9000, finished=True, conn=conn)
+    db.save_position(unheard, section_idx=0, ms=1000, finished=False, conn=conn)
+
+    assert [r["id"] for r in db.list_articles(conn, status="completed")] == [listened]
+    assert conn.execute(
+        "SELECT status FROM article WHERE id = ?", (listened,)
+    ).fetchone()["status"] == "ready", "the article row is untouched"
+
+    ready = [r["id"] for r in db.list_articles(conn, status="ready")]
+    assert set(ready) == {listened, unheard}, "completed articles still have audio"
+
+
+def test_a_completed_article_needs_its_audio_to_still_exist(conn):
+    """Dropping the audio leaves the position behind. Without the ready check
+    the article would keep claiming it had been listened to."""
+    article_id = db.save_article(make_article(), conn)
+    db.save_manifest(article_id, manifest_for(), audio_bytes=1, conn=conn)
+    db.save_position(article_id, section_idx=1, ms=9000, finished=True, conn=conn)
+
+    db.forget_audio(article_id, conn)
+
+    assert db.list_articles(conn, status="completed") == []
+
+
+def test_the_article_list_and_its_count_agree_on_every_filter(conn):
+    """They are one helper because they were two, and a count that disagrees
+    with the rows under it divides a pager by the wrong total."""
+    first = db.save_article(make_article(), conn)
+    second = db.save_article(make_article(title="Another Trade", series=None), conn)
+    db.save_manifest(first, manifest_for(), audio_bytes=1, conn=conn)
+    db.save_position(first, section_idx=1, ms=9000, finished=True, conn=conn)
+    db.set_flag(second, "starred", True, conn)
+
+    filters = [
+        {},
+        {"status": "ready"},
+        {"status": "completed"},
+        {"status": "new"},
+        {"tag": "Money Stuff"},
+        {"tag": "Money Stuff", "status": "completed"},
+        {"starred": True},
+        {"query": "Another"},
+        {"archived": True},
+    ]
+    for kwargs in filters:
+        rows = db.list_articles(conn, limit=500, **kwargs)
+        assert len(rows) == db.count_articles(conn, **kwargs), kwargs
+
+    assert db.count_articles(conn, status="completed") == 1
+    assert db.count_articles(conn, starred=True) == 1
+
+
 def test_queue_claims_one_job_at_a_time(conn):
     article_id = db.save_article(make_article(), conn)
     job_id = db.enqueue(article_id, conn=conn, options={"voice": "F1"})

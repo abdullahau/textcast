@@ -1169,6 +1169,17 @@ async def api_position(article_id: int, request: Request):
     return Response(status_code=204)
 
 
+@app.post("/api/articles/{article_id}/position/clear", dependencies=[Auth])
+def api_clear_position(article_id: int):
+    """Stop an article and forget where it was.
+
+    A POST rather than a DELETE on the position path, because every other
+    write in this app is a POST and sendBeacon can send nothing else.
+    """
+    db.clear_position(article_id)
+    return Response(status_code=204)
+
+
 @app.get("/api/articles/{article_id}/manifest", dependencies=[Auth])
 def api_manifest(article_id: int):
     if db.get_article(article_id) is None:

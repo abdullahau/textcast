@@ -20,6 +20,7 @@
   --knob:      #ffffff;   /* the theme switch's sliding knob */
   --info:      #2563eb;   /* status: not built yet */
   --good:      #16a34a;
+  --done:      #7c3aed;   /* status: played to the end */
   --bad:       #dc2626;
   --warn:      #ca8a04;
 
@@ -55,6 +56,7 @@
     --knob:      #52525b;
     --info:      #60a5fa;
     --good:      #4ade80;
+    --done:      #a78bfa;
     --bad:       #f87171;
     --warn:      #facc15;
   }
@@ -78,6 +80,7 @@
   --knob:      #52525b;
   --info:      #60a5fa;
   --good:      #4ade80;
+  --done:      #a78bfa;
   --bad:       #f87171;
   --warn:      #facc15;
 }
@@ -512,6 +515,10 @@ button.q:hover, button.q:focus-visible { color: var(--fg); border-color: var(--f
 .badge.building,
 .badge.queued   { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 35%, transparent); }
 .badge.failed   { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 35%, transparent); }
+/* Not a value article.status ever holds: it is the saved position saying
+   playback reached the end. Its own colour, because green already means
+   "there is audio" and completed has to be told apart from it at a glance. */
+.badge.completed { color: var(--done); border-color: color-mix(in srgb, var(--done) 35%, transparent); }
 
 /* Says which kind of hit this is, next to the title. */
 .pill {
@@ -959,6 +966,9 @@ body.has-player { padding-bottom: 5.5rem; }
 .chapter span { color: var(--muted); font-size: .78rem; font-variant-numeric: tabular-nums; flex: none; }
 
 .toggles { display: flex; flex-wrap: wrap; gap: .55rem 1.2rem; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border); }
+
+.sheet-foot { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border); }
+.sheet-foot .note { font-size: .78rem; color: var(--muted); margin: .45rem 0 0; line-height: 1.5; }
 
 /* ---------- search results ---------- */
 

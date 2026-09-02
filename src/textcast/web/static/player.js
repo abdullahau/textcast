@@ -262,15 +262,41 @@
   // ------------------------------------------------------- saved position
 
   var lastSaved = 0;
+  /* Set by "Stop and forget my place" and cleared the moment playback starts
+     again. Pausing fires a save, and so does the timeupdate that follows, so
+     without this the row is written straight back and the article never
+     leaves "Continue listening". */
+  var forgotten = false;
+
+  /* Carried, not recomputed on every save. Only the end of the last section
+     sets it and only pressing play clears it: an ordinary save used to send
+     `false`, so opening a finished article and leaving without playing threw
+     the completed badge away. */
+  var finishedNow = !!(cfg.start && cfg.start.finished);
+
   function savePosition(force, finished) {
-    if (current < 0) return;
+    if (current < 0 || forgotten) return;
     if (!force && Date.now() - lastSaved < 5000) return;
     lastSaved = Date.now();
+    if (finished) finishedNow = true;
 
-    var body = JSON.stringify({ section: current, ms: Math.round(elapsed()), finished: !!finished });
+    var body = JSON.stringify({ section: current, ms: Math.round(elapsed()), finished: finishedNow });
     var url = "/api/articles/" + cfg.articleId + "/position";
     if (navigator.sendBeacon) navigator.sendBeacon(url, new Blob([body], { type: "application/json" }));
     else fetch(url, { method: "POST", body: body, headers: { "Content-Type": "application/json" }, keepalive: true });
+  }
+
+  /* Stop, go back to the top of the article, and delete the saved position.
+     The three go together: a position left behind would resume this article
+     the next time it is opened, and would still list it as unfinished. */
+  function stopAndForget() {
+    forgotten = true;
+    finishedNow = false;
+    audio.pause();
+    loadSection(0, 0, false);
+    closeSheet();
+    fetch("/api/articles/" + cfg.articleId + "/position/clear", { method: "POST" })
+      .catch(function () { /* offline; press it again when there is a network */ });
   }
 
   // -------------------------------------------------------- media session
@@ -336,7 +362,11 @@
   buildChapters();
   wireMediaSession();
   audio.addEventListener("ended", onEnded);
-  audio.addEventListener("play", function () { if (frame === null) followClock(); });
+  audio.addEventListener("play", function () {
+    forgotten = false;
+    finishedNow = false;   // listening again, so it is no longer finished
+    if (frame === null) followClock();
+  });
   audio.addEventListener("pause", function () { stopFollowing(); savePosition(true); });
   audio.addEventListener("ended", stopFollowing);
   /* Every seek, whoever made it. */
@@ -366,6 +396,9 @@
     this.setAttribute("aria-expanded", sheet.hidden ? "false" : "true");
   });
   $("sheet-close").addEventListener("click", closeSheet);
+  /* In the sheet, not in the control bar: it throws away where you were, and
+     a mis-tap next to the play button would be too easy and cost too much. */
+  $("stop").addEventListener("click", stopAndForget);
   /* Escape is not a key a phone has. Without one of these the sheet could
      only be left by reloading the page. */
   document.addEventListener("click", function (event) {
