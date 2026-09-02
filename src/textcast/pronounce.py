@@ -223,6 +223,20 @@ CONTRACTIONS = {
     "who'll": "hool",
 }
 
+#: Written forms the phonemiser gets wrong for reasons that are not acronyms.
+#: Measured against Kokoro before each was written, per the rule above.
+#:
+#: "401(k)" is read "four hundred one k"; "four oh one k" is fˈɔɹ ˈO wˈʌn kˈA.
+#: "INmune" is read "I EN-mune", because the leading IN looks like an
+#: initialism — yet the company's own possessive, "INMune's", already comes
+#: out ɪn mjˈunz. "InMune" gives exactly that, ɪn mjˈun, for one changed
+#: capital. Guarded with (?!\w) rather than a word rule so the possessive is
+#: caught too: a word rule's (?![\w']) refuses to match before an apostrophe.
+RESPELL = {
+    r"(?<!\d)401\(k\)": "four oh one k",
+    r"(?<!\w)INmune(?!\w)": "InMune",
+}
+
 #: Written with dots. Measured against Kokoro: "AI" is ˈAˌI — already "ay-eye"
 #: — while "A.I." comes out ˌAˈI with the stress the other way round, and
 #: "A.I.s" becomes ˌAˌIˈɛs, "ay-eye-ESS". Normalising the dotted spelling to
@@ -362,6 +376,16 @@ def builtin_rules() -> list[Rule]:
                 note=f"{dotted} said the same way as {dotted.replace('.', '')}",
                 sort_order=18 + order,
             ))
+
+    for pattern, respelling in RESPELL.items():
+        add(Rule(
+            kind="regex",
+            pattern=pattern,
+            replacement=respelling,
+            ignore_case=True,
+            note="the phonemiser reads the written form wrongly",
+            sort_order=25,
+        ))
 
     for pattern, joined in JOINED.items():
         add(Rule(

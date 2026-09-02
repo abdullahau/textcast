@@ -81,6 +81,30 @@ FISCAL = re.compile(r"\b(FY|CY)\s?(\d{2,4})\b")
 #: 2019-21 and 2019-2021 as a span, not a subtraction.
 YEAR_RANGE = re.compile(r"\b(19|20)(\d{2})\s?[–—-]\s?((?:19|20)?\d{2})\b")
 TIMES = re.compile(r"(?<![A-Za-z0-9])(\d[\d,]*(?:\.\d+)?)\s?x\b", re.IGNORECASE)
+#: 8:00am came out "eight zero zero a m", because espeak reads the zero
+#: minutes and then loses the space before the suffix. Measured: "8 a.m." is
+#: ˈAt ˌAˈɛm, which is right, and "8am" is ˈAt æm — "eight" and then "am" the
+#: verb. A non-zero time is already correct (10:47 is "ten forty seven"), so
+#: only the o'clock case and the missing space are touched.
+CLOCK = re.compile(r"(?<![\d:.])(\d{1,2})(?::00)?\s*([ap])\.?m\.?(?![\w.])", re.IGNORECASE)
+
+#: The same o'clock, with no am or pm after it.
+OCLOCK = re.compile(r"(?<![\d:.])(\d{1,2}):00(?![\d:])")
+
+#: Emphasis markers that reached the block text. Matt Levine writes *before*
+#: for italics and the newsletter carries the asterisks through as characters,
+#: so the engine said the word "asterisk" out loud. The same patterns as
+#: ``ingest.documents``, which strips them from Markdown files at parse time;
+#: these survive from every other source.
+#:
+#: Paired only. A lone asterisk is a footnote marker or a bullet, and stays.
+EMPHASIS = [
+    (re.compile(r"\*\*([^*]+)\*\*"), r"\1"),
+    (re.compile(r"(?<!\*)\*([^*]+)\*(?!\*)"), r"\1"),
+    (re.compile(r"(?<![\w_])__([^_]+)__(?![\w_])"), r"\1"),
+    (re.compile(r"~~([^~]+)~~"), r"\1"),
+]
+
 #: A footnote the parser inlined. Matched whole, so the closing bracket goes
 #: too and the aside is bounded by pauses on both sides.
 FOOTNOTE = re.compile(r"\[Footnote (\d+):\s*(.*?)\]", re.S)
@@ -133,6 +157,10 @@ def normalize(text: str, rules: list[pronounce.Rule] | None = None) -> str:
     if not text:
         return text
 
+    # First, so a marker cannot sit between a currency and its number.
+    for pattern, replacement in EMPHASIS:
+        text = pattern.sub(replacement, text)
+
     # Order matters: money before bare scales, so "$5bn" is not caught twice.
     text = MONEY.sub(_money, text)
     text = BPS.sub(lambda m: f"{_strip_commas(m.group(1))} basis points", text)
@@ -146,6 +174,8 @@ def normalize(text: str, rules: list[pronounce.Rule] | None = None) -> str:
         lambda m: f"{'fiscal' if m.group(1) == 'FY' else 'calendar'} year {m.group(2)}", text
     )
     text = TIMES.sub(lambda m: f"{_strip_commas(m.group(1))} times", text)
+    text = CLOCK.sub(lambda m: f"{m.group(1)} {m.group(2).lower()}.m.", text)
+    text = OCLOCK.sub(r"\1", text)
 
     # Smart punctuation the engines mispronounce or read aloud. Before the
     # rules, not after: web prose is full of curly apostrophes, and a rule
