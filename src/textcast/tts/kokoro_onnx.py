@@ -162,6 +162,15 @@ class KokoroOnnxEngine:
                 f"Download {MODEL_FILE} and {VOICES_FILE} from {RELEASE}"
             )
 
+        # The same espeak hunt the PyTorch engine does, and for the same
+        # reason: this engine reaches espeak too, through phonemizer rather
+        # than misaki, and a wrong data path is a bare "phontab: No such file
+        # or directory" on the first synthesis. Importing the wrapper is
+        # cheap — its own heavy import lives inside __init__.
+        from .kokoro import _configure_espeak
+
+        _configure_espeak()
+
         from kokoro_onnx import Kokoro
 
         self.lang_code = lang_code
