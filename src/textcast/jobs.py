@@ -153,9 +153,12 @@ class Worker:
                 worked = self._run_in_child(kinds) if in_child else self.step(kinds)
                 if not worked:
                     # The build lane owns the pool, so it is the one that
-                    # decides the pool is no longer earning its memory. With
-                    # the child process this is a fallback: the child takes
-                    # the model with it when it exits.
+                    # decides the pool is no longer earning its memory. This
+                    # is dead while `job_subprocess` is on, which is the
+                    # default: the parent never calls `step`, so it never
+                    # builds a pool to drop, and the child gives every byte
+                    # back when it exits. It is the whole mechanism with
+                    # `JOB_SUBPROCESS=false`, which is why it stays.
                     if "build" in kinds:
                         self._release_idle_engines()
                     self._stop.wait(self.poll_seconds)
@@ -205,9 +208,18 @@ class Worker:
         """
         count = self.settings.build_concurrency()
         key = (name, count)
-        self._engines_used = time.monotonic()
         if self._engines and self._engine_key == key:
+            self._engines_used = time.monotonic()
             return self._engines
+
+        # A different engine, or a different pool size. Drop the old pool
+        # first. Building the new one alongside it holds two models at once,
+        # and `tts._shared` is a strong dict, so the old pool's first instance
+        # would never be collected at all — it pins its session for the life
+        # of the process. Measured on one queue that switched engine mid-drain:
+        # the child sat at 1.8 GB on ONNX, reached 3.5 GB the moment the
+        # kokoro pool finished loading, and peaked at 7.5 GB.
+        self._drop_engines(f"loading {name} instead")
 
         options = dict(self.settings.engine_options())
         if count > 1:
@@ -261,6 +273,30 @@ class Worker:
             self._requeue_orphans()
         return True
 
+    def _drop_engines(self, why: str) -> None:
+        """Give up the pool and hand the memory back to the operating system.
+
+        Only this module's references are given up. Anything mid-synthesis
+        holds its own, so the model outlives the drop and dies when that
+        finishes.
+        """
+        if not self._engines:
+            return
+
+        engines, self._engines = self._engines, []
+        self._engine_key = None
+        self._engines_used = None
+        # The shared slot is a strong reference. Left in place it would be the
+        # one thing keeping the weights alive on this module's behalf alone.
+        release_shared(engines[0])
+        count = len(engines)
+        del engines
+        # The pipelines hold cycles, so the collector has to run before the
+        # weights are unreachable and the allocator can be asked for them.
+        gc.collect()
+        _trim_heap()
+        log.info("dropped %d engine(s): %s", count, why)
+
     def _release_idle_engines(self) -> None:
         """Drop the pool once nothing has needed it for a while.
 
@@ -268,10 +304,6 @@ class Worker:
         trade stops paying when the queue has been empty for minutes: an idle
         worker was holding gigabytes to save one reload on a build that
         happens a few times a day.
-
-        Only this module's references are given up. Anything mid-synthesis
-        holds its own, so the model outlives the drop and dies when that
-        finishes.
         """
         minutes = self.settings.idle_unload_minutes
         if minutes <= 0 or not self._engines or self._engines_used is None:
@@ -280,17 +312,7 @@ class Worker:
         if idle < minutes * 60:
             return
 
-        engines, self._engines = self._engines, []
-        self._engine_key = None
-        self._engines_used = None
-        release_shared(engines[0])
-        count = len(engines)
-        del engines
-        # The pipelines hold cycles, so the collector has to run before the
-        # weights are unreachable and the allocator can be asked for them.
-        gc.collect()
-        _trim_heap()
-        log.info("dropped %d engine(s) after %.0f idle minute(s)", count, idle / 60)
+        self._drop_engines(f"idle for {idle / 60:.0f} minute(s)")
 
     def step(self, kinds: tuple[str, ...] | None = None) -> bool:
         """Run one job of these kinds. Returns False when there is none."""

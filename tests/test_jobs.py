@@ -350,3 +350,56 @@ def test_stopping_takes_the_build_process_with_it(conn, settings):
     worker.stop(timeout=0.1)
 
     assert child.terminated, "an orphaned build would hold the model and keep writing"
+
+
+def switchable(settings, monkeypatch, count=2) -> Worker:
+    """A worker whose fakes answer to whatever engine name is asked for."""
+    from textcast import jobs, tts
+
+    monkeypatch.setattr(tts, "_shared", {})
+    monkeypatch.setattr(settings, "concurrency", count)
+
+    def named(name, **options):
+        engine = FakeEngine()
+        engine.name = name
+        return engine
+
+    monkeypatch.setattr(jobs, "get_engine", named)
+    return Worker(settings)
+
+
+def test_asking_for_the_same_engine_again_reuses_the_pool(settings, monkeypatch):
+    """Loading it costs seconds, which is the only reason the pool exists."""
+    worker = switchable(settings, monkeypatch)
+
+    assert worker.engines_for("kokoro") is worker.engines_for("kokoro")
+
+
+def test_switching_engine_drops_the_pool_it_replaces(settings, monkeypatch):
+    """One queue can hold a job per engine, and the same child takes them all.
+
+    Building the second pool beside the first held two models at once. Worse,
+    `tts._shared` is a strong reference, so the old pool's first instance was
+    never collected — measured at 1.8 GB before the switch and 7.5 GB after.
+    """
+    from textcast import tts
+
+    worker = switchable(settings, monkeypatch)
+    first = worker.engines_for("kokoro-onnx")
+
+    second = worker.engines_for("kokoro")
+
+    assert second is not first, "a new pool, not the old one"
+    assert tts.loaded_engine("kokoro-onnx") is None, "the old pool gave its slot up"
+    assert tts.loaded_engine("kokoro") is second[0], "and the new one took it"
+
+
+def test_a_smaller_pool_also_drops_the_bigger_one(settings, monkeypatch):
+    """The key is the engine and the count, so concurrency changes it too."""
+    worker = switchable(settings, monkeypatch, count=4)
+    worker.engines_for("kokoro")
+
+    monkeypatch.setattr(settings, "concurrency", 2)
+    smaller = worker.engines_for("kokoro")
+
+    assert len(smaller) == 2, "the pool was rebuilt, not trimmed in place"
