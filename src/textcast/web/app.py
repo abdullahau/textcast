@@ -273,6 +273,11 @@ def build_payload(article_id: int) -> dict:
 # --------------------------------------------------------------------------
 
 
+#: Rows on a page of the library. Small enough to read in one scroll on a
+#: phone, which is where the library is read.
+PAGE_SIZE = 25
+
+
 @app.get("/", response_class=HTMLResponse, dependencies=[Auth])
 def library(
     request: Request,
@@ -281,19 +286,32 @@ def library(
     shelf: str = "",
     added: int = 0,
     failed: str = "",
+    page: int = 1,
 ):
     conn = db.connect()
     archived = shelf == "archived"
     starred = shelf == "starred"
-    articles = db.list_articles(
-        conn, tag=tag, status=status, archived=archived, starred=starred, limit=200
-    )
+    filters = {"tag": tag, "status": status, "archived": archived, "starred": starred}
+
+    total = db.count_articles(conn, **filters)
+    pages = max(1, -(-total // PAGE_SIZE))
+    # A page number out of range is a stale bookmark or a filter that has just
+    # narrowed. Clamp it, so the library always shows something.
+    page = min(max(page, 1), pages)
+    articles = db.list_articles(conn, **filters, limit=PAGE_SIZE, offset=(page - 1) * PAGE_SIZE)
+
+    # The filters the pager has to carry with it. `page` is deliberately not
+    # among them: the filter form has no page field, so changing a filter
+    # starts at the first page, which is where the answer to a new filter is.
+    kept = urlencode({k: v for k, v in (("tag", tag), ("status", status), ("shelf", shelf)) if v})
+
     return render(
         request,
         "library.html",
         articles=articles,
         article_tags=db.tags_for_many([a["id"] for a in articles], conn),
-        resume=db.continue_listening(conn) if not (tag or status or shelf) else [],
+        # Continue listening belongs to the library, not to a page of it.
+        resume=db.continue_listening(conn) if not (tag or status or shelf or page > 1) else [],
         tags=db.list_tags(conn),
         stats=db.stats(conn),
         jobs=db.active_jobs(conn),
@@ -304,6 +322,14 @@ def library(
         added=added,
         failed=failed,
         exports=_export_totals(),
+        paging={
+            "page": page,
+            "pages": pages,
+            "total": total,
+            "first": (page - 1) * PAGE_SIZE + 1 if total else 0,
+            "last": min(page * PAGE_SIZE, total),
+            "query": f"{kept}&" if kept else "",
+        },
     )
 
 

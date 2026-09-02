@@ -334,3 +334,19 @@ def test_a_file_with_no_rules_in_it_says_so(conn):
 
     with _pytest.raises(ValueError, match="no list of rules"):
         db.import_pronunciations({"textcast": "pronunciations", "rules": "nope"}, conn)
+
+
+def test_the_count_and_the_page_read_the_same_filter(conn):
+    """Two filters written apart is a pager that divides the wrong total."""
+    for i in range(5):
+        doc = Article(title=f"Piece {i}", sections=[Section(title="One", blocks=[
+            Block(kind=BlockKind.PARA, text="The body of it."),
+        ])]).renumber()
+        article_id = db.save_article(doc, conn)
+        if i < 2:
+            db.set_tags(article_id, ["Money Stuff"], conn)
+
+    assert db.count_articles(conn) == 5
+    assert db.count_articles(conn, tag="Money Stuff") == 2
+    assert len(db.list_articles(conn, tag="Money Stuff", limit=25)) == 2
+    assert db.count_articles(conn, status="ready") == 0

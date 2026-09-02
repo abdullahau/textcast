@@ -790,3 +790,100 @@ def test_markdown_export_keeps_each_kind_of_block_distinct():
     assert "- An item." in text
     assert "[1] An aside." in text
     assert text.endswith("\n")
+
+
+# --------------------------------------------------------------------------
+# paging and order
+# --------------------------------------------------------------------------
+
+
+def _library_of(conn, n: int, **columns) -> list[int]:
+    """``n`` articles, added one second apart so their order is not a tie."""
+    from textcast.document import Article, Block, BlockKind, Section
+
+    ids = []
+    for i in range(n):
+        doc = Article(title=f"Article {i:02d}", sections=[Section(title="One", blocks=[
+            Block(kind=BlockKind.PARA, text=f"The body of number {i}."),
+        ])]).renumber()
+        article_id = db.save_article(doc, conn)
+        conn.execute(
+            "UPDATE article SET added_at = ? WHERE id = ?",
+            (f"2026-01-01T00:00:{i:02d}+00:00", article_id),
+        )
+        ids.append(article_id)
+    return ids
+
+
+def _titles_on(page: str) -> list[str]:
+    import re as _re
+
+    return _re.findall(r'<span>(Article \d\d)</span>', page)
+
+
+def test_the_library_shows_twenty_five_and_pages_the_rest(client, conn):
+    """The page used to grow without limit and then stop at 200, silently."""
+    _library_of(conn, 30)
+
+    first = client.get("/").text
+    second = client.get("/?page=2").text
+
+    assert len(_titles_on(first)) == 25
+    assert len(_titles_on(second)) == 5
+    assert "Page 1 of 2" in first and "Page 2 of 2" in second
+    assert set(_titles_on(first)) & set(_titles_on(second)) == set(), "a row is on one page only"
+
+
+def test_the_library_is_ordered_by_when_it_was_added(client, conn):
+    """Newest arrival first, whatever date the publication put on it."""
+    _library_of(conn, 3)
+    conn.execute("UPDATE article SET published_at = '2019-01-01' WHERE title = 'Article 02'")
+
+    assert _titles_on(client.get("/").text) == ["Article 02", "Article 01", "Article 00"]
+
+
+def test_the_pager_carries_the_filter_it_was_opened_with(client, conn):
+    """Paging away from a filtered library used to hand back the whole thing."""
+    ids = _library_of(conn, 30)
+    for article_id in ids:
+        db.set_tags(article_id, ["Money Stuff"], conn)
+
+    page = client.get("/?tag=Money+Stuff").text
+
+    # Jinja escapes the separator, which is correct HTML and parses the same.
+    assert "tag=Money+Stuff&amp;page=2" in page
+
+
+def test_a_page_number_past_the_end_shows_the_last_page(client, conn):
+    """A bookmark outlives the filter that made it, and must not show nothing."""
+    _library_of(conn, 30)
+
+    page = client.get("/?page=99").text
+
+    assert "Page 2 of 2" in page
+    assert len(_titles_on(page)) == 5
+
+
+def test_one_page_of_articles_needs_no_pager(client, conn):
+    _library_of(conn, 5)
+
+    page = client.get("/").text
+
+    assert "Page 1 of 1" not in page
+    assert 'class="pager"' not in page
+
+
+def test_continue_listening_belongs_to_the_library_not_to_a_page_of_it(client, conn):
+    """It is a shortcut back in, and repeating it on every page is noise."""
+    ids = _library_of(conn, 30)
+    conn.execute("UPDATE article SET audio_ms = 60000, status = 'ready' WHERE id = ?", (ids[-1],))
+    db.save_position(ids[-1], 0, 30_000, False, conn)
+
+    assert "Continue listening" in client.get("/").text
+    assert "Continue listening" not in client.get("/?page=2").text
+
+
+def test_the_count_names_the_range_and_the_whole(client, conn):
+    _library_of(conn, 30)
+
+    assert "26–30 of 30" in client.get("/?page=2").text

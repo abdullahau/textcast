@@ -372,6 +372,38 @@ def set_flag(article_id: int, field: str, value: bool, conn: sqlite3.Connection 
 # --------------------------------------------------------------------------
 
 
+def _article_filter(
+    *,
+    tag: str | None,
+    status: str | None,
+    starred: bool,
+    archived: bool,
+    query: str | None,
+) -> tuple[str, str, list[Any]]:
+    """The JOIN, the WHERE and their parameters, in that order.
+
+    Written once because two queries read it: the page of rows and the count
+    the pager divides. Written twice, a filter added to one and not the other
+    is a page that says "26-50 of 300" and shows a different 25.
+    """
+    where = ["a.archived = ?"]
+    params: list[Any] = [int(archived)]
+    join = ""
+    if tag:
+        join = "JOIN article_tag at ON at.article_id = a.id AND at.tag = ?"
+        # The join is read before the where, so its parameter goes first.
+        params.insert(0, tag)
+    if status:
+        where.append("a.status = ?")
+        params.append(status)
+    if starred:
+        where.append("a.starred = 1")
+    if query:
+        where.append("(a.title LIKE ? OR a.subtitle LIKE ?)")
+        params.extend([f"%{query}%", f"%{query}%"])
+    return join, " AND ".join(where), params
+
+
 def list_articles(
     conn: sqlite3.Connection | None = None,
     *,
@@ -383,41 +415,48 @@ def list_articles(
     limit: int = 50,
     offset: int = 0,
 ) -> list[sqlite3.Row]:
-    """The library, newest first, with playback progress joined in."""
-    conn = conn or connect()
-    where = ["a.archived = ?"]
-    params: list[Any] = [int(archived)]
-    join = ""
-    if tag:
-        join = "JOIN article_tag at ON at.article_id = a.id AND at.tag = ?"
-        params.insert(0, tag)
-    if status:
-        where.append("a.status = ?")
-        params.append(status)
-    if starred:
-        where.append("a.starred = 1")
-    if query:
-        where.append("(a.title LIKE ? OR a.subtitle LIKE ?)")
-        params.extend([f"%{query}%", f"%{query}%"])
+    """One page of the library, most recently added first.
 
-    params.extend([limit, offset])
+    Added, not published: a newsletter from last March read today belongs at
+    the top with everything else that arrived today, and an article with no
+    publication date used to fall back to its added date anyway, so the two
+    orders were already mixed.
+    """
+    conn = conn or connect()
+    join, where, params = _article_filter(
+        tag=tag, status=status, starred=starred, archived=archived, query=query
+    )
     return conn.execute(
         f"""
         SELECT a.*, p.ms AS position_ms, p.section_idx AS position_section, p.finished
           FROM article a
           {join}
           LEFT JOIN position p ON p.article_id = a.id
-         WHERE {" AND ".join(where)}
-         ORDER BY COALESCE(a.published_at, a.added_at) DESC, a.id DESC
+         WHERE {where}
+         ORDER BY a.added_at DESC, a.id DESC
          LIMIT ? OFFSET ?
         """,
-        params,
+        [*params, limit, offset],
     ).fetchall()
 
 
-def count_articles(conn: sqlite3.Connection | None = None, *, archived: bool = False) -> int:
+def count_articles(
+    conn: sqlite3.Connection | None = None,
+    *,
+    tag: str | None = None,
+    status: str | None = None,
+    starred: bool = False,
+    archived: bool = False,
+    query: str | None = None,
+) -> int:
+    """How many rows ``list_articles`` would return without a limit."""
     conn = conn or connect()
-    row = conn.execute("SELECT COUNT(*) AS n FROM article WHERE archived = ?", (int(archived),)).fetchone()
+    join, where, params = _article_filter(
+        tag=tag, status=status, starred=starred, archived=archived, query=query
+    )
+    row = conn.execute(
+        f"SELECT COUNT(*) AS n FROM article a {join} WHERE {where}", params
+    ).fetchone()
     return int(row["n"])
 
 

@@ -57,7 +57,9 @@
   {% if tag or status or archived or starred %}
     <a class="btn ghost sm narrow" href="/">Clear</a>
   {% endif %}
-  <span class="count">{{ articles|length }} shown</span>
+  <span class="count">
+    {% if paging.total > articles|length %}{{ paging.first }}–{{ paging.last }} of {% endif %}{{ paging.total }}
+  </span>
 </form>
 
 {% if articles %}
@@ -84,6 +86,24 @@
     {% if tag or status or archived or starred %}Nothing matches that filter.
     {% else %}Nothing here yet. <a href="/add">Add something</a> to get started.{% endif %}
   </p>
+{% endif %}
+
+{# The filter form carries no page, so narrowing the library starts at page 1.
+   These links carry the filters, or paging would clear them. #}
+{% if paging.pages > 1 %}
+  <nav class="pager" aria-label="Library pages">
+    {% if paging.page > 1 %}
+      <a class="btn ghost sm narrow" href="/?{{ paging.query }}page={{ paging.page - 1 }}" rel="prev">Previous</a>
+    {% else %}
+      <span class="btn ghost sm narrow off" aria-hidden="true">Previous</span>
+    {% endif %}
+    <span class="count">Page {{ paging.page }} of {{ paging.pages }}</span>
+    {% if paging.page < paging.pages %}
+      <a class="btn ghost sm narrow" href="/?{{ paging.query }}page={{ paging.page + 1 }}" rel="next">Next</a>
+    {% else %}
+      <span class="btn ghost sm narrow off" aria-hidden="true">Next</span>
+    {% endif %}
+  </nav>
 {% endif %}
 
 <div class="footnotes">
