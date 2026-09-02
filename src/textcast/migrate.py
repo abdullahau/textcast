@@ -3,9 +3,9 @@
 `schema.sql` is idempotent and creates anything missing, so this is only for
 what a `CREATE TABLE IF NOT EXISTS` cannot express.
 
-Adding a *column* is the one thing it cannot: `CREATE TABLE IF NOT EXISTS`
-does nothing at all to a table that already exists. That is what
-`_add_espeak_column` is for, and it is the only such step.
+Adding or dropping a *column* is the one thing it cannot: `CREATE TABLE IF
+NOT EXISTS` does nothing at all to a table that already exists. That is what
+`_add_phoneme_columns` and `_drop_is_phonemes` are for.
 
 There is deliberately nothing here for older schemas. The repair steps that
 once lived here — adding `article.build_options`, folding the `series` table
@@ -36,7 +36,7 @@ def has_column(conn: sqlite3.Connection, table: str, name: str) -> bool:
 
 def run(conn: sqlite3.Connection) -> None:
     _add_phoneme_columns(conn)
-    _move_ipa_into_its_own_field(conn)
+    _drop_is_phonemes(conn)
     # Separate from adding the columns, and run every start: a column may have
     # been added by a release that shipped no spelling for it yet, and this
     # only ever writes where nothing is written.
@@ -63,25 +63,22 @@ def _add_phoneme_columns(conn: sqlite3.Connection) -> None:
         log.info("added pronunciation.%s", column)
 
 
-def _move_ipa_into_its_own_field(conn: sqlite3.Connection) -> None:
-    """An IPA rule used to keep its phonemes in `replacement`, with a flag.
+def _drop_is_phonemes(conn: sqlite3.Connection) -> None:
+    """Whether a rule speaks in phonemes is derived from its fields.
 
-    That worked while there was one phonemiser. With two, the plain
-    replacement and the phonemes are different things and need different
-    boxes: left where it was, misaki's notation would be read as a respelling
-    by anything that is not misaki.
+    It was a stored flag while there was one phonemiser and the IPA shared a
+    column with the respelling. With three replacement fields the flag can
+    only repeat what they already say, or disagree with them.
+
+    The step that moved each rule's IPA out of `replacement` and into
+    `replacement_misaki` has run and was removed; git still has it. This drop
+    must come after it, and it is the last thing the old column is needed for.
     """
-    if not has_column(conn, "pronunciation", "replacement_misaki"):
+    if not has_column(conn, "pronunciation", "is_phonemes"):
         return
-    moved = conn.execute(
-        """
-        UPDATE pronunciation
-           SET replacement_misaki = replacement, replacement = ''
-         WHERE is_phonemes = 1 AND replacement_misaki = '' AND replacement <> ''
-        """
-    ).rowcount
-    if moved:
-        log.info("moved %d IPA rule(s) into replacement_misaki", moved)
+    # SQLite has had DROP COLUMN since 3.35 (2021); the image ships 3.40.
+    conn.execute("ALTER TABLE pronunciation DROP COLUMN is_phonemes")
+    log.info("dropped pronunciation.is_phonemes")
 
 
 def _fill_builtin_phonemes(conn: sqlite3.Connection) -> None:

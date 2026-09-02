@@ -262,10 +262,9 @@
     every engine, because the engine never knows a rule ran — it only ever sees text.
   </p>
   <p class="hint">
-    The two IPA fields are for the one word in a hundred no spelling reaches. Fill the one
-    for the phonemiser you are fixing and leave the other empty; the rule falls back to
-    <b>Said as</b> for anything it has nothing to say to, and does not fire at all if that
-    is empty too.
+    The two IPA fields are for the one word in a hundred no spelling reaches. Each is
+    read by one phonemiser and ignored by the other; the <b>?</b> beside each field says
+    which, and what its notation looks like.
   </p>
   <p class="hint">
     <b>Word</b> matches whole words. <b>Phrase</b> matches anywhere, for things ending in a full stop
@@ -291,28 +290,25 @@
        row pushes them off the shared bottom edge, so every one has one. #}
     <div class="row" style="margin-top:.7rem">
       <div>
-        <label for="replacement">Said as</label>
+        <div class="titled">
+          <label for="replacement">Said as</label>
+          <span class="tip"><button type="button" class="q" aria-label="What Said as does">?</button><span class="tip-body" role="tooltip">Plain text, read by <b>every</b> engine — the engine never knows a rule ran, it only ever sees text. Try this first: a respelling needs no phonetic alphabet and anyone can read and edit it. <code>GAAP</code> said as <code>gap</code> is the whole idea.</span></span>
+        </div>
         <input type="text" name="replacement" id="replacement" placeholder="gap">
-        <p class="hint" style="margin:.35rem 0 0">
-          Plain text, read by every engine. Try this first — a respelling
-          needs no alphabet and anyone can edit it.
-        </p>
       </div>
       <div>
-        <label for="replacement_misaki">Said as, in misaki IPA</label>
+        <div class="titled">
+          <label for="replacement_misaki">Said as, misaki IPA</label>
+          <span class="tip"><button type="button" class="q" aria-label="What misaki IPA is">?</button><span class="tip-body" role="tooltip">Optional. Phonemes, read by <b>{{ by_g2p.get('misaki')|join(', ') or 'no engine installed here' }}</b> and by nothing else. misaki's notation is not standard IPA: a capital <b>A</b> is the vowel of “day”, <b>I</b> of “eye”, <b>O</b> of “go”, and length is not marked. Leave it empty and the rule falls back to <b>Said as</b> on those engines.</span></span>
+        </div>
         <input type="text" name="replacement_misaki" id="replacement_misaki" placeholder="lˈIbɔɹ">
-        <p class="hint" style="margin:.35rem 0 0">
-          Optional. Read by <b>{{ by_g2p.get('misaki')|join(', ') or 'no engine installed here' }}</b>.
-          Capital <b>A</b> is the vowel of “day”, <b>I</b> of “eye”, <b>O</b> of “go”.
-        </p>
       </div>
       <div>
-        <label for="replacement_espeak">Said as, in espeak IPA</label>
+        <div class="titled">
+          <label for="replacement_espeak">Said as, espeak IPA</label>
+          <span class="tip right"><button type="button" class="q" aria-label="What espeak IPA is">?</button><span class="tip-body" role="tooltip">Optional. Phonemes, read by <b>{{ by_g2p.get('espeak')|join(', ') or 'no engine installed here' }}</b> and by nothing else. espeak writes diphthongs out — <b>aɪ</b>, <b>eɪ</b>, <b>oʊ</b> — and marks length with <b>ː</b>. Leave it empty and the rule falls back to <b>Said as</b> on those engines.</span></span>
+        </div>
         <input type="text" name="replacement_espeak" id="replacement_espeak" placeholder="lˈaɪbɔːɹ">
-        <p class="hint" style="margin:.35rem 0 0">
-          Optional. Read by <b>{{ by_g2p.get('espeak')|join(', ') or 'no engine installed here' }}</b>.
-          Diphthongs written out — <b>aɪ</b>, <b>eɪ</b>, <b>oʊ</b> — and <b>ː</b> marks length.
-        </p>
       </div>
     </div>
     <div class="row" style="margin-top:.7rem">
@@ -351,7 +347,7 @@
 <div class="tablewrap">
   <table class="plain rules">
     <thead>
-      <tr><th>On</th><th>Match</th><th>Written</th><th>Said as</th><th>Note</th><th></th></tr>
+      <tr><th>On</th><th>Match</th><th>Written</th><th>Said as</th><th>misaki</th><th>espeak</th><th>Note</th><th></th></tr>
     </thead>
     <tbody>
       {% for r in rows %}
@@ -363,14 +359,9 @@
           </td>
           <td><span class="badge">{{ r.kind }}</span></td>
           <td class="mono pattern">{{ r.pattern }}</td>
-          <td class="mono">
-            {%- if r.replacement %}{{ r.replacement }}{% elif not r.is_phonemes %}<span class="hint">—</span>{% endif -%}
-            {%- if r.is_phonemes %}
-              {%- if r.replacement %}<br>{% endif -%}
-              <span class="hint">misaki</span> {{ r.replacement_misaki or '—' }}<br>
-              <span class="hint">espeak</span> {{ r.replacement_espeak or '—' }}
-            {%- endif -%}
-          </td>
+          <td class="mono">{{ r.replacement or '' }}{% if not r.replacement %}<span class="hint">—</span>{% endif %}</td>
+          <td class="mono">{{ r.replacement_misaki or '' }}{% if not r.replacement_misaki %}<span class="hint">—</span>{% endif %}</td>
+          <td class="mono">{{ r.replacement_espeak or '' }}{% if not r.replacement_espeak %}<span class="hint">—</span>{% endif %}</td>
           <td class="muted-cell">{{ r.note }}</td>
           <td>
             <form method="post" action="/pronunciations/{{ r.id }}/delete"

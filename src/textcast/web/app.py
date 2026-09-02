@@ -538,7 +538,7 @@ def pronunciations_rebuild(kind: str = Form(default=""), pattern: str = Form(def
 
 
 SAMPLE_TEXT = (
-    "Published Jul 2 2025. Thrive led a $72mm round at 12x EBITDA, up 150bps YoY, "
+    "Published Jul 2nd 2025. Thrive led a $72mm round at 12x EBITDA, up 150bps YoY, "
     "and the SEC asked about GAAP vs. the S&P 500."
 )
 

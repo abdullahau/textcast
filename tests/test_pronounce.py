@@ -441,8 +441,9 @@ def test_every_replacement_is_optional_but_not_all_of_them(conn):
         db.add_pronunciation("word", "Nothing", "", conn)
 
 
-def test_the_ipa_flag_follows_the_fields(conn):
-    """It used to be a checkbox that could disagree with them."""
+def test_whether_a_rule_speaks_phonemes_is_read_off_its_fields(conn):
+    """It was a stored flag and a checkbox beside them, which could disagree
+    with them. The table has no such column now."""
     from textcast import db
 
     assert Rule(kind="word", pattern="a", replacement="b").is_phonemes is False
@@ -450,6 +451,6 @@ def test_the_ipa_flag_follows_the_fields(conn):
 
     db.add_pronunciation("word", "Spoken", "", conn, misaki="spˈOkən")
     row = conn.execute("SELECT * FROM pronunciation WHERE pattern = 'Spoken'").fetchone()
-    assert row["is_phonemes"] == 1
+    assert "is_phonemes" not in row.keys()
     assert row["replacement_misaki"] == "spˈOkən"
     assert row["replacement"] == ""

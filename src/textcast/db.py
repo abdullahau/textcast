@@ -960,21 +960,17 @@ def add_pronunciation(
     cursor = conn.execute(
         """
         INSERT INTO pronunciation
-            (kind, pattern, replacement, is_phonemes, replacement_misaki,
+            (kind, pattern, replacement, replacement_misaki,
              replacement_espeak, ignore_case, note, sort_order, builtin, added_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?)
+        VALUES (?,?,?,?,?,?,?,?,?,?)
         ON CONFLICT (kind, pattern) DO UPDATE SET
             replacement = excluded.replacement,
-            is_phonemes = excluded.is_phonemes,
             replacement_misaki = excluded.replacement_misaki,
             replacement_espeak = excluded.replacement_espeak,
             ignore_case = excluded.ignore_case,
             note        = excluded.note
         """,
-        # `is_phonemes` is kept in step with the fields rather than set by a
-        # caller: it is what the rules table badges and what an old export
-        # reads, and a flag that can disagree with the fields will.
-        (kind, pattern, rule.replacement.strip(), int(rule.is_phonemes),
+        (kind, pattern, rule.replacement.strip(),
          rule.misaki.strip(), rule.espeak.strip(), int(ignore_case),
          note, sort_order, int(builtin), now()),
     )
@@ -986,7 +982,7 @@ def update_pronunciation(rule_id: int, conn: sqlite3.Connection | None = None, *
     from .pronounce import invalidate
 
     allowed = {"pattern", "replacement", "replacement_misaki", "replacement_espeak",
-               "note", "enabled", "is_phonemes", "ignore_case", "sort_order"}
+               "note", "enabled", "ignore_case", "sort_order"}
     updates = {k: v for k, v in fields.items() if k in allowed}
     if not updates:
         return
@@ -1066,7 +1062,7 @@ def articles_matching(rule, conn: sqlite3.Connection | None = None, limit: int =
 #: What a rule is, on the way out and back in. `builtin` is deliberately not
 #: carried: it marks what shipped with the app, not what you meant.
 EXPORT_FIELDS = (
-    "kind", "pattern", "replacement", "is_phonemes", "replacement_misaki",
+    "kind", "pattern", "replacement", "replacement_misaki",
     "replacement_espeak", "ignore_case", "enabled", "note", "sort_order",
 )
 
@@ -1077,7 +1073,7 @@ def export_pronunciations(conn: sqlite3.Connection | None = None) -> dict:
     rules = []
     for row in conn.execute("SELECT * FROM pronunciation ORDER BY sort_order, id"):
         rule = {field: row[field] for field in EXPORT_FIELDS}
-        for flag in ("is_phonemes", "ignore_case", "enabled"):
+        for flag in ("ignore_case", "enabled"):
             rule[flag] = bool(rule[flag])
         rules.append(rule)
     return {"textcast": "pronunciations", "version": 1, "rules": rules}
@@ -1118,24 +1114,15 @@ def import_pronunciations(
                 skipped += 1
                 continue
             was = (kind, pattern) in existing
-            replacement = str(raw.get("replacement", ""))
-            misaki = str(raw.get("replacement_misaki", ""))
-            espeak = str(raw.get("replacement_espeak", ""))
-            # An export from before the split put misaki's IPA in `replacement`
-            # and said so with a flag. Read it back into the field it belongs
-            # in, or the rule would arrive as a respelling made of IPA.
-            if raw.get("is_phonemes") and not misaki and replacement:
-                misaki, replacement = replacement, ""
             conn.execute(
                 """
                 INSERT INTO pronunciation
-                    (kind, pattern, replacement, is_phonemes, replacement_misaki,
+                    (kind, pattern, replacement, replacement_misaki,
                      replacement_espeak, ignore_case, enabled, note, sort_order,
                      builtin, added_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?,0,?)
+                VALUES (?,?,?,?,?,?,?,?,?,0,?)
                 ON CONFLICT (kind, pattern) DO UPDATE SET
                     replacement = excluded.replacement,
-                    is_phonemes = excluded.is_phonemes,
                     replacement_misaki = excluded.replacement_misaki,
                     replacement_espeak = excluded.replacement_espeak,
                     ignore_case = excluded.ignore_case,
@@ -1144,10 +1131,9 @@ def import_pronunciations(
                     sort_order  = excluded.sort_order
                 """,
                 (
-                    kind, pattern, replacement,
-                    int(bool(misaki or espeak)),
-                    misaki,
-                    espeak,
+                    kind, pattern, str(raw.get("replacement", "")),
+                    str(raw.get("replacement_misaki", "")),
+                    str(raw.get("replacement_espeak", "")),
                     int(bool(raw.get("ignore_case", False))),
                     int(bool(raw.get("enabled", True))),
                     str(raw.get("note", "")),
