@@ -3,7 +3,7 @@ name = "textcast"
 version = "0.2.2"
 description = "Turn newsletters and articles into a private, self-hosted audio reader"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.12,<3.13"
 license = { file = "LICENSE" }
 dependencies = [
     "numpy>=2.5",

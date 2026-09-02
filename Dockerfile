@@ -8,7 +8,7 @@
 # run, or a container that scales to zero. It costs ~330 MB of image for
 # Kokoro. Build with --build-arg BAKE_MODEL=0 to skip it and fetch at runtime.
 
-FROM ghcr.io/astral-sh/uv:python3.14-bookworm-slim AS build
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS build
 
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
@@ -34,7 +34,7 @@ RUN if [ "$BAKE_MODEL" = "1" ]; then \
     fi && rm -f /tmp/bake_model.py
 
 
-FROM python:3.14-slim-bookworm AS runtime
+FROM python:3.12-slim-bookworm AS runtime
 
 # ffmpeg encodes the Opus. espeak-ng is Kokoro's phonemiser — without its data
 # directory the first synthesis dies on a missing phontab.
