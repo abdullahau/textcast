@@ -88,23 +88,23 @@
   </p>
 {% endif %}
 
-{# The filter form carries no page, so narrowing the library starts at page 1.
+{# Shown even at one page of one: where the pager sits is then something you
+   already know, and a control that appears only sometimes is one you look for.
+   The filter form carries no page, so narrowing the library starts at page 1.
    These links carry the filters, or paging would clear them. #}
-{% if paging.pages > 1 %}
-  <nav class="pager" aria-label="Library pages">
-    {% if paging.page > 1 %}
-      <a class="btn ghost sm narrow" href="/?{{ paging.query }}page={{ paging.page - 1 }}" rel="prev">Previous</a>
-    {% else %}
-      <span class="btn ghost sm narrow off" aria-hidden="true">Previous</span>
-    {% endif %}
-    <span class="count">Page {{ paging.page }} of {{ paging.pages }}</span>
-    {% if paging.page < paging.pages %}
-      <a class="btn ghost sm narrow" href="/?{{ paging.query }}page={{ paging.page + 1 }}" rel="next">Next</a>
-    {% else %}
-      <span class="btn ghost sm narrow off" aria-hidden="true">Next</span>
-    {% endif %}
-  </nav>
-{% endif %}
+<nav class="pager" aria-label="Library pages">
+  {% if paging.page > 1 %}
+    <a class="btn ghost sm narrow" href="/?{{ paging.query }}page={{ paging.page - 1 }}" rel="prev">Previous</a>
+  {% else %}
+    <span class="btn ghost sm narrow off" aria-hidden="true">Previous</span>
+  {% endif %}
+  <span class="count">Page {{ paging.page }} of {{ paging.pages }}</span>
+  {% if paging.page < paging.pages %}
+    <a class="btn ghost sm narrow" href="/?{{ paging.query }}page={{ paging.page + 1 }}" rel="next">Next</a>
+  {% else %}
+    <span class="btn ghost sm narrow off" aria-hidden="true">Next</span>
+  {% endif %}
+</nav>
 
 <div class="footnotes">
   <p class="stats">
@@ -115,7 +115,8 @@
   </p>
 
   {# Three zips, not one: the originals cannot be made again, the text can be
-     made from them, and the audio costs hours of synthesis. #}
+     made from them, and the audio costs hours of synthesis. A rule of its own,
+     because the tally describes the library and the exports act on it. #}
   <p class="stats exports">
     <span class="what">
       Export

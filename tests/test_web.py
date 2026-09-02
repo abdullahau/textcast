@@ -864,13 +864,15 @@ def test_a_page_number_past_the_end_shows_the_last_page(client, conn):
     assert len(_titles_on(page)) == 5
 
 
-def test_one_page_of_articles_needs_no_pager(client, conn):
+def test_the_pager_is_there_at_one_page_of_one(client, conn):
+    """A control that appears only sometimes is one you have to look for."""
     _library_of(conn, 5)
 
     page = client.get("/").text
 
-    assert "Page 1 of 1" not in page
-    assert 'class="pager"' not in page
+    assert 'class="pager"' in page
+    assert "Page 1 of 1" in page
+    assert page.count('class="btn ghost sm narrow off"') == 2, "both ends are spent"
 
 
 def test_continue_listening_belongs_to_the_library_not_to_a_page_of_it(client, conn):
