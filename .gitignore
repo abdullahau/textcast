@@ -35,3 +35,6 @@ __pypackages__/
 
 # --- os / editor ---
 .DS_Store
+
+# Agent worktrees, created by the tooling and never part of the tree.
+.claude/worktrees/

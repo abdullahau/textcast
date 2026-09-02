@@ -158,7 +158,9 @@
   {% set running = job and job.state in ('queued', 'running') %}
   {% set job_failed = job and job.state == 'failed' %}
   {% if running or job_failed or row.status == 'failed' %}
-    <div class="card" id="build-status" data-article="{{ row.id }}" data-status="{{ row.status }}">
+    {# A failure can be put away; a running job cannot, because it will change. #}
+    <div class="card" id="build-status" data-article="{{ row.id }}" data-status="{{ row.status }}"
+         {% if not running %}data-dismissible data-dismiss-key="job-{{ job.id if job else row.id }}"{% endif %}>
       {% if running %}
         <h2 id="build-title">{{ 'Writing summaries…' if summarising else 'Building audio…' }}</h2>
         <p class="hint" id="build-message">

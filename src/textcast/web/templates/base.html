@@ -31,11 +31,12 @@
     <span>textcast</span>
   </a>
 
-  {# The wordmark already goes home, but nothing said so. A house does. #}
-  <a class="home" href="/" aria-label="Home" title="Home">
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+  {# The wordmark already goes here, but nothing said so. A house said "home",
+     which is the web's word for it, not this app's: the page is the library. #}
+  <a class="home" href="/" aria-label="Library" title="Library">
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"
          stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-      <path d="M3 10.5 12 3l9 7.5"/><path d="M5.5 9.5V20h13V9.5"/><path d="M9.75 20v-5.5h4.5V20"/>
+      <path d="M4 4v16"/><path d="M8 8v12"/><path d="M12 6v14"/><path d="m16 6 4 14"/>
     </svg>
   </a>
 
@@ -47,9 +48,18 @@
     {# On a phone these fold into the menu button on the right, where a thumb
        already is. Add stays out, as the one action worth a tap. #}
     <div class="nav-group" id="nav-group">
-      <a href="/tags">Tags</a>
-      <a href="/pronunciations">Voice</a>
-      <a href="/summaries">Summaries</a>
+      <a href="/tags">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12.6 2.6A2 2 0 0 0 11.2 2H4a2 2 0 0 0-2 2v7.2a2 2 0 0 0 .6 1.4l8.7 8.7a2.4 2.4 0 0 0 3.4 0l6.6-6.6a2.4 2.4 0 0 0 0-3.4z"/><path d="M7.5 7.5h.01"/></svg>
+        <span>Tags</span>
+      </a>
+      <a href="/pronunciations">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="2" width="6" height="13" rx="3"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><path d="M12 19v3"/></svg>
+        <span>Voice</span>
+      </a>
+      <a href="/summaries">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M9 13h6"/><path d="M9 17h6"/></svg>
+        <span>Summaries</span>
+      </a>
       <button type="button" class="theme-switch" id="theme" role="switch" aria-checked="false"
               title="Switch between light and dark">
         <span class="knob" aria-hidden="true"></span>
@@ -64,7 +74,10 @@
       </button>
       {% if auth_on %}<form method="post" action="/logout" class="narrow" style="display:inline"><button class="link" type="submit">Sign out</button></form>{% endif %}
     </div>
-    <a class="btn sm" href="/add">Add</a>
+    <a class="btn sm" href="/add">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
+      <span>Add</span>
+    </a>
     <button type="button" class="nav-toggle" id="nav-toggle"
             aria-expanded="false" aria-controls="nav-group" aria-label="Menu">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -105,6 +118,35 @@ if ("serviceWorker" in navigator) {
   });
   document.addEventListener("keydown", function (event) {
     if (event.key === "Escape") setOpen(false);
+  });
+})();
+
+/* A message you cannot close is a message you learn to read past. Every notice
+   gets a cross, and the button is added here rather than in six templates.
+   A card that names a job also carries a key: a failed build stays failed, so
+   without remembering the dismissal the cross would last until the next
+   reload. The key is the job id, so the next failure is a new message. */
+(function () {
+  var store = {
+    get: function (key) { try { return localStorage.getItem("tc:hid:" + key); } catch (e) { return null; } },
+    set: function (key) { try { localStorage.setItem("tc:hid:" + key, "1"); } catch (e) {} }
+  };
+
+  document.querySelectorAll(".notice, [data-dismissible]").forEach(function (box) {
+    var key = box.dataset.dismissKey;
+    if (key && store.get(key)) { box.remove(); return; }
+
+    var close = document.createElement("button");
+    close.type = "button";
+    close.className = "dismiss";
+    close.setAttribute("aria-label", "Close this message");
+    close.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
+    close.addEventListener("click", function () {
+      if (key) store.set(key);
+      box.remove();
+    });
+    box.classList.add("dismissible");
+    box.appendChild(close);
   });
 })();
 

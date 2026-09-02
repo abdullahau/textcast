@@ -889,3 +889,47 @@ def test_the_count_names_the_range_and_the_whole(client, conn):
     _library_of(conn, 30)
 
     assert "26–30 of 30" in client.get("/?page=2").text
+
+
+# --------------------------------------------------------------------------
+# messages you can put away
+# --------------------------------------------------------------------------
+
+
+def _article_with_job(conn, state: str, kind: str = "summarise") -> tuple[int, str, int]:
+    from textcast.document import Article, Block, BlockKind, Section
+
+    doc = Article(title="Half done", sections=[Section(title="One", blocks=[
+        Block(kind=BlockKind.PARA, text="The body of it."),
+    ])]).renumber()
+    article_id = db.save_article(doc, conn)
+    job_id = db.enqueue(article_id, kind, conn=conn)
+    db.update_job(job_id, conn, state=state, error="429 rate limited")
+    return article_id, db.get_article(article_id, conn)["slug"], job_id
+
+
+def _status_card(page: str) -> str:
+    """The opening tag of the build card. The script that wires the cross names
+    the same attributes, so a search over the whole page always finds them."""
+    start = page.index('id="build-status"')
+    return page[page.rindex("<div", 0, start) : page.index(">", start) + 1]
+
+
+def test_a_failed_job_card_can_be_put_away(client, conn):
+    """A build stays failed, so the message stayed until something replaced it."""
+    _article_id, slug, job_id = _article_with_job(conn, "failed")
+
+    card = _status_card(client.get(f"/a/{slug}").text)
+
+    assert "data-dismissible" in card
+    assert f'data-dismiss-key="job-{job_id}"' in card, "keyed by the job, so the next failure shows"
+
+
+def test_a_running_job_card_cannot_be_put_away(client, conn):
+    """It is about to change, and hiding it would hide the progress with it."""
+    _article_id, slug, _job_id = _article_with_job(conn, "running")
+
+    page = client.get(f"/a/{slug}").text
+
+    assert "Writing summaries…" in page
+    assert "data-dismissible" not in _status_card(page)

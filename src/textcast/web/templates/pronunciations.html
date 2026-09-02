@@ -2,6 +2,10 @@
 {% block title %}Voice — textcast{% endblock %}
 
 {% block scripts %}
+{# Below the page, not above it. As the first element of the content block this
+   hidden tag took `.section-head:first-child`, so the heading kept a top margin
+   no other page had and the Voice page started lower than the rest. #}
+<script id="engine-voices" type="application/json">{{ voices_json|safe }}</script>
 <script>
 (function () {
   var go = document.getElementById("say-go");
@@ -110,7 +114,6 @@
 {% endblock %}
 
 {% block content %}
-<script id="engine-voices" type="application/json">{{ voices_json|safe }}</script>
 <div class="section-head">
   <h1>Voice</h1>
   <span class="muted">{{ chosen.engine }} · {{ chosen.voice or 'af_heart' }} · {{ chosen.speed_label }}× · {{ enabled_count }} of {{ rows|length }} rules on</span>
