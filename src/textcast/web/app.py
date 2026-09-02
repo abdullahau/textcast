@@ -442,7 +442,17 @@ def _pronunciation_page(request: Request, **extra):
         enabled_count=sum(1 for r in rows if r["enabled"]),
         structural=STRUCTURAL_EXAMPLES,
         sample=extra.pop("sample", SAMPLE_TEXT),
-        voices=_voices(),
+        # Both pickers show one engine's voices, never a mix: the two engines
+        # share every voice id, so a merged list offers "Heart" twice.
+        voices=_voices(chosen.engine),
+        engines=_engines(),
+        voices_json=json.dumps(
+            {
+                name: [{"id": v.id, "name": v.name, "gender": v.gender} for v in list_]
+                for name, list_ in _voices_by_engine().items()
+            },
+            separators=(",", ":"),
+        ),
         speeds=SPEEDS,
         chosen=chosen,
         changed_kind=kind,
@@ -489,16 +499,17 @@ def pronunciations(
 
 @app.post("/pronunciations/defaults", dependencies=[Auth])
 def pronunciations_defaults(
+    engine: str = Form(default=""),
     voice: str = Form(default=""),
     quote_voice: str = Form(default=""),
     speed: str = Form(default=""),
 ):
-    """The voice every future build uses unless an article names its own.
+    """What every future build uses unless an article names its own.
 
-    Nothing is queued. Existing audio keeps the voice it was made with until
-    you rebuild it.
+    Nothing is queued. Existing audio keeps the engine and voice it was made
+    with until you rebuild it, which is why the article says which they were.
     """
-    save_voice_defaults(voice=voice, quote_voice=quote_voice, speed=speed)
+    save_voice_defaults(engine=engine, voice=voice, quote_voice=quote_voice, speed=speed)
     return RedirectResponse("/pronunciations?saved=1", status_code=303)
 
 
@@ -525,6 +536,7 @@ SAMPLE_TEXT = (
 def api_say(
     text: str = Form(...),
     apply_rules: bool = Form(default=True),
+    engine: str = Form(default=""),
     voice: str = Form(default=""),
     speed: str = Form(default=""),
 ):
@@ -533,6 +545,9 @@ def api_say(
     One call answers the whole question the Voice page asks: what will be
     spoken, which rules fired, what phonemes the engine gets, and how it
     sounds. Hearing it is the only way to judge a respelling.
+
+    The engine is a parameter, not the default, so two engines can be compared
+    from one page without saving anything or restarting anything.
     """
     import base64
 
@@ -545,10 +560,13 @@ def api_say(
         return JSONResponse({"error": "nothing to say"}, status_code=400)
 
     chosen = voice_defaults()
+    # The form may name an engine, so the two can be compared on one page
+    # without saving anything. Anything unregistered falls back to the default.
+    engine_name = engine if engine in ENGINES else chosen.engine
     # /api/say is the one place that hears the rules, so it has to ask the
     # engine that will speak them: a phoneme rule is written in one
     # phonemiser's notation and does nothing in the other's.
-    g2p, takes_ipa = g2p_of(settings.engine)
+    g2p, takes_ipa = g2p_of(engine_name)
     spoken = normalize(raw, g2p=g2p, phonemes=takes_ipa) if apply_rules else raw
     # Word rules see the text after the shape transforms have run, so preview
     # has to start from the same place they do.
@@ -564,10 +582,10 @@ def api_say(
     ] if apply_rules else []
 
     try:
-        engine = shared_engine(settings.engine, **settings.engine_options())
-        clip = engine.synthesize(
+        speaker = shared_engine(engine_name, **settings.engine_options())
+        clip = speaker.synthesize(
             spoken,
-            voice=voice or chosen.voice or default_voice(settings.engine),
+            voice=voice or chosen.voice or default_voice(engine_name),
             speed=_as_speed(speed, chosen.speed),
         )
     except Exception as exc:

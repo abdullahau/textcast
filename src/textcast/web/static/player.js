@@ -375,7 +375,6 @@
   /* Seeking must never cost you a text selection.
      The gutter handle is the reliable way in. Clicking the text itself is
      opt-in, and even then a click that ends a selection is left alone. */
-  var tapToSeek = store("tap", "0") === "1";
 
   /* A section with no audio is left out of the payload, so its position in
      this array is not the index the page marked the block with. */
@@ -399,32 +398,16 @@
     }
   }
 
+  /* Only the gutter handle seeks. Tapping the text itself was an option once
+     and it fought with selecting a sentence; every block carries a play
+     button, so there is nothing the tap did that the handle does not. */
   doc.addEventListener("click", function (event) {
     var handle = event.target.closest("[data-seek]");
-    if (handle) {
-      event.preventDefault();
-      var owner = handle.closest(".b");
-      seekToBlock(handle.dataset.seek, Number(owner.dataset.s));
-      return;
-    }
-
-    if (!tapToSeek) return;
-    // A click that finishes a drag-select is a selection, not a seek.
-    var selection = window.getSelection();
-    if (selection && !selection.isCollapsed) return;
-
-    var block = event.target.closest(".b");
-    if (block) seekToBlock(block.dataset.b, Number(block.dataset.s));
+    if (!handle) return;
+    event.preventDefault();
+    var owner = handle.closest(".b");
+    seekToBlock(handle.dataset.seek, Number(owner.dataset.s));
   });
-
-  var tapBox = $("opt-tap");
-  tapBox.checked = tapToSeek;
-  tapBox.addEventListener("change", function () {
-    tapToSeek = this.checked;
-    store("tap", "", tapToSeek ? "1" : "0");
-    doc.style.cursor = tapToSeek ? "pointer" : "";
-  });
-  doc.style.cursor = tapToSeek ? "pointer" : "";
 
   $("opt-footnotes").addEventListener("change", function () {
     document.body.classList.toggle("hide-footnotes", !this.checked);

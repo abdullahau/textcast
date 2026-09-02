@@ -296,7 +296,9 @@ def test_a_saved_default_reaches_the_pages_that_offer_it(client, conn):
 
     # The Add page no longer chooses a voice; the article page does.
     page = client.get("/a/follows-the-default").text
-    assert "Default (bm_george)" in page
+    # The label names its engine when there is more than one to choose, and
+    # whether there is depends on the machine — so match the stem.
+    assert "Default (bm_george" in page
     assert '<option value="1.2" selected>' in page
 
 

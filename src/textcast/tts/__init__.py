@@ -20,7 +20,11 @@ import threading
 
 from .base import Clip, EngineSpec, TTSEngine, Voice, silence
 
-DEFAULT_ENGINE = "kokoro"
+#: Both engines run the same weights and the same voices, and were judged
+#: indistinguishable by ear. ONNX is the default because it is the cheaper of
+#: the two by every measure that is not the sound: 18% faster over the build
+#: pool, a third of the memory, and no torch.
+DEFAULT_ENGINE = "kokoro-onnx"
 
 ENGINES: dict[str, EngineSpec] = {
     "kokoro": EngineSpec(

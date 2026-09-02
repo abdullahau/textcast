@@ -367,3 +367,53 @@ def test_every_shipped_phoneme_rule_speaks_both_notations():
         # espeak writes diphthongs out; misaki's capitals would be read as
         # letters, so finding one here means the notations were swapped.
         assert not set(rule.espeak) & set("AIOWY"), rule.pattern
+
+
+# -- names and words both engines got wrong -------------------------------
+
+
+def test_a_company_suffix_is_an_abbreviation_not_a_full_stop(conn):
+    """Both engines kept the stop and paused in the middle of the man's title:
+    "Goldman Sachs Group Inc. [pause] CEO David Solomon"."""
+    out = normalize("Goldman Sachs Group Inc. CEO David Solomon. Bank of America Corp. said so.")
+
+    assert "Inc CEO" in out
+    assert "Corp said" in out
+
+
+def test_a_suffix_that_ends_the_line_keeps_its_stop(conn):
+    """There the stop is doing its ordinary job."""
+    assert normalize("The firm is Goldman Sachs Group Inc.").endswith("Inc.")
+
+
+def test_the_stylistic_y_is_spelled_out(conn):
+    """crypto-y was kɹˈɪptˌOwˌI on both — "crypto-why"."""
+    out = normalize("a crypto-y company at meme-y prices, in computer-y ways")
+
+    assert "crypto-ee" in out
+    assert "meme-ee" in out
+    assert "computer-ee" in out
+
+
+def test_the_y_rule_needs_a_word_in_front_of_it(conn):
+    """A lone hyphen and a y is not the construction."""
+    assert "-ee" not in normalize("the x-y axis and a-y")
+
+
+def test_a_two_word_name_with_one_stress_is_joined(conn):
+    """"Wall Street" took a primary stress on each word and a gap between."""
+    assert "Wallstreet Journal" in normalize("The Wall Street Journal")
+
+
+def test_the_names_both_engines_mispronounced_are_respelled(conn):
+    out = normalize("Kleinman Parker, Bear Stearns and David Solomon on acquisitions")
+
+    assert "Klineman" in out
+    assert "Sterns" in out
+    assert "Solamon" in out
+    assert "ackwizitions" in out
+
+
+def test_openai_gets_its_word_boundary_back(conn):
+    """misaki ran it together as ˌOpᵊnˈAˌI."""
+    assert "Open AI" in normalize("SpaceX and OpenAI remain private")

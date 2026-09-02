@@ -265,6 +265,69 @@ PHONEME_HINTS = {
     "LIBOR": ("lˈIbɔɹ", "lˈaɪbɔːɹ"),
 }
 
+#: Names and words both phonemisers get wrong, respelled. Each was measured on
+#: both engines before and after, and each respelling had to be right on both:
+#: a respelling is ordinary text, so unlike a phoneme rule it cannot be aimed
+#: at one of them.
+#:
+#: * **Kleinman** was "KLAYN-man" on both (klˈAnmən / klˈeɪnmən). "Klineman"
+#:   is klˈInmən and klˈaɪnmən — the same sound, right on both.
+#: * **Stearns** was "STEERNS" (stˈɪɹnz). "Sterns" is stˈɜɹnz / stˈɜːnz.
+#:   Ruled on the surname alone, so Bear Stearns and a bare Stearns both land.
+#: * **Solomon** was already right for misaki (sˈɑləmən) and wrong for espeak,
+#:   which doubled the vowel: sˈɑːlɑːmən, "SOL-ah-mon". "Solamon" leaves
+#:   misaki's answer untouched and fixes espeak's.
+#: * **accretive** was right for misaki (əkɹˈiTɪv) and "uh-KRET-iv" for espeak.
+#:   "accreetive" changes nothing for misaki and gives espeak ɐkɹˈiːɾɪv.
+#: * **acquisition** was "ack-wih-SISH-un" for espeak, with an s where the
+#:   word has a z. "ackwizition" gives both ˌækwɪzˈɪʃən.
+#: * **OpenAI** ran together as one word for misaki (ˌOpᵊnˈAˌI). "Open AI"
+#:   puts the boundary back and both then say "Open A-I".
+#: * **Tokenization** came out "token-ih-ZAY-shun" on both, the vowel of the
+#:   verb it comes from reduced away. "token-eye-zation" restores it.
+SAY_AS_WRITTEN = {
+    "Kleinman": "Klineman",
+    "Stearns": "Sterns",
+    "Solomon": "Solamon",
+    "OpenAI": "Open AI",
+}
+
+#: The same, but case-insensitive because they are ordinary words rather than
+#: names, and a sentence can start with one.
+SAY_AS_WRITTEN_ANYCASE = {
+    "accretive": "accreetive",
+    "tokenization": "token-eye-zation",
+}
+
+#: Two words the engines read as two, where the name is one thing with one
+#: stress. Measured: "Wall Street" is wˈɔl stɹˈit, a primary stress on each
+#: and a gap between them; "Wallstreet" is wˈɔlstɹit, one word stressed on
+#: "Wall", which is how the name is said. The Journal comes along for the ride.
+COMPOUND_NAMES = {
+    "Wall Street": "Wallstreet",
+}
+
+#: A company suffix is an abbreviation, not the end of a sentence. Both
+#: engines kept the stop in "Goldman Sachs Group Inc. CEO David Solomon" and
+#: paused in the middle of the man's title. Without it the sound is unchanged
+#: — ˈɪŋk either way — and the sentence runs on.
+#:
+#: Only when something follows on the same line. At the end of a block the
+#: stop is doing its ordinary job and is left alone.
+SUFFIXES = {
+    r"\bInc\.(?=\s)": "Inc",
+    r"\bCorp\.(?=\s)": "Corp",
+    r"\bCos\.(?=\s)": "Cos",
+}
+
+#: The stylistic "-y": crypto-y, meme-y, computer-y, bank-y. Both engines read
+#: the y as the letter and put a w in front of it — kɹˈɪptˌOwˌI, "crypto-why".
+#: Spelled "-ee" they both say what the writer meant. Two letters at least in
+#: front of the hyphen, so a stray "-y" is not caught.
+STYLISTIC_Y = {
+    r"(?<=[A-Za-z]{2})-y(?![\w'])": "-ee",
+}
+
 #: Hyphens the engine reads as a pause rather than a join. Measured on Kokoro:
 #: "fund start-ups that" leaves a 182 ms break mid-phrase against 113 ms for
 #: "startups", and the clip runs 80 ms longer. Joined, it is one word and one
@@ -297,6 +360,9 @@ CONTRACTIONS = {
 RESPELL = {
     r"(?<!\d)401\(k\)": "four oh one k",
     r"(?<!\w)INmune(?!\w)": "InMune",
+    # espeak says the s of "acquisition" as an s; the word has a z. A regex
+    # rather than two word rules, so the plural comes with it.
+    r"(?<!\w)acquisition(s?)(?!\w)": r"ackwizition\1",
 }
 
 #: Written with dots. Measured against Kokoro: "AI" is ˈAˌI — already "ay-eye"
@@ -439,6 +505,52 @@ def builtin_rules() -> list[Rule]:
                 note=f"{dotted} said the same way as {dotted.replace('.', '')}",
                 sort_order=18 + order,
             ))
+
+    for token, respelling in SAY_AS_WRITTEN.items():
+        add(Rule(
+            kind="word",
+            pattern=token,
+            replacement=respelling,
+            note="both engines read the written form wrongly; measured on both",
+            sort_order=26,
+        ))
+
+    for token, respelling in SAY_AS_WRITTEN_ANYCASE.items():
+        add(Rule(
+            kind="word",
+            pattern=token,
+            replacement=respelling,
+            ignore_case=True,
+            note="both engines read the written form wrongly; measured on both",
+            sort_order=26,
+        ))
+
+    for phrase, joined in COMPOUND_NAMES.items():
+        add(Rule(
+            kind="phrase",
+            pattern=phrase,
+            replacement=joined,
+            note="one name, one stress; two words gave it two and a gap",
+            sort_order=26,
+        ))
+
+    for pattern, plain in SUFFIXES.items():
+        add(Rule(
+            kind="regex",
+            pattern=pattern,
+            replacement=plain,
+            note="an abbreviation, not the end of a sentence",
+            sort_order=19,
+        ))
+
+    for pattern, spelled in STYLISTIC_Y.items():
+        add(Rule(
+            kind="regex",
+            pattern=pattern,
+            replacement=spelled,
+            note="the stylistic -y: meme-y, crypto-y. Read as the letter otherwise",
+            sort_order=27,
+        ))
 
     for pattern, respelling in RESPELL.items():
         add(Rule(

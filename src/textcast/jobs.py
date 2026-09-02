@@ -388,16 +388,16 @@ class Worker:
         options = {**stored, **json.loads(job["options"] or "{}")}
 
         settings = self.settings
-        engine_name = options.get("engine") or settings.engine
+        # Three layers again: this article's own choice, the saved default,
+        # then the environment. `voice_defaults` folds the last two.
+        chosen = voice_defaults(conn, settings)
+        engine_name = options.get("engine") or chosen.engine
         if engine_name not in ENGINES:
             # An article saved against an engine that no longer ships still
             # builds, with the engine that does.
             log.warning("article %s asks for engine %r; using %s",
                         article_id, engine_name, settings.engine)
             engine_name = settings.engine
-        # Three layers again: this article's own choice, the saved default,
-        # then whatever the engine ships with.
-        chosen = voice_defaults(conn, settings)
         voice = options.get("voice") or chosen.voice or ENGINES[engine_name].default_voice
         quote_voice = options.get("quote_voice") or chosen.quote_voice
         speed = float(options.get("speed") or chosen.speed or 1.0)

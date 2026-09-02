@@ -19,6 +19,8 @@
     var body = new FormData();
     body.append("text", text);
     body.append("apply_rules", document.getElementById("say-rules").checked ? "true" : "false");
+    var sayEngine = document.getElementById("say-engine");
+    if (sayEngine) body.append("engine", sayEngine.value);
     body.append("voice", document.getElementById("say-voice").value);
     body.append("speed", document.getElementById("say-speed").value);
 
@@ -61,15 +63,57 @@
       .finally(function () { go.disabled = false; go.textContent = "Speak it"; });
   }
 
+  /* One engine's voices at a time, in both cards. The engines share every
+     voice id, so a merged list would offer "Heart" twice and neither entry
+     would say which one it is. */
+  var payload = document.getElementById("engine-voices");
+  if (payload) {
+    var byEngine = JSON.parse(payload.textContent);
+
+    function bind(engineId, voiceIds) {
+      var picker = document.getElementById(engineId);
+      if (!picker) return;
+      picker.addEventListener("change", function () {
+        var voices = byEngine[picker.value] || [];
+        voiceIds.forEach(function (id) {
+          var select = document.getElementById(id);
+          if (!select) return;
+          var wanted = select.value;
+          var keep = select.dataset.keepFirst === "1" ? 1 : 0;
+          while (select.options.length > keep) select.remove(keep);
+          /* The kept first option is the saved default, a voice id that reads
+             the same in both engines. It says which one it would speak
+             through, or the two lists look identical at the top. */
+          if (keep && select.options[0]) {
+            select.options[0].textContent =
+              select.options[0].textContent.replace(/ · [\w-]+\)$/, " · " + picker.value + ")");
+          }
+          voices.forEach(function (v) {
+            var opt = document.createElement("option");
+            opt.value = v.id;
+            opt.textContent = v.name + " · " + v.gender;
+            select.appendChild(opt);
+          });
+          select.value = wanted;
+          if (!select.value) select.selectedIndex = 0;
+        });
+      });
+    }
+
+    bind("engine", ["voice", "quote_voice"]);
+    bind("say-engine", ["say-voice"]);
+  }
+
   go.addEventListener("click", say);
 })();
 </script>
 {% endblock %}
 
 {% block content %}
+<script id="engine-voices" type="application/json">{{ voices_json|safe }}</script>
 <div class="section-head">
   <h1>Voice</h1>
-  <span class="muted">{{ chosen.voice or 'af_heart' }} · {{ chosen.speed_label }}× · {{ enabled_count }} of {{ rows|length }} rules on</span>
+  <span class="muted">{{ chosen.engine }} · {{ chosen.voice or 'af_heart' }} · {{ chosen.speed_label }}× · {{ enabled_count }} of {{ rows|length }} rules on</span>
 </div>
 
 {% if error %}<p class="notice error">{{ error }}</p>{% endif %}
@@ -116,8 +160,14 @@
   <form method="post" action="/pronunciations/defaults">
     <div class="row">
       <div>
+        <label for="engine">Engine</label>
+        <select name="engine" id="engine">
+          {% for e in engines %}<option value="{{ e.id }}" {{ 'selected' if e.id == chosen.engine }}>{{ e.id }}</option>{% endfor %}
+        </select>
+      </div>
+      <div>
         <label for="voice">Voice</label>
-        <select name="voice" id="voice">
+        <select name="voice" id="voice" data-keep-first="0">
           {% for v in voices %}<option value="{{ v.id }}" {{ 'selected' if v.id == chosen.voice }}>{{ v.name }} · {{ v.gender }}</option>{% endfor %}
         </select>
       </div>
@@ -132,7 +182,7 @@
             words.</span>
           </span>
         </div>
-        <select name="quote_voice" id="quote_voice">
+        <select name="quote_voice" id="quote_voice" data-keep-first="1">
           <option value="">Same voice, spoken cues</option>
           {% for v in voices %}<option value="{{ v.id }}" {{ 'selected' if v.id == chosen.quote_voice }}>{{ v.name }} · {{ v.gender }}</option>{% endfor %}
         </select>
@@ -169,9 +219,15 @@
   </div>
   <div class="row" style="margin-top:.7rem">
     <div>
+      <label for="say-engine">Engine</label>
+      <select id="say-engine">
+        {% for e in engines %}<option value="{{ e.id }}" {{ 'selected' if e.id == chosen.engine }}>{{ e.id }}</option>{% endfor %}
+      </select>
+    </div>
+    <div>
       <label for="say-voice">Voice</label>
-      <select id="say-voice">
-        <option value="">Default ({{ chosen.voice or 'af_heart' }})</option>
+      <select id="say-voice" data-keep-first="1">
+        <option value="">Default ({{ chosen.voice or 'af_heart' }}{% if engines|length > 1 %} · {{ chosen.engine }}{% endif %})</option>
         {% for v in voices %}<option value="{{ v.id }}">{{ v.name }} · {{ v.gender }}</option>{% endfor %}
       </select>
     </div>

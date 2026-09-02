@@ -76,18 +76,37 @@ def strip_ipa_markup(text: str) -> str:
     return _RULE_IPA.sub(r"\1", text)
 
 
+#: Where the image puts them. Baked at build time, like the PyTorch weights,
+#: because this is the default engine and a fresh container has no network.
+BAKED_DIR = Path("/opt/models/kokoro-onnx")
+
+
 def model_paths(models_dir: Path | None = None) -> tuple[Path, Path]:
-    """Where the two files are, environment first, then the data directory."""
+    """Where the two files are.
+
+    Three places, most specific first: the environment, the data directory,
+    then the copy baked into the image. A file dropped in ``data/models``
+    therefore wins over the image's, which is how you try a new export without
+    rebuilding.
+    """
     if models_dir is None:
         from ..settings import get_settings
 
         models_dir = get_settings().models_dir
 
-    model = os.environ.get("TEXTCAST_KOKORO_ONNX_MODEL", "").strip()
-    voices = os.environ.get("TEXTCAST_KOKORO_ONNX_VOICES", "").strip()
+    def find(variable: str, name: str) -> Path:
+        override = os.environ.get(variable, "").strip()
+        if override:
+            return Path(override)
+        local = models_dir / name
+        if local.exists():
+            return local
+        baked = BAKED_DIR / name
+        return baked if baked.exists() else local
+
     return (
-        Path(model) if model else models_dir / MODEL_FILE,
-        Path(voices) if voices else models_dir / VOICES_FILE,
+        find("TEXTCAST_KOKORO_ONNX_MODEL", MODEL_FILE),
+        find("TEXTCAST_KOKORO_ONNX_VOICES", VOICES_FILE),
     )
 
 

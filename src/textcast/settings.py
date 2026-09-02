@@ -38,7 +38,7 @@ class Settings:
     data_dir: Path = field(default_factory=lambda: Path(_env("DATA_DIR", "./data")).expanduser())
 
     # --- text to speech ---
-    engine: str = field(default_factory=lambda: _env("TTS_ENGINE", "kokoro"))
+    engine: str = field(default_factory=lambda: _env("TTS_ENGINE", "kokoro-onnx"))
     voice: str = field(default_factory=lambda: _env("TTS_VOICE", "af_heart"))
     quote_voice: str = field(default_factory=lambda: _env("TTS_QUOTE_VOICE", ""))
     threads: int = field(default_factory=lambda: _env_int("TTS_THREADS", 0))

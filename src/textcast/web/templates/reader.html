@@ -72,7 +72,7 @@
         <div>
           <label for="voice">Voice</label>
           <select name="voice" id="voice">
-            <option value="">Default ({{ default_voice }})</option>
+            <option value="">Default ({{ default_voice }}{% if engines|length > 1 %} · {{ selected_engine }}{% endif %})</option>
             {% for v in voices %}<option value="{{ v.id }}" {{ 'selected' if v.id == build.get('voice') }}>{{ v.name }} · {{ v.gender }}</option>{% endfor %}
           </select>
         </div>
@@ -117,6 +117,9 @@
       {% if row.published_at %}<span>{{ row.published_at|date }}</span>{% endif %}
       <span>{{ "{:,}".format(row.word_count) }} words</span>
       {% if row.audio_ms %}<span>{{ row.audio_ms|duration }} audio</span>{% endif %}
+      {# What made the audio, not what would make it now: the default can move
+         under an article that is already built. #}
+      {% if row.audio_ms and row.engine %}<span title="The engine and voice this audio was built with">{{ row.engine }} · {{ row.voice }}</span>{% endif %}
       {% if row.url %}<a href="{{ row.url }}" rel="noreferrer">original</a>{% endif %}
     </div>
 
@@ -334,7 +337,6 @@
       <label class="check"><input type="checkbox" id="opt-summaries" checked> Show summaries</label>
       <label class="check"><input type="checkbox" id="opt-sleep"> Stop at end of section</label>
       <label class="check"><input type="checkbox" id="opt-offline"> Keep offline</label>
-      <label class="check"><input type="checkbox" id="opt-tap"> Tap text to seek</label>
     </div>
   </div>
 </div>
@@ -371,6 +373,11 @@
   function fill(select, voices) {
     var wanted = select.value;
     while (select.options.length > 1) select.remove(1);
+    /* The first option is the saved default, which is a voice id and so
+       reads the same whichever engine is picked. It names the engine it
+       would speak through, or the two lists look identical at the top. */
+    var first = select.options[0];
+    if (first) first.textContent = first.textContent.replace(/ · [\w-]+\)$/, " · " + engine.value + ")");
     voices.forEach(function (v) {
       var opt = document.createElement("option");
       opt.value = v.id;
