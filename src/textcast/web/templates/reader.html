@@ -73,7 +73,7 @@
           <label for="voice">Voice</label>
           <select name="voice" id="voice">
             <option value="">Default ({{ default_voice }})</option>
-            {% for name, list in voices_by_engine.items() %}{% for v in list %}<option value="{{ v.id }}" data-engine="{{ name }}" {{ 'hidden disabled' if name != selected_engine }} {{ 'selected' if v.id == build.get('voice') and name == selected_engine }}>{{ v.name }} · {{ v.gender }}</option>{% endfor %}{% endfor %}
+            {% for v in voices %}<option value="{{ v.id }}" {{ 'selected' if v.id == build.get('voice') }}>{{ v.name }} · {{ v.gender }}</option>{% endfor %}
           </select>
         </div>
         <div>
@@ -83,7 +83,7 @@
           </div>
           <select name="quote_voice" id="quote_voice">
             <option value="">Same voice, spoken cues</option>
-            {% for name, list in voices_by_engine.items() %}{% for v in list %}<option value="{{ v.id }}" data-engine="{{ name }}" {{ 'hidden disabled' if name != selected_engine }} {{ 'selected' if v.id == build.get('quote_voice') and name == selected_engine }}>{{ v.name }} · {{ v.gender }}</option>{% endfor %}{% endfor %}
+            {% for v in voices %}<option value="{{ v.id }}" {{ 'selected' if v.id == build.get('quote_voice') }}>{{ v.name }} · {{ v.gender }}</option>{% endfor %}
           </select>
         </div>
         <div>
@@ -356,28 +356,38 @@
 <script src="/static/progress.js?v={{ assets }}" defer></script>
 {% endif %}
 {% if engines|length > 1 %}
+<script id="engine-voices" type="application/json">{{ voices_json|safe }}</script>
 <script>
-/* The two engines share every voice id, so the picker shows one engine's
-   voices at a time. Hidden alone is not enough — a hidden option is still
-   selectable by keyboard — so they are disabled too, and a selection that
-   goes out of scope falls back to the engine's default. */
+/* The engines share every voice id, so the picker carries one engine's voices
+   at a time and is rebuilt when the engine changes. Two options with the same
+   value in one select is the thing to avoid: the form would still post the
+   right one, but nothing selecting by value could tell them apart. */
 (function () {
   var engine = document.getElementById("engine");
-  if (!engine) return;
-  var pickers = [document.getElementById("voice"), document.getElementById("quote_voice")];
+  var payload = document.getElementById("engine-voices");
+  if (!engine || !payload) return;
+  var byEngine = JSON.parse(payload.textContent);
+
+  function fill(select, voices) {
+    var wanted = select.value;
+    while (select.options.length > 1) select.remove(1);
+    voices.forEach(function (v) {
+      var opt = document.createElement("option");
+      opt.value = v.id;
+      opt.textContent = v.name + " · " + v.gender;
+      select.appendChild(opt);
+    });
+    /* A voice id means the same voice in either engine, so a choice survives
+       the switch. One that does not exist there falls back to the default. */
+    select.value = wanted;
+    if (!select.value) select.selectedIndex = 0;
+  }
 
   engine.addEventListener("change", function () {
-    pickers.forEach(function (select) {
-      if (!select) return;
-      var chosen = false;
-      Array.prototype.forEach.call(select.options, function (opt) {
-        var mine = !opt.dataset.engine || opt.dataset.engine === engine.value;
-        opt.hidden = !mine;
-        opt.disabled = !mine;
-        if (opt.selected && !mine) opt.selected = false;
-        if (opt.selected) chosen = true;
-      });
-      if (!chosen) select.selectedIndex = 0;
+    var voices = byEngine[engine.value] || [];
+    ["voice", "quote_voice"].forEach(function (id) {
+      var select = document.getElementById(id);
+      if (select) fill(select, voices);
     });
   });
 })();

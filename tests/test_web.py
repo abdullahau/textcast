@@ -379,6 +379,39 @@ def test_an_article_that_already_has_summaries_is_not_offered_them_again(client,
     assert body.index("Modify article") > text, "so modify goes back to the bottom"
 
 
+def test_the_voice_picker_never_offers_one_value_twice(client, conn, monkeypatch):
+    """Both engines carry `af_heart`. Rendering both engines' options into one
+    select put the same value in it twice, and nothing selecting by value
+    could tell them apart — so the page carries one engine's list and a
+    payload, and rebuilds it when the engine changes."""
+    import json as _json
+    import re
+
+    from textcast.document import Article, Block, BlockKind, Section
+    from textcast.tts import catalogue
+
+    # The fixture empties the voice list; this is the one test about it.
+    # `catalogue` reads a table, so it still loads no model.
+    monkeypatch.setattr(web, "_voices", lambda engine=None: list(catalogue(engine or "kokoro")))
+    doc = Article(title="Picker", sections=[Section(title="One", blocks=[
+        Block(kind=BlockKind.PARA, text="The body of it."),
+    ])]).renumber()
+    db.save_article(doc, conn)
+
+    body = client.get("/a/picker").text
+    select = body[body.index('<select name="voice"'):]
+    select = select[: select.index("</select>")]
+    values = re.findall(r'<option value="([^"]*)"', select)
+
+    assert len(values) == len(set(values)), f"repeated: {values}"
+
+    payload = re.search(r'id="engine-voices"[^>]*>(.*?)</script>', body, re.S)
+    if payload:  # only rendered when a second engine is installed
+        by_engine = _json.loads(payload.group(1))
+        assert len(by_engine) > 1
+        assert any(v["name"].endswith("(ONNX)") for v in by_engine["kokoro-onnx"])
+
+
 def test_every_control_in_the_bar_is_one_height():
     """They were 32, 29 and 26 px standing on the same row, which reads as
     three sizes of nothing in particular. The search field set the height."""

@@ -322,7 +322,13 @@ def reader(request: Request, slug: str, edit: bool = False, edited: int = 0, rem
         build=options,
         voices=_voices(build_engine),
         engines=_engines(),
-        voices_by_engine=_voices_by_engine(),
+        voices_json=json.dumps(
+            {
+                name: [{"id": v.id, "name": v.name, "gender": v.gender} for v in list_]
+                for name, list_ in _voices_by_engine().items()
+            },
+            separators=(",", ":"),
+        ),
         selected_engine=build_engine,
         default_voice=chosen.voice or "default",
         default_quote_voice=chosen.quote_voice,
