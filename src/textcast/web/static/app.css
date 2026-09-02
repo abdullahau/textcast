@@ -31,6 +31,9 @@
   --radius: 8px;
   --radius-sm: 6px;
   --bar-h: 3.25rem;
+  /* Every control in the bar is this tall. They were 32, 29 and 26 px, which
+     on one row reads as three sizes of nothing in particular. */
+  --bar-control: 2rem;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -135,8 +138,8 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 2rem;
-  height: 2rem;
+  width: var(--bar-control);
+  height: var(--bar-control);
   flex: none;
   color: var(--muted);
   border: 1px solid var(--border);
@@ -148,7 +151,7 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
 .find { flex: 0 1 15rem; min-width: 0; margin-left: auto; }
 .find input {
   width: 100%;
-  height: 2rem;
+  height: var(--bar-control);
   padding: 0 .65rem;
   font: inherit;
   font-size: .82rem;
@@ -173,7 +176,7 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
 .theme-switch {
   position: relative;
   width: 52px;
-  height: 26px;
+  height: var(--bar-control);
   min-width: 52px;
   padding: 0;
   display: inline-flex;
@@ -188,9 +191,11 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
   border-radius: 999px;
 }
 .theme-switch:hover { opacity: 1; border-color: var(--border-hi); }
+/* The track grew to the bar's height; the knob did not, so it is centred
+   rather than pinned. Its horizontal geometry is untouched. */
 .theme-switch .knob {
   position: absolute;
-  top: 2px;
+  top: calc((var(--bar-control) - 22px) / 2);
   left: 2.5px;
   width: 20px;
   height: 20px;
@@ -221,7 +226,7 @@ button.link:hover { color: var(--fg); }
 .nav-group { display: flex; align-items: center; gap: .4rem; }
 .nav-toggle {
   display: none;
-  width: 2rem; height: 2rem; min-width: 2rem; padding: 0;
+  width: var(--bar-control); height: var(--bar-control); min-width: var(--bar-control); padding: 0;
   background: transparent; border-color: transparent; color: var(--muted);
 }
 .nav-toggle:hover { color: var(--fg); background: var(--sunk); opacity: 1; }
@@ -322,7 +327,9 @@ button.subtle:hover { background: var(--sunk); color: var(--fg); opacity: 1; }
 button.danger { background: transparent; color: var(--bad); border-color: color-mix(in srgb, var(--bad) 35%, transparent); }
 button.danger:hover { background: color-mix(in srgb, var(--bad) 10%, transparent); opacity: 1; }
 
-button.sm, .btn.sm { height: 1.8rem; padding: 0 .6rem; font-size: .78rem; }
+/* Only the bar's Add button carries this, and it stands beside the search
+   field, the home button and the menu. One height for all four. */
+button.sm, .btn.sm { height: var(--bar-control); padding: 0 .7rem; font-size: .78rem; }
 
 /* ---------- hint buttons ---------- */
 

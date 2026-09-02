@@ -377,6 +377,18 @@ def test_an_article_that_already_has_summaries_is_not_offered_them_again(client,
     assert body.index("Modify article") > text, "so modify goes back to the bottom"
 
 
+def test_every_control_in_the_bar_is_one_height():
+    """They were 32, 29 and 26 px standing on the same row, which reads as
+    three sizes of nothing in particular. The search field set the height."""
+    from pathlib import Path
+
+    css = Path("src/textcast/web/static/app.css").read_text(encoding="utf-8")
+
+    for selector in (".find input", ".home", ".theme-switch", "button.sm, .btn.sm", ".nav-toggle"):
+        body = css.split(selector + " {", 1)[1].split("}", 1)[0]
+        assert "var(--bar-control)" in body, f"{selector} sets its own height"
+
+
 def test_the_two_dark_palettes_stay_identical():
     """Dark is defined twice: once for the system preference and once for the
     switch. They must carry the same tokens, or a colour set in one place is
