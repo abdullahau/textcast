@@ -358,3 +358,35 @@ def test_the_onnx_engine_says_what_is_missing_rather_than_failing_late(tmp_path)
 
     with pytest.raises(FileNotFoundError, match="kokoro-v1.0.onnx"):
         KokoroOnnxEngine(models_dir=tmp_path)
+
+
+def test_the_engine_decides_which_notation_the_text_carries(conn):
+    """A phoneme rule is the one thing in the pipeline that is not
+    engine-agnostic, so the engine has to be asked before the text is made."""
+    from textcast import db
+    from textcast.document import Block, BlockKind
+    from textcast.tts import g2p_of
+
+    db.add_pronunciation(
+        "word", "LIBOR", "lˈIbɔɹ", conn, is_phonemes=True, espeak="lˈaɪbɔːɹ"
+    )
+    block = Block(kind=BlockKind.PARA, text="The LIBOR rate.")
+
+    assert "lˈIbɔɹ" in block.spoken(g2p="misaki")
+    assert "lˈaɪbɔːɹ" in block.spoken(g2p="espeak")
+    assert "[" not in block.spoken(g2p="espeak", phonemes=False)
+
+    assert g2p_of("kokoro") == ("misaki", True)
+    assert g2p_of("kokoro-onnx") == ("espeak", True)
+    # An engine that declares neither is read as the only one there used to be.
+    assert g2p_of(FakeEngine()) == ("misaki", True)
+
+
+def test_the_onnx_engine_splices_a_rule_into_its_own_phonemes():
+    """espeak has never heard of `[word](/ipa/)` and read it out. The engine
+    phonemises the prose itself and puts the rule's phonemes in between."""
+    from textcast.tts.kokoro_onnx import _RULE_IPA
+
+    parts = _RULE_IPA.split("The [LIBOR](/lˈaɪbɔːɹ/) rate rose.")
+
+    assert parts == ["The ", "LIBOR", "lˈaɪbɔːɹ", " rate rose."]

@@ -41,17 +41,27 @@ class Block:
     def id(self) -> str:
         return f"b{self.section_idx}-{self.idx}"
 
-    def spoken(self, quote_markers: bool = True) -> str:
+    def spoken(
+        self,
+        quote_markers: bool = True,
+        g2p: str = "misaki",
+        phonemes: bool = True,
+    ) -> str:
         """The text handed to the TTS engine, which is not what is shown.
 
         Two differences from the displayed text. A block quote reads badly
         without a cue, so we speak one unless the engine is voicing quotes in a
         second voice. And everything runs through the normaliser, so "$72mm"
         is read as money rather than spelled out.
+
+        ``g2p`` and ``phonemes`` describe the engine that will read this, and
+        only a phoneme rule is sensitive to them. The result is *not* cached
+        anywhere: the block cache is keyed on the engine as well as the text,
+        so two engines never share a render.
         """
         from .normalize import normalize
 
-        spoken = normalize(self.text)
+        spoken = normalize(self.text, g2p=g2p, phonemes=phonemes)
         if self.kind is BlockKind.QUOTE and quote_markers:
             return f"Start quote. {spoken} End quote."
         return spoken

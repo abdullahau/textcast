@@ -227,6 +227,14 @@
         <label for="replacement">Said as</label>
         <input type="text" name="replacement" id="replacement" placeholder="gap" required>
       </div>
+      <div>
+        <div class="titled">
+          <label for="replacement_espeak">Said as, for espeak</label>
+          <span class="tip"><button type="button" class="q" aria-label="Why a second spelling">?</button><span class="tip-body" role="tooltip">Only for an IPA rule, and only when a second engine is installed. The two engines phonemise differently and their notations do not agree: misaki writes the vowel of “eye” as a capital <b>I</b>, espeak writes it <b>aɪ</b> and marks length with <b>ː</b>. Leave this empty and the rule simply does not fire on an espeak engine — the word is spoken however espeak reads it. A respelling needs nothing here; it is ordinary text and works on both.</span></span>
+        </div>
+        <input type="text" name="replacement_espeak" id="replacement_espeak"
+               placeholder="lˈaɪbɔːɹ">
+      </div>
     </div>
     <div class="row" style="margin-top:.7rem">
       <div><label for="note">Note</label><input type="text" name="note" id="note" placeholder="optional"></div>
@@ -277,7 +285,7 @@
           </td>
           <td><span class="badge">{{ r.kind }}</span></td>
           <td class="mono pattern">{{ r.pattern }}</td>
-          <td class="mono">{% if r.is_phonemes %}<span class="badge">IPA</span> {% endif %}{{ r.replacement }}</td>
+          <td class="mono">{% if r.is_phonemes %}<span class="badge">IPA</span> {% endif %}{{ r.replacement }}{% if r.is_phonemes %}<br><span class="hint">espeak: {{ r.replacement_espeak or '— does not fire there' }}</span>{% endif %}</td>
           <td class="muted-cell">{{ r.note }}</td>
           <td>
             <form method="post" action="/pronunciations/{{ r.id }}/delete"

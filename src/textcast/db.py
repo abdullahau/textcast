@@ -900,6 +900,9 @@ def _to_rule(row: sqlite3.Row):
         pattern=row["pattern"],
         replacement=row["replacement"],
         is_phonemes=bool(row["is_phonemes"]),
+        # A library made before the column existed has no espeak spelling for
+        # anything, which is exactly what an empty string means.
+        espeak=(row["replacement_espeak"] if "replacement_espeak" in row.keys() else ""),
         ignore_case=bool(row["ignore_case"]),
         note=row["note"],
         sort_order=row["sort_order"],
@@ -928,6 +931,7 @@ def add_pronunciation(
     conn: sqlite3.Connection | None = None,
     *,
     is_phonemes: bool = False,
+    espeak: str = "",
     ignore_case: bool = False,
     note: str = "",
     sort_order: int = 100,
@@ -947,15 +951,17 @@ def add_pronunciation(
     cursor = conn.execute(
         """
         INSERT INTO pronunciation
-            (kind, pattern, replacement, is_phonemes, ignore_case, note, sort_order, builtin, added_at)
-        VALUES (?,?,?,?,?,?,?,?,?)
+            (kind, pattern, replacement, is_phonemes, replacement_espeak,
+             ignore_case, note, sort_order, builtin, added_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?)
         ON CONFLICT (kind, pattern) DO UPDATE SET
             replacement = excluded.replacement,
             is_phonemes = excluded.is_phonemes,
+            replacement_espeak = excluded.replacement_espeak,
             ignore_case = excluded.ignore_case,
             note        = excluded.note
         """,
-        (kind, pattern, replacement, int(is_phonemes), int(ignore_case),
+        (kind, pattern, replacement, int(is_phonemes), espeak.strip(), int(ignore_case),
          note, sort_order, int(builtin), now()),
     )
     invalidate()
@@ -965,7 +971,8 @@ def add_pronunciation(
 def update_pronunciation(rule_id: int, conn: sqlite3.Connection | None = None, **fields) -> None:
     from .pronounce import invalidate
 
-    allowed = {"pattern", "replacement", "note", "enabled", "is_phonemes", "ignore_case", "sort_order"}
+    allowed = {"pattern", "replacement", "replacement_espeak", "note", "enabled",
+               "is_phonemes", "ignore_case", "sort_order"}
     updates = {k: v for k, v in fields.items() if k in allowed}
     if not updates:
         return
@@ -1045,7 +1052,8 @@ def articles_matching(rule, conn: sqlite3.Connection | None = None, limit: int =
 #: What a rule is, on the way out and back in. `builtin` is deliberately not
 #: carried: it marks what shipped with the app, not what you meant.
 EXPORT_FIELDS = (
-    "kind", "pattern", "replacement", "is_phonemes", "ignore_case", "enabled", "note", "sort_order",
+    "kind", "pattern", "replacement", "is_phonemes", "replacement_espeak",
+    "ignore_case", "enabled", "note", "sort_order",
 )
 
 
@@ -1099,12 +1107,13 @@ def import_pronunciations(
             conn.execute(
                 """
                 INSERT INTO pronunciation
-                    (kind, pattern, replacement, is_phonemes, ignore_case, enabled,
-                     note, sort_order, builtin, added_at)
-                VALUES (?,?,?,?,?,?,?,?,0,?)
+                    (kind, pattern, replacement, is_phonemes, replacement_espeak,
+                     ignore_case, enabled, note, sort_order, builtin, added_at)
+                VALUES (?,?,?,?,?,?,?,?,?,0,?)
                 ON CONFLICT (kind, pattern) DO UPDATE SET
                     replacement = excluded.replacement,
                     is_phonemes = excluded.is_phonemes,
+                    replacement_espeak = excluded.replacement_espeak,
                     ignore_case = excluded.ignore_case,
                     enabled     = excluded.enabled,
                     note        = excluded.note,
@@ -1113,6 +1122,8 @@ def import_pronunciations(
                 (
                     kind, pattern, str(raw.get("replacement", "")),
                     int(bool(raw.get("is_phonemes", False))),
+                    # An export made before the column existed simply has none.
+                    str(raw.get("replacement_espeak", "")),
                     int(bool(raw.get("ignore_case", False))),
                     int(bool(raw.get("enabled", True))),
                     str(raw.get("note", "")),
@@ -1171,8 +1182,8 @@ def seed_pronunciations(conn: sqlite3.Connection | None = None, force: bool = Fa
             continue
         add_pronunciation(
             rule.kind, rule.pattern, rule.replacement, conn,
-            is_phonemes=rule.is_phonemes, note=rule.note,
-            sort_order=rule.sort_order, builtin=True,
+            is_phonemes=rule.is_phonemes, espeak=rule.espeak, note=rule.note,
+            ignore_case=rule.ignore_case, sort_order=rule.sort_order, builtin=True,
         )
         added += 1
 

@@ -43,6 +43,14 @@ class TTSEngine(Protocol):
     Engine-specific knobs belong in the constructor, never in ``synthesize``.
     That keeps this call signature identical across engines, so callers stay
     engine-agnostic and a second engine can be added without touching them.
+
+    Two attributes are optional, and deliberately not required here: this is
+    ``runtime_checkable``, so anything named in the body becomes a thing every
+    engine must carry. ``g2p`` names the phonemiser ("misaki" or "espeak") and
+    ``accepts_phonemes`` says whether ``[word](/ipa/)`` means anything to it.
+    Read both through ``tts.g2p_of``, which supplies misaki's answer for an
+    engine that declares neither — which is what every engine was when there
+    was only one.
     """
 
     name: str
@@ -68,6 +76,11 @@ class EngineSpec:
     description: str
     default_voice: str
     options: dict = field(default_factory=dict)
+    #: The engine's phonemiser, known without building it — the normaliser
+    #: needs it to choose a phoneme rule's spelling, and building an engine to
+    #: ask would load the weights.
+    g2p: str = "misaki"
+    accepts_phonemes: bool = True
 
 
 def silence(sample_rate: int, ms: int) -> np.ndarray:

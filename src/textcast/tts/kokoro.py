@@ -192,6 +192,10 @@ def shared_model(repo_id: str = "hexgrad/Kokoro-82M"):
 class KokoroEngine:
     name = "kokoro"
     sample_rate = 24000
+    #: misaki reads `[word](/ipa/)` itself and hands the phonemes straight to
+    #: the model, so a phoneme rule needs no help from this wrapper.
+    g2p = "misaki"
+    accepts_phonemes = True
 
     def __init__(
         self,

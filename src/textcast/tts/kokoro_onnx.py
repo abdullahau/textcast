@@ -59,18 +59,21 @@ _VOICES = [
 _LANGS = {"a": "en-us", "b": "en-gb"}
 
 #: A pronunciation rule may carry IPA, which ``pronounce.py`` emits as
-#: ``[word](/ipa/)`` — misaki's own markup, which it reads and removes. This
-#: engine's G2P has never heard of it, so it reads the whole thing aloud:
-#: "[LIBOR](/lˈIbɔɹ/)" came out as "libber slash el stress eye bee open-or
-#: turned-ar slash". The markup is stripped back to the word here, so an IPA
-#: rule is inert on this engine rather than absurd. The word is still spoken;
-#: it is simply spoken the way espeak reads it.
-_MISAKI_IPA = re.compile(r"\[([^\]]+)\]\(/[^)]*/\)")
+#: ``[word](/ipa/)``. That is *misaki's* markup: misaki reads it and hands the
+#: phonemes to the model. espeak has never heard of it and read the whole
+#: thing aloud — "[LIBOR](/lˈIbɔɹ/)" came out as "libber slash el stress eye
+#: bee open-or turned-ar slash", 3.7 s of audio for two words.
+#:
+#: So this engine does misaki's job itself: it phonemises the plain stretches
+#: and splices the rule's phonemes in between, then hands the whole string to
+#: the model as phonemes. The two engines share one phoneme vocabulary — 114
+#: symbols, checked — so a rule's IPA is valid input either way.
+_RULE_IPA = re.compile(r"\[([^\]]+)\]\(/([^)]*)/\)")
 
 
 def strip_ipa_markup(text: str) -> str:
-    """Take ``[word](/ipa/)`` back to ``word``."""
-    return _MISAKI_IPA.sub(r"\1", text)
+    """Take ``[word](/ipa/)`` back to ``word``, for anything that only reads."""
+    return _RULE_IPA.sub(r"\1", text)
 
 
 def model_paths(models_dir: Path | None = None) -> tuple[Path, Path]:
@@ -139,6 +142,10 @@ def shared_session(model: Path, threads: int | None = None):
 class KokoroOnnxEngine:
     name = "kokoro-onnx"
     sample_rate = 24000
+    #: espeak, not misaki, so a phoneme rule needs its espeak spelling. The
+    #: markup itself is handled here rather than by the G2P.
+    g2p = "espeak"
+    accepts_phonemes = True
 
     def __init__(
         self,
@@ -165,6 +172,7 @@ class KokoroOnnxEngine:
         # from having four instances.
         self._session = shared_session(model, threads)
         self._kokoro = Kokoro.from_session(self._session, str(voices_file))
+        self._tok = None
         # The session takes concurrent calls, but the wrapper around it keeps
         # state through a batch, so one call at a time per instance.
         self._lock = threading.Lock()
@@ -172,15 +180,48 @@ class KokoroOnnxEngine:
     def voices(self) -> list[Voice]:
         return voices(self.lang_code)
 
-    def phonemes(self, text: str, voice: str | None = None) -> str:
-        """What espeak makes of the text, for the pronunciation page.
-
-        Not the same answer the PyTorch engine gives: that one asks misaki,
-        which has its own dictionaries in front of espeak.
-        """
+    def _tokenizer(self):
         from kokoro_onnx.tokenizer import Tokenizer
 
-        return Tokenizer().phonemize(strip_ipa_markup(text), lang=self.language)
+        if self._tok is None:
+            self._tok = Tokenizer()
+        return self._tok
+
+    def phonemes(self, text: str, voice: str | None = None) -> str:
+        """What the model will actually be given, for the pronunciation page.
+
+        Not the same answer the PyTorch engine gives: that one asks misaki,
+        which has its own dictionaries in front of espeak. A phoneme rule's
+        own IPA passes through untouched, exactly as it will at synthesis.
+        """
+        return self._phonemise(text)
+
+    def _phonemise(self, text: str) -> str:
+        """espeak for the prose, the rule's own phonemes where a rule fired.
+
+        The stretches around a rule are phonemised on their own, so espeak
+        loses the words either side as context. That is the same bargain
+        misaki makes when it hands verbatim IPA through, and it is only ever a
+        word the author has already said the engine gets wrong.
+        """
+        parts = _RULE_IPA.split(text)
+        if len(parts) == 1:
+            return self._tokenizer().phonemize(text, lang=self.language)
+
+        # re.split with two groups yields plain, word, ipa, plain, word, ipa...
+        out: list[str] = []
+        for index in range(0, len(parts), 3):
+            plain = parts[index]
+            if plain:
+                out.append(self._tokenizer().phonemize(plain, lang=self.language))
+            if index + 2 < len(parts):
+                # A rule with no espeak spelling reaches here with an empty
+                # target; then the word itself is phonemised, as if no rule.
+                ipa = parts[index + 2].strip()
+                out.append(ipa or self._tokenizer().phonemize(parts[index + 1], lang=self.language))
+        # Phonemised separately, the pieces have no space between them, and a
+        # space is a word boundary to the model.
+        return " ".join(piece for piece in out if piece)
 
     def synthesize(
         self,
@@ -191,8 +232,8 @@ class KokoroOnnxEngine:
     ) -> Clip:
         with self._lock:
             samples, rate = self._kokoro.create(
-                strip_ipa_markup(text), voice=voice or "af_heart",
-                speed=speed, lang=self.language,
+                self._phonemise(text), voice=voice or "af_heart",
+                speed=speed, lang=self.language, is_phonemes=True,
             )
         samples = np.asarray(samples, dtype=np.float32)
         if rate != self.sample_rate:

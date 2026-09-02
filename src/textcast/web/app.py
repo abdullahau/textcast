@@ -33,7 +33,15 @@ from ..service import edit_blocks as save_block_edits
 from ..service import summarize as queue_summary
 from ..settings import get_settings
 from ..summarize import config as summaries_config
-from ..tts import ENGINES, available, catalogue, default_voice, loaded_engine, shared_engine
+from ..tts import (
+    ENGINES,
+    available,
+    catalogue,
+    default_voice,
+    g2p_of,
+    loaded_engine,
+    shared_engine,
+)
 
 log = logging.getLogger("textcast.web")
 
@@ -537,12 +545,22 @@ def api_say(
         return JSONResponse({"error": "nothing to say"}, status_code=400)
 
     chosen = voice_defaults()
-    spoken = normalize(raw) if apply_rules else raw
+    # /api/say is the one place that hears the rules, so it has to ask the
+    # engine that will speak them: a phoneme rule is written in one
+    # phonemiser's notation and does nothing in the other's.
+    g2p, takes_ipa = g2p_of(settings.engine)
+    spoken = normalize(raw, g2p=g2p, phonemes=takes_ipa) if apply_rules else raw
     # Word rules see the text after the shape transforms have run, so preview
     # has to start from the same place they do.
     hits = [
-        {"pattern": r.pattern, "matched": m, "replacement": r.replacement}
-        for r, m in preview(normalize(raw, rules=[]), active())
+        {
+            "pattern": r.pattern,
+            "matched": m,
+            "replacement": r.phonemes_for(g2p) or r.replacement,
+        }
+        for r, m in preview(
+            normalize(raw, rules=[], g2p=g2p, phonemes=takes_ipa), active(), g2p, takes_ipa
+        )
     ] if apply_rules else []
 
     try:
@@ -617,12 +635,14 @@ def pronunciations_add(
     replacement: str = Form(...),
     note: str = Form(default=""),
     is_phonemes: bool = Form(default=False),
+    replacement_espeak: str = Form(default=""),
     ignore_case: bool = Form(default=False),
 ):
     try:
         db.add_pronunciation(
             kind, pattern, replacement,
-            is_phonemes=is_phonemes, ignore_case=ignore_case, note=note,
+            is_phonemes=is_phonemes, espeak=replacement_espeak,
+            ignore_case=ignore_case, note=note,
         )
     except ValueError as exc:
         return _pronunciation_page(request, error=str(exc), sample=SAMPLE_TEXT)

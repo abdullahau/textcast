@@ -10,6 +10,16 @@ Each rule rewrites text on its way to the engine. Two flavours:
 * **Phonemes.** A last resort for a word no respelling reaches. The replacement
   is IPA, wrapped as ``[word](/ipa/)``, which misaki hands to Kokoro verbatim.
 
+A phoneme rule is the only one that is not engine-agnostic. misaki's notation
+is not standard IPA — capital ``A`` is the /eɪ/ of "day", ``I`` the /aɪ/ of
+"eye" — and the ONNX engine's G2P is espeak, which has never heard of it. So a
+phoneme rule carries **two** spellings of the same sound, one per G2P, and
+``substitution`` picks the one the target engine reads. A rule with no spelling
+for the engine in hand does not fire at all: the word is left as written and
+spoken however the engine reads it, which is wrong in a small way rather than
+absurd. An engine that cannot take injected phonemes at all skips every
+phoneme rule, which is the same outcome by a shorter road.
+
 Rules live in the database so they can be edited from the settings page, and
 they are cached in the worker because a build applies them thousands of times.
 """
@@ -26,6 +36,11 @@ log = logging.getLogger("textcast.pronounce")
 
 KINDS = ("word", "phrase", "regex")
 
+#: The two grapheme-to-phoneme paths an engine can take. Every engine declares
+#: which one it is, and a phoneme rule is written for one, the other, or both.
+G2P = ("misaki", "espeak")
+DEFAULT_G2P = "misaki"
+
 
 @dataclass(frozen=True)
 class Rule:
@@ -37,21 +52,40 @@ class Rule:
     note: str = ""
     sort_order: int = 100
     id: int | None = None
+    #: The same sound in espeak's notation, for a phoneme rule. Empty means
+    #: the rule has nothing to say to an espeak engine and will not fire there.
+    #: Ignored entirely when ``is_phonemes`` is false.
+    espeak: str = ""
+
+    def phonemes_for(self, g2p: str = DEFAULT_G2P) -> str:
+        """The IPA this rule offers that G2P, or an empty string."""
+        if not self.is_phonemes:
+            return ""
+        source = self.espeak if g2p == "espeak" else self.replacement
+        return source.strip().strip("/")
 
     def compile(self) -> re.Pattern | None:
         """Build the matching pattern, or None when it cannot be compiled."""
         return _compiled(self.kind, self.pattern, self.ignore_case)
 
-    def substitution(self) -> str:
+    def substitution(self, g2p: str = DEFAULT_G2P) -> str:
         r"""What to put in place of a match.
 
-        Phoneme rules keep the original text visible to misaki's tokeniser and
-        put the IPA in the link target, so ``\g<0>`` carries the match through.
+        Phoneme rules keep the original text visible to the tokeniser and put
+        the IPA in the link target, so ``\g<0>`` carries the match through.
+        A phoneme rule with nothing written for this G2P substitutes the match
+        for itself, which is the same as not firing.
         """
         if self.is_phonemes:
-            ipa = self.replacement.strip().strip("/")
-            return rf"[\g<0>](/{ipa}/)"
+            ipa = self.phonemes_for(g2p)
+            return rf"[\g<0>](/{ipa}/)" if ipa else r"\g<0>"
         return self.replacement
+
+    def fires_for(self, g2p: str = DEFAULT_G2P, phonemes: bool = True) -> bool:
+        """Whether this rule changes anything for that engine."""
+        if not self.is_phonemes:
+            return True
+        return phonemes and bool(self.phonemes_for(g2p))
 
 
 @lru_cache(maxsize=2048)
@@ -74,19 +108,38 @@ def _compiled(kind: str, pattern: str, ignore_case: bool) -> re.Pattern | None:
         return None
 
 
-def apply(text: str, rules: list[Rule]) -> str:
+def apply(
+    text: str,
+    rules: list[Rule],
+    g2p: str = DEFAULT_G2P,
+    phonemes: bool = True,
+) -> str:
+    """Rewrite the text for one engine.
+
+    ``g2p`` names the engine's phonemiser and ``phonemes`` says whether it can
+    take injected phonemes at all. A phoneme rule that has nothing for this
+    engine is skipped outright rather than substituted with itself, so it
+    cannot disturb a later rule's match.
+    """
     for rule in rules:
+        if not rule.fires_for(g2p, phonemes):
+            continue
         pattern = rule.compile()
         if pattern is None:
             continue
         try:
-            text = pattern.sub(rule.substitution(), text)
+            text = pattern.sub(rule.substitution(g2p), text)
         except re.error as exc:
             log.warning("rule %r failed to substitute: %s", rule.pattern, exc)
     return text
 
 
-def preview(text: str, rules: list[Rule]) -> list[tuple[Rule, list[str]]]:
+def preview(
+    text: str,
+    rules: list[Rule],
+    g2p: str = DEFAULT_G2P,
+    phonemes: bool = True,
+) -> list[tuple[Rule, list[str]]]:
     """Which rules fire, and what each one matched.
 
     Applied in order against the running result, not all against the original.
@@ -95,6 +148,8 @@ def preview(text: str, rules: list[Rule]) -> list[tuple[Rule, list[str]]]:
     """
     hits: list[tuple[Rule, list[str]]] = []
     for rule in rules:
+        if not rule.fires_for(g2p, phonemes):
+            continue
         pattern = rule.compile()
         if pattern is None:
             continue
@@ -102,7 +157,7 @@ def preview(text: str, rules: list[Rule]) -> list[tuple[Rule, list[str]]]:
         if found:
             hits.append((rule, found))
             try:
-                text = pattern.sub(rule.substitution(), text)
+                text = pattern.sub(rule.substitution(g2p), text)
             except re.error:
                 continue
     return hits
@@ -199,8 +254,15 @@ SAY_AS_WORD = {
 #: Phonemes, for the rare word a respelling makes worse rather than better.
 #: LIBOR is the one: Kokoro already says LIE-bor, and every plain respelling
 #: ("Libor", "lybor", "lie bore") lands somewhere else.
+#:
+#: Two spellings of one sound, because the two engines read different
+#: notations. misaki's capital ``I`` is the /aɪ/ of "eye"; espeak writes that
+#: out and marks its length, and reads a capital ``I`` as the letter. Both were
+#: measured rather than converted: espeak's own phonemisation of "lie bore" is
+#: ``lˈaɪ bˈɔːɹ``, which is where ``lˈaɪbɔːɹ`` comes from. Left to itself
+#: espeak says ``lˈɪbɚ``, "LIB-er", so the rule is worth as much there.
 PHONEME_HINTS = {
-    "LIBOR": "lˈIbɔɹ",
+    "LIBOR": ("lˈIbɔɹ", "lˈaɪbɔːɹ"),
 }
 
 #: Hyphens the engine reads as a pause rather than a join. Measured on Kokoro:
@@ -345,12 +407,13 @@ def builtin_rules() -> list[Rule]:
             sort_order=30,
         ))
 
-    for token, ipa in PHONEME_HINTS.items():
+    for token, (misaki_ipa, espeak_ipa) in PHONEME_HINTS.items():
         add(Rule(
             kind="word",
             pattern=token,
-            replacement=ipa,
+            replacement=misaki_ipa,
             is_phonemes=True,
+            espeak=espeak_ipa,
             note="phonemes, where no respelling reaches it",
             sort_order=30,
         ))

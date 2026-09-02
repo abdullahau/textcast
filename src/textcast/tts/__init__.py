@@ -31,6 +31,7 @@ ENGINES: dict[str, EngineSpec] = {
         requires="kokoro",
         description="Kokoro-82M — StyleTTS2, 20 American and 8 British voices",
         default_voice="af_heart",
+        g2p="misaki",
     ),
     # The same weights without torch. Registered whether or not its model
     # files are present: `is_installed` tests the package, and the engine
@@ -43,6 +44,7 @@ ENGINES: dict[str, EngineSpec] = {
         requires="kokoro_onnx",
         description="Kokoro-82M through onnxruntime — the same voices, no PyTorch",
         default_voice="af_heart",
+        g2p="espeak",
     ),
 }
 
@@ -157,6 +159,23 @@ def available() -> dict[str, bool]:
     return {name: is_installed(spec) for name, spec in ENGINES.items()}
 
 
+def g2p_of(engine) -> tuple[str, bool]:
+    """An engine's phonemiser and whether it takes injected phonemes.
+
+    Takes an instance or a name, because the normaliser is called from places
+    that have one or the other, and neither should have to build an engine to
+    find out. Anything that declares nothing is assumed to be misaki's, which
+    is what every engine was before there were two.
+    """
+    if isinstance(engine, str):
+        spec = ENGINES.get(engine)
+        return (spec.g2p, spec.accepts_phonemes) if spec else ("misaki", True)
+    return (
+        getattr(engine, "g2p", "misaki"),
+        bool(getattr(engine, "accepts_phonemes", True)),
+    )
+
+
 def default_voice(name: str) -> str:
     spec = ENGINES.get(name)
     return spec.default_voice if spec else ""
@@ -173,6 +192,7 @@ __all__ = [
     "available",
     "catalogue",
     "default_voice",
+    "g2p_of",
     "get_engine",
     "is_installed",
     "loaded_engine",

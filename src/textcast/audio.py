@@ -22,7 +22,7 @@ from pathlib import Path
 import numpy as np
 
 from .document import OPTIONAL_KINDS, Article, Block, BlockKind
-from .tts import TTSEngine, silence
+from .tts import TTSEngine, g2p_of, silence
 
 ProgressFn = Callable[[int, int, str], None]
 
@@ -260,6 +260,12 @@ def render_article(
         included_kinds=sorted(str(k) for k in include),
     )
 
+    # A phoneme rule is written in one phonemiser's notation, so the text
+    # handed to the engine depends on which engine it is. Read once, not per
+    # block. The block cache is keyed on the engine name, so the two never
+    # share a render.
+    g2p, takes_ipa = g2p_of(engine)
+
     done = 0
     counter = threading.Lock()
     for section in article.sections:
@@ -272,7 +278,7 @@ def render_article(
             # A quote in a second voice reads better than saying "start quote".
             use_quote_voice = block.kind is BlockKind.QUOTE and quote_voice
             block_voice = quote_voice if use_quote_voice else voice
-            text = block.spoken(quote_markers=not use_quote_voice)
+            text = block.spoken(quote_markers=not use_quote_voice, g2p=g2p, phonemes=takes_ipa)
 
             # One engine per worker: the pipelines are not safe to share.
             worker = engines[index % len(engines)] if len(engines) > 1 else engine

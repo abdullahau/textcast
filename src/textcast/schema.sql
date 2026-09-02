@@ -135,6 +135,10 @@ CREATE TABLE IF NOT EXISTS pronunciation (
     replacement  TEXT    NOT NULL,
     -- 1 when the replacement is IPA, wrapped as [match](/ipa/) for misaki.
     is_phonemes  INTEGER NOT NULL DEFAULT 0,
+    -- The same sound in espeak's notation, for an engine whose G2P is espeak
+    -- rather than misaki. misaki's capital A is /eI/ and its I is /aI/, which
+    -- espeak reads as the letters. Empty means the rule does not fire there.
+    replacement_espeak TEXT NOT NULL DEFAULT '',
     ignore_case  INTEGER NOT NULL DEFAULT 0,
     enabled      INTEGER NOT NULL DEFAULT 1,
     note         TEXT    NOT NULL DEFAULT '',

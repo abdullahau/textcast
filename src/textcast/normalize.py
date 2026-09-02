@@ -147,12 +147,21 @@ def _year_range(match: re.Match) -> str:
     return f"{start} to {end}"
 
 
-def normalize(text: str, rules: list[pronounce.Rule] | None = None) -> str:
+def normalize(
+    text: str,
+    rules: list[pronounce.Rule] | None = None,
+    g2p: str = pronounce.DEFAULT_G2P,
+    phonemes: bool = True,
+) -> str:
     """Rewrite one block of text for speech.
 
     Two layers. The structural transforms below handle anything with a shape —
     money, percentages, quarters, spans — because those need a callback, not a
     lookup. Word-level rules then come from the pronunciation table.
+
+    Everything here is engine-agnostic except a phoneme rule, which is written
+    in one G2P's notation. ``g2p`` names the target engine's, and ``phonemes``
+    is False for an engine that cannot take injected phonemes at all.
     """
     if not text:
         return text
@@ -192,7 +201,9 @@ def normalize(text: str, rules: list[pronounce.Rule] | None = None) -> str:
 
     # Word-level rules come from the database, so they can be edited on the
     # settings page rather than only here.
-    text = pronounce.apply(text, rules if rules is not None else pronounce.active())
+    text = pronounce.apply(
+        text, rules if rules is not None else pronounce.active(), g2p, phonemes
+    )
 
     # Pauses on both sides keep the aside from running into the sentence.
     text = FOOTNOTE.sub(r"... Footnote \1. \2. ...", text)

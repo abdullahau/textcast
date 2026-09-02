@@ -303,3 +303,67 @@ def test_only_the_initialisms_the_phonemiser_gets_wrong_have_rules():
 
     # The ones kept are where misaki says a real word instead of the letters.
     assert apply("Return on equity, or ROE, fell.", rules) == "Return on equity, or R O E, fell."
+
+
+# -- one sound, two notations ---------------------------------------------
+
+
+def test_a_phoneme_rule_carries_a_spelling_for_each_phonemiser():
+    """misaki's notation is not IPA — its capital I is the /aɪ/ of "eye" —
+    and espeak reads that as the letter. One sound, two spellings."""
+    rule = Rule(
+        kind="word", pattern="LIBOR", replacement="lˈIbɔɹ",
+        is_phonemes=True, espeak="lˈaɪbɔːɹ",
+    )
+
+    assert rule.substitution("misaki") == r"[\g<0>](/lˈIbɔɹ/)"
+    assert rule.substitution("espeak") == r"[\g<0>](/lˈaɪbɔːɹ/)"
+
+
+def test_a_phoneme_rule_with_nothing_for_this_engine_does_not_fire():
+    """Handing misaki's markup to espeak made it read the notation aloud —
+    "libber slash el stress eye bee open-or turned-ar slash"."""
+    rule = Rule(kind="word", pattern="LIBOR", replacement="lˈIbɔɹ", is_phonemes=True)
+
+    assert rule.fires_for("misaki") is True
+    assert rule.fires_for("espeak") is False
+    assert apply("The LIBOR rate", [rule], g2p="espeak") == "The LIBOR rate"
+    assert "[LIBOR]" in apply("The LIBOR rate", [rule], g2p="misaki")
+
+
+def test_an_engine_that_takes_no_phonemes_gets_only_the_other_rules():
+    """The safety net for an engine that understands no phoneme markup at all:
+    every IPA rule is dropped and every respelling still lands."""
+    ipa = Rule(kind="word", pattern="LIBOR", replacement="lˈIbɔɹ",
+               is_phonemes=True, espeak="lˈaɪbɔːɹ")
+    respelling = Rule(kind="word", pattern="GAAP", replacement="gap")
+
+    out = apply("GAAP and LIBOR", [respelling, ipa], g2p="misaki", phonemes=False)
+
+    assert out == "gap and LIBOR", "the respelling fired, the phonemes did not"
+    assert "[LIBOR]" not in out
+
+
+def test_a_respelling_is_the_same_rule_for_every_engine():
+    """Only a phoneme rule is written in a notation. This is why respellings
+    are the first choice and phonemes the last."""
+    rule = Rule(kind="word", pattern="GAAP", replacement="gap")
+
+    for g2p in ("misaki", "espeak"):
+        assert apply("Under GAAP", [rule], g2p=g2p) == "Under gap"
+        assert rule.fires_for(g2p, phonemes=False) is True
+
+
+def test_every_shipped_phoneme_rule_speaks_both_notations():
+    """A built-in that only misaki can read is a rule that quietly stops
+    working the moment the engine is switched."""
+    from textcast.pronounce import builtin_rules
+
+    phoneme_rules = [r for r in builtin_rules() if r.is_phonemes]
+
+    assert phoneme_rules, "there is at least one, and it is LIBOR"
+    for rule in phoneme_rules:
+        assert rule.espeak, f"{rule.pattern} has no espeak spelling"
+        # espeak writes diphthongs out; misaki's capitals would be read as
+        # letters, so finding one here means the notations were swapped.
+        assert not set(rule.espeak) & set("AIOWY"), rule.pattern
