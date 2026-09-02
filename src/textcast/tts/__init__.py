@@ -1,8 +1,12 @@
 """Engine registry.
 
-One engine ships today, and it is still declared here rather than imported
-directly: the wrapper is loaded lazily, so a process that never synthesises
-never pays for PyTorch, and ``is_installed`` can answer without importing it.
+An engine is declared here rather than imported: the wrapper is loaded lazily,
+so a process that never synthesises never pays for PyTorch, and
+``is_installed`` can answer without importing it.
+
+Two engines run the same Kokoro v1.0 weights — one through torch, one through
+onnxruntime — and their voice ids are identical. The names are not: an ONNX
+voice says so, because "Heart" twice in one list is not a choice.
 
 Instances are expensive — building one loads an 82M-parameter model — so
 ``shared_engine`` keeps one per process and hands it back to every caller.
@@ -26,6 +30,18 @@ ENGINES: dict[str, EngineSpec] = {
         extra="kokoro",
         requires="kokoro",
         description="Kokoro-82M — StyleTTS2, 20 American and 8 British voices",
+        default_voice="af_heart",
+    ),
+    # The same weights without torch. Registered whether or not its model
+    # files are present: `is_installed` tests the package, and the engine
+    # says what is missing when it is built.
+    "kokoro-onnx": EngineSpec(
+        name="kokoro-onnx",
+        module="textcast.tts.kokoro_onnx",
+        cls="KokoroOnnxEngine",
+        extra="kokoro-onnx",
+        requires="kokoro_onnx",
+        description="Kokoro-82M through onnxruntime — the same voices, no PyTorch",
         default_voice="af_heart",
     ),
 }

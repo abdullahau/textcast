@@ -112,8 +112,8 @@ def test_the_gap_between_blocks_is_the_gap_that_was_asked_for(tmp_path):
 
 
 def test_registry_reports_and_rejects():
-    assert set(ENGINES) == {"kokoro"}
-    assert set(available()) == {"kokoro"}
+    assert set(ENGINES) == {"kokoro", "kokoro-onnx"}
+    assert set(available()) == {"kokoro", "kokoro-onnx"}
     with pytest.raises(ValueError, match="Unknown TTS engine"):
         get_engine("nope")
 
@@ -328,3 +328,33 @@ def test_only_the_named_warnings_are_silenced():
 
     engine._quieted = False
     assert [str(w.message) for w in caught] == ["phonemizer words count mismatch"]
+
+
+def test_the_onnx_voices_say_which_engine_they_are():
+    """Both engines run the same weights and the same voice ids. A picker
+    offering "Heart" twice is not offering a choice."""
+    from textcast.tts import kokoro, kokoro_onnx
+
+    torch_ids = {v.id for v in kokoro.voices()}
+    onnx = kokoro_onnx.voices()
+
+    assert {v.id for v in onnx} == torch_ids, "the ids are the same by design"
+    assert all(v.name.endswith("(ONNX)") for v in onnx)
+    assert not any(v.name.endswith("(ONNX)") for v in kokoro.voices())
+
+
+def test_misaki_ipa_markup_never_reaches_the_onnx_engine():
+    """`[LIBOR](/lˈIbɔɹ/)` is misaki's own notation. espeak reads it aloud —
+    "libber slash el stress eye bee open-or turned-ar slash"."""
+    from textcast.tts.kokoro_onnx import strip_ipa_markup
+
+    assert strip_ipa_markup("[LIBOR](/lˈIbɔɹ/) rates") == "LIBOR rates"
+    assert strip_ipa_markup("no markup here") == "no markup here"
+    assert strip_ipa_markup("[a](/x/) and [b](/y/)") == "a and b"
+
+
+def test_the_onnx_engine_says_what_is_missing_rather_than_failing_late(tmp_path):
+    from textcast.tts.kokoro_onnx import KokoroOnnxEngine
+
+    with pytest.raises(FileNotFoundError, match="kokoro-v1.0.onnx"):
+        KokoroOnnxEngine(models_dir=tmp_path)

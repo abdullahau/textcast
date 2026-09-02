@@ -33,7 +33,7 @@ from ..service import edit_blocks as save_block_edits
 from ..service import summarize as queue_summary
 from ..settings import get_settings
 from ..summarize import config as summaries_config
-from ..tts import catalogue, default_voice, loaded_engine, shared_engine
+from ..tts import ENGINES, available, catalogue, default_voice, loaded_engine, shared_engine
 
 log = logging.getLogger("textcast.web")
 
@@ -295,6 +295,7 @@ def reader(request: Request, slug: str, edit: bool = False, edited: int = 0, rem
     ).fetchone()
     options = db.get_build_options(row["id"], conn)
     chosen = voice_defaults(conn)
+    build_engine = options.get("engine") or settings.engine
     has_summary = any(b.kind is BlockKind.SUMMARY for _s, b in article.blocks())
     # A pass can land some sections and not others, so "has a summary" and
     # "is summarised" are two different questions.
@@ -319,7 +320,10 @@ def reader(request: Request, slug: str, edit: bool = False, edited: int = 0, rem
         tags=db.tags_for(row["id"], conn),
         all_tags=db.list_tags(conn),
         build=options,
-        voices=_voices(),
+        voices=_voices(build_engine),
+        engines=_engines(),
+        voices_by_engine=_voices_by_engine(),
+        selected_engine=build_engine,
         default_voice=chosen.voice or "default",
         default_quote_voice=chosen.quote_voice,
         speeds=SPEEDS,
@@ -367,8 +371,33 @@ def _voices_cached(engine: str) -> tuple:
         return ()
 
 
-def _voices() -> list:
-    return list(_voices_cached(settings.engine))
+def _voices(engine: str | None = None) -> list:
+    return list(_voices_cached(engine or settings.engine))
+
+
+def _engines() -> list[dict]:
+    """The engines that could build right now, most preferred first.
+
+    Two of them run the same weights, so the description is what tells them
+    apart on the page — as the voice names do in the picker.
+    """
+    ready = available()
+    listed = [
+        {"id": name, "description": spec.description}
+        for name, spec in ENGINES.items()
+        if ready.get(name)
+    ]
+    listed.sort(key=lambda e: e["id"] != settings.engine)
+    return listed
+
+
+def _voices_by_engine() -> dict[str, list]:
+    """Every installed engine's voices, keyed by engine.
+
+    The picker shows one engine's at a time; the page carries them all so
+    changing the engine does not cost a round trip.
+    """
+    return {e["id"]: _voices(e["id"]) for e in _engines()}
 
 
 # --------------------------------------------------------------------------
@@ -768,9 +797,14 @@ def _build_options(
     summarize: bool = False,
     skip_summaries: bool = False,
     speed: str = "",
+    engine: str = "",
 ) -> dict:
     """Only what was actually chosen; blanks mean "use the default"."""
     options = {"voice": voice.strip(), "quote_voice": quote_voice.strip()}
+    # An unregistered name is silently dropped rather than saved and warned
+    # about on every later build.
+    if engine.strip() in ENGINES:
+        options["engine"] = engine.strip()
     options = {k: v for k, v in options.items() if v}
     try:
         # A pace of 1.0 is the default, so storing it would only be noise.
@@ -956,9 +990,11 @@ def api_rebuild(
     skip_footnotes: bool = Form(default=False),
     skip_summaries: bool = Form(default=False),
     speed: str = Form(default=""),
+    engine: str = Form(default=""),
 ):
     options = _build_options(
-        voice, quote_voice, skip_footnotes, skip_summaries=skip_summaries, speed=speed
+        voice, quote_voice, skip_footnotes, skip_summaries=skip_summaries,
+        speed=speed, engine=engine,
     )
     # Remember the choice, so a later rebuild does not silently revert.
     db.set_build_options(article_id, options)

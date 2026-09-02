@@ -97,6 +97,16 @@ class Settings:
     def source_dir(self) -> Path:
         return self.data_dir / "sources"
 
+    @property
+    def models_dir(self) -> Path:
+        """Weights that do not come from Hugging Face.
+
+        Kokoro's ONNX export is published as a GitHub release, not a hub repo,
+        so it has nowhere else to live. Two files, and nothing writes here at
+        runtime.
+        """
+        return self.data_dir / "models"
+
     def engine_options(self) -> dict:
         """Constructor arguments for the engine, from the environment."""
         return {"threads": self.threads} if self.threads else {}

@@ -19,11 +19,11 @@ WORKDIR /app
 # Dependencies first: this layer survives every source-only change.
 COPY pyproject.toml uv.lock README.md LICENSE ./
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-install-project --no-dev --extra kokoro --extra web --extra documents --extra summaries
+    uv sync --frozen --no-install-project --no-dev --extra kokoro --extra kokoro-onnx --extra web --extra documents --extra summaries
 
 COPY src/ ./src/
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev --extra kokoro --extra web --extra documents --extra summaries
+    uv sync --frozen --no-dev --extra kokoro --extra kokoro-onnx --extra web --extra documents --extra summaries
 
 # --- warm the model cache into the image -----------------------------------
 ARG BAKE_MODEL=1

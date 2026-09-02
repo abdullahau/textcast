@@ -17,7 +17,7 @@ def client(settings, monkeypatch):
     """A client whose app reads this test's settings, and never loads a model."""
     monkeypatch.setattr(web, "settings", settings)
     # Listing voices builds an engine. No test here needs the voice picker.
-    monkeypatch.setattr(web, "_voices", lambda: [])
+    monkeypatch.setattr(web, "_voices", lambda *a: [])
     db.init(settings.db_path)
     with TestClient(web.app) as running:
         yield running
@@ -133,7 +133,7 @@ def test_the_reading_pace_picker_opens_at_the_normal_pace(client, conn, monkeypa
     """%g wrote 1.0 as "1", which matched no option, so the picker opened at 0.8x."""
     from textcast.document import Article, Block, BlockKind, Section
 
-    monkeypatch.setattr(web, "_voices", lambda: [])
+    monkeypatch.setattr(web, "_voices", lambda *a: [])
     doc = Article(title="A paced note", sections=[Section(title="One", blocks=[
         Block(kind=BlockKind.PARA, text="The body of it."),
     ])]).renumber()
@@ -150,7 +150,7 @@ def test_the_reading_pace_picker_opens_at_the_normal_pace(client, conn, monkeypa
 def test_the_quote_voice_hint_is_a_button_not_a_wall_of_text(client, conn, monkeypatch):
     from textcast.document import Article, Block, BlockKind, Section
 
-    monkeypatch.setattr(web, "_voices", lambda: [])
+    monkeypatch.setattr(web, "_voices", lambda *a: [])
     doc = Article(title="A hinted note", sections=[Section(title="One", blocks=[
         Block(kind=BlockKind.PARA, text="The body of it."),
     ])]).renumber()
@@ -158,7 +158,9 @@ def test_the_quote_voice_hint_is_a_button_not_a_wall_of_text(client, conn, monke
 
     body = client.get("/a/a-hinted-note").text
 
-    assert body.count('<span class="tip">') == 2, "one by quote voice, one by the actions"
+    # Two always, and a third by the engine picker when more than one engine
+    # is installed — which depends on the machine, so this counts the floor.
+    assert body.count('<span class="tip">') >= 2, "one by quote voice, one by the actions"
     assert "Start quote" in body
     # Hover and focus, not click: a details element took two taps on a phone.
     assert "<details" not in body
@@ -169,7 +171,7 @@ def test_the_quote_voice_hint_is_a_button_not_a_wall_of_text(client, conn, monke
 def test_the_reader_offers_star_and_archive_above_the_article(client, conn, monkeypatch):
     from textcast.document import Article, Block, BlockKind, Section
 
-    monkeypatch.setattr(web, "_voices", lambda: [])
+    monkeypatch.setattr(web, "_voices", lambda *a: [])
     doc = Article(title="A note", sections=[Section(title="One", blocks=[
         Block(kind=BlockKind.PARA, text="The body of it."),
     ])]).renumber()
@@ -188,7 +190,7 @@ def test_the_reader_polls_while_a_summary_runs(client, conn, monkeypatch):
     progress bar sat at zero until the page was reloaded by hand."""
     from textcast.document import Article, Block, BlockKind, Section
 
-    monkeypatch.setattr(web, "_voices", lambda: [])
+    monkeypatch.setattr(web, "_voices", lambda *a: [])
     doc = Article(title="Running", sections=[Section(title="One", blocks=[
         Block(kind=BlockKind.PARA, text="The body of it."),
     ])]).renumber()
@@ -226,7 +228,7 @@ def test_a_failed_summary_says_so_on_the_article(client, conn, monkeypatch):
     and the card was tied to that, so the page showed nothing at all."""
     from textcast.document import Article, Block, BlockKind, Section
 
-    monkeypatch.setattr(web, "_voices", lambda: [])
+    monkeypatch.setattr(web, "_voices", lambda *a: [])
     doc = Article(title="Half done", sections=[
         Section(title="One", blocks=[
             Block(kind=BlockKind.SUMMARY, text="In short."),
@@ -346,7 +348,7 @@ def test_adding_something_does_not_start_a_build(client, conn):
 
 
 def test_a_new_article_offers_the_build_above_its_text(client, conn, monkeypatch):
-    monkeypatch.setattr(web, "_voices", lambda: [])
+    monkeypatch.setattr(web, "_voices", lambda *a: [])
     client.post("/api/ingest", data={"kind": "text", "title": "Fresh", "text": "A note.\n\nTwo paragraphs."})
 
     body = client.get("/a/fresh").text
@@ -362,7 +364,7 @@ def test_an_article_that_already_has_summaries_is_not_offered_them_again(client,
     """And the modify card goes back below the text, leaving only the build."""
     from textcast.document import Article, Block, BlockKind, Section
 
-    monkeypatch.setattr(web, "_voices", lambda: [])
+    monkeypatch.setattr(web, "_voices", lambda *a: [])
     doc = Article(title="Already done", sections=[Section(title="One", blocks=[
         Block(kind=BlockKind.SUMMARY, text="In short, this."),
         Block(kind=BlockKind.PARA, text="The body of it."),
@@ -418,7 +420,7 @@ def test_the_author_can_be_corrected_by_hand(client, conn, monkeypatch):
     find one, so the field is editable either way."""
     from textcast.document import Article, Block, BlockKind, Section
 
-    monkeypatch.setattr(web, "_voices", lambda: [])
+    monkeypatch.setattr(web, "_voices", lambda *a: [])
     doc = Article(title="Anonymous note", sections=[Section(title="One", blocks=[
         Block(kind=BlockKind.PARA, text="The body of it."),
     ])]).renumber()
@@ -504,7 +506,7 @@ def test_the_text_can_be_edited_by_hand(client, conn, monkeypatch):
     move, so the audio and its timings stay valid — only out of date."""
     from textcast.document import Article, Block, BlockKind, Section
 
-    monkeypatch.setattr(web, "_voices", lambda: [])
+    monkeypatch.setattr(web, "_voices", lambda *a: [])
     doc = Article(title="Needs a fix", sections=[Section(title="One", blocks=[
         Block(kind=BlockKind.PARA, text="Frist paragrpah with typos."),
         Block(kind=BlockKind.PARA, text="A line the page should not have kept."),
@@ -546,7 +548,7 @@ def test_a_block_can_be_removed_outright(client, conn, monkeypatch):
     one moves every id after it, so the audio has to go with it."""
     from textcast.document import Article, Block, BlockKind, Section
 
-    monkeypatch.setattr(web, "_voices", lambda: [])
+    monkeypatch.setattr(web, "_voices", lambda *a: [])
     doc = Article(title="Has junk in it", sections=[Section(title="One", blocks=[
         Block(kind=BlockKind.PARA, text="Sign up for our newsletter here."),
         Block(kind=BlockKind.PARA, text="The first real paragraph of the piece."),

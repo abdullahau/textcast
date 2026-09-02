@@ -24,6 +24,13 @@ kokoro = [
     # both wrong inside a container.
     "en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl",
 ]
+# The same Kokoro weights, exported to ONNX and run by onnxruntime. No torch,
+# no spaCy, no transformers: about 40 MB of wheels against 1.4 GB. It brings
+# its own G2P (espeak through phonemizer) rather than misaki, so it is a
+# different pronunciation path, not only a different runtime.
+kokoro-onnx = [
+    "kokoro-onnx>=0.6",
+]
 web = [
     "fastapi>=0.141",
     "jinja2>=3.1",

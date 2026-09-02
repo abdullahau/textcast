@@ -58,11 +58,22 @@
     </p>
     <form method="post" action="/api/articles/{{ row.id }}/rebuild">
       <div class="row">
+        {% if engines|length > 1 %}
+        <div>
+          <div class="titled">
+            <label for="engine">Engine</label>
+            <span class="tip"><button type="button" class="q" aria-label="What the engine changes">?</button><span class="tip-body" role="tooltip">Both engines run the same Kokoro weights and offer the same voices, so a voice sounds like itself either way. What differs is how the words are turned into sounds before the model sees them: the PyTorch engine asks misaki, the ONNX engine asks espeak. Every pronunciation rule here was measured against misaki, and a rule written in IPA has no effect on the ONNX engine at all.</span></span>
+          </div>
+          <select name="engine" id="engine">
+            {% for e in engines %}<option value="{{ e.id }}" {{ 'selected' if e.id == selected_engine }}>{{ e.id }}</option>{% endfor %}
+          </select>
+        </div>
+        {% endif %}
         <div>
           <label for="voice">Voice</label>
           <select name="voice" id="voice">
             <option value="">Default ({{ default_voice }})</option>
-            {% for v in voices %}<option value="{{ v.id }}" {{ 'selected' if v.id == build.get('voice') }}>{{ v.name }} · {{ v.gender }}</option>{% endfor %}
+            {% for name, list in voices_by_engine.items() %}{% for v in list %}<option value="{{ v.id }}" data-engine="{{ name }}" {{ 'hidden disabled' if name != selected_engine }} {{ 'selected' if v.id == build.get('voice') and name == selected_engine }}>{{ v.name }} · {{ v.gender }}</option>{% endfor %}{% endfor %}
           </select>
         </div>
         <div>
@@ -72,7 +83,7 @@
           </div>
           <select name="quote_voice" id="quote_voice">
             <option value="">Same voice, spoken cues</option>
-            {% for v in voices %}<option value="{{ v.id }}" {{ 'selected' if v.id == build.get('quote_voice') }}>{{ v.name }} · {{ v.gender }}</option>{% endfor %}
+            {% for name, list in voices_by_engine.items() %}{% for v in list %}<option value="{{ v.id }}" data-engine="{{ name }}" {{ 'hidden disabled' if name != selected_engine }} {{ 'selected' if v.id == build.get('quote_voice') and name == selected_engine }}>{{ v.name }} · {{ v.gender }}</option>{% endfor %}{% endfor %}
           </select>
         </div>
         <div>
@@ -343,6 +354,34 @@
 {% endif %}
 {% if row.status in ('queued', 'building') or running %}
 <script src="/static/progress.js?v={{ assets }}" defer></script>
+{% endif %}
+{% if engines|length > 1 %}
+<script>
+/* The two engines share every voice id, so the picker shows one engine's
+   voices at a time. Hidden alone is not enough — a hidden option is still
+   selectable by keyboard — so they are disabled too, and a selection that
+   goes out of scope falls back to the engine's default. */
+(function () {
+  var engine = document.getElementById("engine");
+  if (!engine) return;
+  var pickers = [document.getElementById("voice"), document.getElementById("quote_voice")];
+
+  engine.addEventListener("change", function () {
+    pickers.forEach(function (select) {
+      if (!select) return;
+      var chosen = false;
+      Array.prototype.forEach.call(select.options, function (opt) {
+        var mine = !opt.dataset.engine || opt.dataset.engine === engine.value;
+        opt.hidden = !mine;
+        opt.disabled = !mine;
+        if (opt.selected && !mine) opt.selected = false;
+        if (opt.selected) chosen = true;
+      });
+      if (!chosen) select.selectedIndex = 0;
+    });
+  });
+})();
+</script>
 {% endif %}
 <script src="/static/tags.js?v={{ assets }}" defer></script>
 {% endblock %}
