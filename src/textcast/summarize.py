@@ -25,8 +25,8 @@ from __future__ import annotations
 
 import logging
 import os
-from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass, field
 
 from .document import Article, Block, BlockKind
 
@@ -212,56 +212,120 @@ def summarize_text(text: str, cfg: Config | None = None, client=None) -> str:
     return (choices[0].message.content or "").strip()
 
 
+@dataclass(frozen=True)
+class SectionOutcome:
+    """One section's turn at the model, reported the moment it resolves."""
+
+    index: int          #: which section of the article, not which call
+    done: int           #: how many of the calls have resolved
+    total: int          #: how many calls were sent
+    added: int          #: how many summaries have landed so far
+    failed: int         #: how many sections have failed so far
+    title: str = ""
+    error: str = ""
+
+
+@dataclass(frozen=True)
+class SummaryRun:
+    """What a whole pass over an article came to."""
+
+    total: int = 0
+    added: int = 0
+    errors: list[str] = field(default_factory=list)
+
+    @property
+    def failed(self) -> int:
+        return len(self.errors)
+
+
 def summarize_article(
     article: Article,
     cfg: Config | None = None,
     client=None,
-    progress=None,
+    on_section=None,
     replace: bool = False,
-) -> int:
-    """Put a summary block at the head of every section. Returns how many.
+) -> SummaryRun:
+    """Put a summary block at the head of every section. Returns what happened.
 
     Written onto the article in place; the caller stores it. A section that
     already has one is left alone, so running this twice costs nothing —
     unless ``replace`` is set, which drops the old summaries first and asks
     the model again for every section.
+
+    **One section's failure costs only that section.** The sections go out
+    together and each is caught on its own, because the usual failure is a
+    free tier's rate limit, which hits some of the calls and not the rest.
+    ``on_section`` is called as each one resolves, on this thread, with the
+    block already in the article — so the caller can store what has arrived
+    rather than waiting for a pass that may never finish cleanly.
+
+    With ``replace``, a section whose new call fails keeps the summary it
+    already had. Losing text to a rate limit would be the worst of both.
     """
     cfg = cfg or config()
     client = client or _client(cfg)
 
+    previous: dict[int, str] = {}
     if replace:
-        for section in article.sections:
+        for index, section in enumerate(article.sections):
+            for block in section.blocks:
+                if block.kind is BlockKind.SUMMARY:
+                    previous[index] = block.text
+                    break
             section.blocks = [b for b in section.blocks if b.kind is not BlockKind.SUMMARY]
 
-    targets = [
-        section
-        for section in article.sections
+    sent = [
+        (index, section)
+        for index, section in enumerate(article.sections)
         if any(b.kind is not BlockKind.SUMMARY for b in section.blocks)
         and not any(b.kind is BlockKind.SUMMARY for b in section.blocks)
     ]
-    if not targets:
-        return 0
+    if not sent:
+        return SummaryRun()
 
-    def work(item: tuple[int, object]) -> tuple[int, str]:
-        index, section = item
+    def work(section) -> str:
         text = "\n\n".join(
             b.text for b in section.blocks if b.kind is not BlockKind.HEADING
         )
-        return index, summarize_text(text, cfg, client)
-
-    items = list(enumerate(targets))
-    with ThreadPoolExecutor(max_workers=min(MAX_PARALLEL, len(items))) as pool:
-        results = dict(pool.map(work, items))
+        return summarize_text(text, cfg, client)
 
     added = 0
-    for index, section in items:
-        summary = results.get(index, "")
-        if progress:
-            progress(index + 1, len(items))
-        if not summary:
-            continue
-        section.blocks.insert(0, Block(kind=BlockKind.SUMMARY, text=summary))
-        added += 1
+    errors: list[str] = []
+    with ThreadPoolExecutor(max_workers=min(MAX_PARALLEL, len(sent))) as pool:
+        futures = {pool.submit(work, section): (index, section) for index, section in sent}
+        for done, future in enumerate(as_completed(futures), start=1):
+            index, section = futures[future]
+            name = section.title or f"section {index + 1}"
+            summary, error = "", ""
+            try:
+                summary = future.result()
+                if not summary:
+                    error = f"{cfg.model} returned an empty summary"
+            except SummaryError as exc:
+                error = str(exc)
+            except Exception as exc:
+                # A client of the caller's own making may raise anything.
+                error = f"{type(exc).__name__}: {exc}"
 
-    article.renumber()
-    return added
+            if summary:
+                section.blocks.insert(0, Block(kind=BlockKind.SUMMARY, text=summary))
+                added += 1
+            else:
+                errors.append(f"{name}: {error[:200]}")
+                log.warning("summary failed for %s: %s", name, error)
+                if index in previous:
+                    section.blocks.insert(0, Block(kind=BlockKind.SUMMARY, text=previous[index]))
+            article.renumber()
+
+            if on_section:
+                on_section(SectionOutcome(
+                    index=index,
+                    done=done,
+                    total=len(sent),
+                    added=added,
+                    failed=len(errors),
+                    title=name,
+                    error=error,
+                ))
+
+    return SummaryRun(total=len(sent), added=added, errors=errors)

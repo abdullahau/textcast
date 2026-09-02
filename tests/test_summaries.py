@@ -31,6 +31,23 @@ class FakeClient:
         return SimpleNamespace(choices=[SimpleNamespace(message=message)])
 
 
+class FlakyClient(FakeClient):
+    """Refuses any call whose text carries ``poison``.
+
+    A free tier's rate limit refuses part of a burst and answers the rest,
+    which is the failure this module has to survive.
+    """
+
+    def __init__(self, poison: str, reply: str = "What the section is about, briefly.") -> None:
+        super().__init__(reply)
+        self.poison = poison
+
+    def _create(self, model, messages):
+        if self.poison in messages[0]["content"]:
+            raise RuntimeError("429 rate limit exceeded")
+        return super()._create(model, messages)
+
+
 def article() -> Article:
     return Article(
         title="Money Stuff",
@@ -127,9 +144,9 @@ def test_a_summary_becomes_the_first_block_of_its_section():
     doc = article()
     client = FakeClient()
 
-    added = summarize_article(doc, Config(api_key="k"), client)
+    run = summarize_article(doc, Config(api_key="k"), client)
 
-    assert added == 2
+    assert run.added == 2
     first = doc.sections[0].blocks[0]
     assert first.kind is BlockKind.SUMMARY
     assert first.id == "b0-0", "ids are renumbered, so the audio has to follow"
@@ -142,9 +159,9 @@ def test_a_section_that_already_has_one_is_left_alone():
     doc.renumber()
     client = FakeClient()
 
-    added = summarize_article(doc, Config(api_key="k"), client)
+    run = summarize_article(doc, Config(api_key="k"), client)
 
-    assert added == 1, "only the section without a summary is sent"
+    assert run.added == 1, "only the section without a summary is sent"
     assert doc.sections[0].blocks[0].text == "Already done."
 
 
@@ -277,9 +294,9 @@ def test_summarising_again_replaces_what_is_there(conn):
     summarize_article(doc, Config(api_key="k"), first)
 
     second = FakeClient("A better one.")
-    added = summarize_article(doc, Config(api_key="k"), second, replace=True)
+    run = summarize_article(doc, Config(api_key="k"), second, replace=True)
 
-    assert added == 2
+    assert run.added == 2
     heads = [s.blocks[0] for s in doc.sections]
     assert [b.kind for b in heads] == [BlockKind.SUMMARY, BlockKind.SUMMARY]
     assert [b.text for b in heads] == ["A better one.", "A better one."]
@@ -294,3 +311,62 @@ def test_summarising_again_does_not_stack_up_blocks(conn):
     summarize_article(doc, Config(api_key="k"), FakeClient(), replace=True)
 
     assert sum(len(s.blocks) for s in doc.sections) == before
+
+
+# -- one section failing ---------------------------------------------------
+
+
+def test_a_section_that_fails_does_not_cost_the_ones_that_worked():
+    """The pass raised on the first refusal, so nothing at all was stored —
+    including the sections the model had already written."""
+    doc = article()
+
+    run = summarize_article(doc, Config(api_key="k"), FlakyClient("Private shares"))
+
+    assert (run.added, run.failed, run.total) == (1, 1, 2)
+    assert doc.sections[0].blocks[0].kind is BlockKind.SUMMARY
+    assert doc.sections[1].blocks[0].kind is BlockKind.PARA, "the failed one is untouched"
+    assert "Linqto" in run.errors[0], "the error names the section"
+    assert "429" in run.errors[0], "and what the endpoint said"
+
+
+def test_a_failed_section_keeps_the_summary_it_already_had():
+    """Losing text you already had to a rate limit is the worst of both."""
+    doc = article()
+    summarize_article(doc, Config(api_key="k"), FakeClient("The first attempt."))
+
+    run = summarize_article(
+        doc,
+        Config(api_key="k"),
+        FlakyClient("Private shares", "A better one."),
+        replace=True,
+    )
+
+    assert (run.added, run.failed) == (1, 1)
+    assert doc.sections[0].blocks[0].text == "A better one."
+    assert doc.sections[1].blocks[0].text == "The first attempt."
+
+
+def test_an_empty_reply_is_a_failure_and_not_a_silent_pass():
+    doc = article()
+
+    run = summarize_article(doc, Config(api_key="k"), FakeClient(""))
+
+    assert (run.added, run.failed) == (0, 2)
+    assert "empty" in run.errors[0]
+
+
+def test_every_section_is_reported_as_it_resolves():
+    """The caller stores each summary as it lands, so it has to hear about
+    them one at a time rather than about the pass at the end."""
+    doc = article()
+    seen: list = []
+
+    summarize_article(
+        doc, Config(api_key="k"), FlakyClient("Private shares"), on_section=seen.append
+    )
+
+    assert [o.done for o in seen] == [1, 2]
+    assert {o.total for o in seen} == {2}
+    assert (seen[-1].added, seen[-1].failed) == (1, 1)
+    assert seen[-1].index in (0, 1), "the section it is about, not the call"

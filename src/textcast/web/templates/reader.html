@@ -13,6 +13,14 @@
         {% if has_summary %}<input type="hidden" name="again" value="true">{% endif %}
         <button class="ghost" type="submit">{{ 'Summarise again' if has_summary else 'Summarise' }}</button>
       </form>
+      {% if has_summary and missing_summaries %}
+      <form method="post" action="/api/articles/{{ row.id }}/summarize" class="narrow">
+        <button class="ghost" type="submit"
+                title="Ask only for the sections that have no summary yet">
+          Summarise the other {{ missing_summaries }}
+        </button>
+      </form>
+      {% endif %}
       <a class="btn ghost narrow" href="/a/{{ row.slug }}?edit=1">Edit text</a>
       <form method="post" action="/api/articles/{{ row.id }}/reparse" class="narrow">
         <button class="ghost" type="submit" title="Re-run the parser over the saved source">Re-parse</button>
@@ -132,11 +140,11 @@
     </div>
   </header>
 
-  {% if row.status != 'ready' %}
-    {% set summarising = job and job.kind == 'summarise' %}
-    {% set running = job and job.state in ('queued', 'running') %}
-    <div class="card" id="build-status" data-article="{{ row.id }}" data-status="{{ row.status }}"
-         {{ 'hidden' if not running and row.status != 'failed' }}>
+  {% set summarising = job and job.kind == 'summarise' %}
+  {% set running = job and job.state in ('queued', 'running') %}
+  {% set job_failed = job and job.state == 'failed' %}
+  {% if running or job_failed or row.status == 'failed' %}
+    <div class="card" id="build-status" data-article="{{ row.id }}" data-status="{{ row.status }}">
       {% if running %}
         <h2 id="build-title">{{ 'Writing summaries…' if summarising else 'Building audio…' }}</h2>
         <p class="hint" id="build-message">
@@ -150,9 +158,16 @@
             One call per section. Your audio is untouched — build it when the summaries land.
           </p>
         {% endif %}
-      {% elif row.status == 'failed' %}
+      {% elif summarising and job_failed %}
+        <h2 id="build-title">Some summaries did not arrive</h2>
+        <p class="hint mono">{{ job.error or 'No error recorded.' }}</p>
+        <p class="hint" style="margin:.6rem 0 0">
+          Every summary that did arrive is saved. A rate limit on a free tier is the
+          usual reason for the rest; ask again for the sections that are still missing.
+        </p>
+      {% else %}
         <h2 id="build-title">Build failed</h2>
-        <p class="hint mono">{{ job.error if job and job.error else 'No error recorded.' }}</p>
+        <p class="hint mono">{{ job and job.error or 'No error recorded.' }}</p>
       {% endif %}
     </div>
   {% endif %}
@@ -325,7 +340,8 @@
 </script>
 <script src="/static/vendor/media-chrome-4.19.2.js" defer></script>
 <script src="/static/player.js?v={{ assets }}" defer></script>
-{% elif row.status in ('queued', 'building') %}
+{% endif %}
+{% if row.status in ('queued', 'building') or running %}
 <script src="/static/progress.js?v={{ assets }}" defer></script>
 {% endif %}
 <script src="/static/tags.js?v={{ assets }}" defer></script>

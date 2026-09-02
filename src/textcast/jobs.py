@@ -322,8 +322,14 @@ class Worker:
 
         No build follows. The summary changes the text, and choosing when to
         turn text into audio is a separate decision made on the article page.
+
+        Every section that lands is stored the moment it lands, and every one
+        that fails is named in the job's error. The pass used to be all or
+        nothing: one refused call — a free tier's rate limit is the usual
+        reason — threw away the summaries that had arrived alongside it, and
+        the only record was a line in the worker's log.
         """
-        from .summarize import config, summarize_article
+        from .summarize import SummaryError, config, summarize_article
 
         article_id = job["article_id"]
         article = db.load_article(article_id, conn)
@@ -334,18 +340,39 @@ class Worker:
         if not cfg.ready:
             raise ValueError("summaries are not configured: set a model and an API key")
 
-        def progress(done: int, total: int) -> None:
-            db.update_job(job["id"], conn, progress=done / total, message=f"section {done} of {total}")
+        def landed(outcome) -> None:
+            # Store on arrival, not at the end: what the model has already
+            # written must survive a sibling call failing, or the worker
+            # being killed halfway through.
+            if not outcome.error:
+                db.replace_blocks(article_id, article, conn)
+            note = f"section {outcome.done} of {outcome.total}"
+            if outcome.failed:
+                note += f" · {outcome.failed} failed"
+            db.update_job(
+                job["id"], conn, progress=outcome.done / outcome.total, message=note
+            )
 
         replace = bool(json.loads(job["options"] or "{}").get("replace"))
-        added = summarize_article(article, cfg, progress=progress, replace=replace)
-        if added or replace:
-            db.replace_blocks(article_id, article, conn)
-        log.info("summarised %d section(s) of article %s", added, article_id)
+        db.update_job(job["id"], conn, progress=0.0, message=f"asking {cfg.model}")
+        run = summarize_article(article, cfg, on_section=landed, replace=replace)
+        log.info(
+            "summarised %d of %d section(s) of article %s, %d failed",
+            run.added, run.total, article_id, run.failed,
+        )
 
-        # claim_job marked the article as building. Nothing is being built, so
-        # put it back to where it actually is: text, and no audio yet.
+        # claim_job leaves a summary's article alone, but replace_blocks has
+        # just cleared the audio counters if anything landed. Say where the
+        # audio actually stands.
         db.set_status(article_id, "ready" if row_has_audio(conn, article_id) else "new", conn)
+
+        if run.errors:
+            detail = "; ".join(run.errors[:3])
+            if run.failed > 3:
+                detail += f"; and {run.failed - 3} more"
+            raise SummaryError(
+                f"{run.added} of {run.total} sections summarised, {run.failed} failed. {detail}"
+            )
 
     def _build(self, conn, job) -> None:
         article_id = job["article_id"]

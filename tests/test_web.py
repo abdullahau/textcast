@@ -183,6 +183,49 @@ def test_the_reader_offers_star_and_archive_above_the_article(client, conn, monk
     assert "Modify article" in body
 
 
+def test_the_reader_polls_while_a_summary_runs(client, conn, monkeypatch):
+    """It keyed off article.status, which a summary never touches, so the
+    progress bar sat at zero until the page was reloaded by hand."""
+    from textcast.document import Article, Block, BlockKind, Section
+
+    monkeypatch.setattr(web, "_voices", lambda: [])
+    doc = Article(title="Running", sections=[Section(title="One", blocks=[
+        Block(kind=BlockKind.PARA, text="The body of it."),
+    ])]).renumber()
+    article_id = db.save_article(doc, conn)
+    db.enqueue(article_id, kind="summarise", conn=conn)
+
+    body = client.get("/a/running").text
+
+    assert "progress.js" in body
+    assert "Writing summaries…" in body
+    assert 'id="build-meter"' in body, "the poller needs something to paint"
+
+
+def test_a_failed_summary_says_so_on_the_article(client, conn, monkeypatch):
+    """It only reached the worker's log. A summary leaves article.status alone,
+    and the card was tied to that, so the page showed nothing at all."""
+    from textcast.document import Article, Block, BlockKind, Section
+
+    monkeypatch.setattr(web, "_voices", lambda: [])
+    doc = Article(title="Half done", sections=[
+        Section(title="One", blocks=[
+            Block(kind=BlockKind.SUMMARY, text="In short."),
+            Block(kind=BlockKind.PARA, text="The body of it."),
+        ]),
+        Section(title="Two", blocks=[Block(kind=BlockKind.PARA, text="The rest of it.")]),
+    ]).renumber()
+    article_id = db.save_article(doc, conn)
+    job_id = db.enqueue(article_id, kind="summarise", conn=conn)
+    db.update_job(job_id, conn, state="failed", error="1 of 2 sections summarised, 1 failed. Two: 429")
+
+    body = client.get("/a/half-done").text
+
+    assert "Some summaries did not arrive" in body
+    assert "429" in body
+    assert "Summarise the other 1" in body, "and a way to ask for only what is missing"
+
+
 def test_block_text_for_the_offline_cache_can_skip_footnotes(client, conn):
     from textcast.document import Article, Block, BlockKind, Section
 

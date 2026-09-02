@@ -20,6 +20,7 @@ import logging
 import os
 import shutil
 import threading
+import warnings
 import weakref
 from pathlib import Path
 
@@ -135,6 +136,43 @@ _models: weakref.WeakValueDictionary = weakref.WeakValueDictionary()
 _models_lock = threading.Lock()
 
 
+#: Warnings the model's own construction raises on every start, matched by
+#: their text so a change of wording brings them back rather than hiding a new
+#: one. None of the three is ours to fix and none is actionable:
+#:
+#: * ``weight_norm`` — kokoro builds on the deprecated call. Its replacement
+#:   would change the module, and the checkpoint is built against this one.
+#: * ``dropout`` — kokoro's config asks a one-layer LSTM for dropout, which
+#:   torch ignores and says so. The model runs in eval mode regardless.
+#: * ``torch.jit.script`` — raised by thinc, under spaCy, under misaki, and
+#:   only on Python 3.14. This is the one to watch: torch says it "may break",
+#:   and the fix is upstream, not here.
+_KNOWN_WARNINGS = [
+    (FutureWarning, r".*torch\.nn\.utils\.weight_norm.*is deprecated.*"),
+    (UserWarning, r".*dropout option adds dropout after all but last recurrent layer.*"),
+    (DeprecationWarning, r".*torch\.jit\.script.*not supported in Python 3\.14.*"),
+]
+
+_quieted = False
+
+
+def _quiet_known_warnings() -> None:
+    """Drop the warnings a Kokoro engine raises simply by existing.
+
+    They fire once per process, four times over a build pool, and say nothing
+    a reader of the worker's log can act on. The log is worth grepping —
+    phonemizer's "words count mismatch" is how stray emphasis markers were
+    found — and three unfixable lines at every start are what stop people
+    reading it.
+    """
+    global _quieted
+    if _quieted:
+        return
+    _quieted = True
+    for category, pattern in _KNOWN_WARNINGS:
+        warnings.filterwarnings("ignore", message=pattern, category=category)
+
+
 def shared_model(repo_id: str = "hexgrad/Kokoro-82M"):
     """The weights for this checkpoint, loaded once per process."""
     import torch
@@ -163,6 +201,7 @@ class KokoroEngine:
         **_ignored,
     ) -> None:
         os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
+        _quiet_known_warnings()
         _configure_espeak()
 
         if threads:

@@ -79,6 +79,45 @@ def test_a_summarise_job_writes_the_blocks_and_stops_there(conn, settings, monke
     assert db.get_article(stored.article_id, conn)["status"] == "new"
 
 
+def test_a_partly_summarised_article_keeps_what_arrived(conn, settings, monkeypatch):
+    """One refused call used to throw away the summaries that had landed
+    beside it, and the only record was a line in the worker's log."""
+    from textcast import summarize
+    from textcast.document import BlockKind
+
+    summarize.save_config(conn, api_key="k", model="stub-1")
+
+    def create(model, messages):
+        if "second section" in messages[0]["content"]:
+            raise RuntimeError("429 rate limit exceeded")
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="In short."))]
+        )
+
+    monkeypatch.setattr(
+        summarize,
+        "_client",
+        lambda cfg: SimpleNamespace(
+            chat=SimpleNamespace(completions=SimpleNamespace(create=create))
+        ),
+    )
+    text = "# One\n\nA paragraph of the first section.\n\n# Two\n\nA paragraph of the second section."
+    stored = ingest(text=text, title="Half of it", build=False)
+    db.enqueue(stored.article_id, kind="summarise", conn=conn)
+
+    Worker(settings).step(("summarise",))
+
+    article = db.load_article(stored.article_id, conn)
+    assert article.sections[0].blocks[0].kind is BlockKind.SUMMARY, "it landed"
+    assert article.sections[1].blocks[0].kind is not BlockKind.SUMMARY
+
+    job = conn.execute("SELECT * FROM job ORDER BY id DESC LIMIT 1").fetchone()
+    assert job["state"] == "failed", "a partial pass is not a clean one"
+    assert "1 of 2 sections summarised" in job["error"]
+    assert "429" in job["error"], "the reason reaches the page, not just the log"
+    assert db.get_article(stored.article_id, conn)["status"] == "new"
+
+
 def test_an_article_asking_for_a_retired_engine_still_builds(conn, settings, caplog):
     """A build option naming an engine that no longer ships must not be fatal."""
     stored = ingest(text=LONG_NOTE, title="A long note", build=False)

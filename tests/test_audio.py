@@ -304,3 +304,27 @@ def test_moving_the_cues_does_not_move_the_audio(tmp_path):
     spoken = sum(t.speech_ms for t in manifest.sections[0].blocks)
     pauses = 350 * len(manifest.sections[0].blocks)
     assert abs(manifest.sections[0].duration_ms - (spoken + pauses)) <= 2
+
+
+def test_only_the_named_warnings_are_silenced():
+    """Blanket suppression would hide phonemizer's "words count mismatch",
+    which is the only signal that something reached the engine that should
+    not have."""
+    import warnings
+
+    from textcast.tts import kokoro as engine
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        engine._quieted = False
+        engine._quiet_known_warnings()
+        warnings.warn(
+            "dropout option adds dropout after all but last recurrent layer, "
+            "so non-zero dropout expects num_layers greater than 1",
+            UserWarning,
+            stacklevel=1,
+        )
+        warnings.warn("phonemizer words count mismatch", UserWarning, stacklevel=1)
+
+    engine._quieted = False
+    assert [str(w.message) for w in caught] == ["phonemizer words count mismatch"]

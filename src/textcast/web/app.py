@@ -296,6 +296,14 @@ def reader(request: Request, slug: str, edit: bool = False, edited: int = 0, rem
     options = db.get_build_options(row["id"], conn)
     chosen = voice_defaults(conn)
     has_summary = any(b.kind is BlockKind.SUMMARY for _s, b in article.blocks())
+    # A pass can land some sections and not others, so "has a summary" and
+    # "is summarised" are two different questions.
+    missing_summaries = sum(
+        1
+        for section in article.sections
+        if any(b.kind is not BlockKind.SUMMARY for b in section.blocks)
+        and not any(b.kind is BlockKind.SUMMARY for b in section.blocks)
+    )
     # Nothing is built yet, so what to do next belongs above the text, not
     # below it. Once there is a summary, only the build is still pending.
     build_on_top = row["status"] in ("new", "failed")
@@ -318,6 +326,7 @@ def reader(request: Request, slug: str, edit: bool = False, edited: int = 0, rem
         selected_speed=_speed_label(options.get("speed") or chosen.speed),
         blocks=sum(len(section.blocks) for section in article.sections),
         has_summary=has_summary,
+        missing_summaries=missing_summaries,
         editing=edit,
         edited=edited,
         removed=removed,
