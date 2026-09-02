@@ -43,7 +43,9 @@
 
   <select name="status" onchange="this.form.submit()" aria-label="Filter by status">
     <option value="">Any status</option>
-    {% for s in ['ready', 'queued', 'building', 'failed', 'new'] %}
+    {# 'completed' is not an article.status. db._article_filter turns it into
+       "ready, and the saved position says playback reached the end". #}
+    {% for s in ['ready', 'completed', 'queued', 'building', 'failed', 'new'] %}
       <option value="{{ s }}" {{ 'selected' if s == status }}>{{ s|capitalize }}</option>
     {% endfor %}
   </select>
@@ -81,7 +83,15 @@
           <span>{{ "{:,}".format(a.word_count) }} words</span>
           {% for t in article_tags.get(a.id, []) %}<span class="tag">{{ t }}</span>{% endfor %}
         </span>
-        <span class="s"><span class="badge {{ a.status }}">{{ a.status }}</span></span>
+        {# One badge, not two. "Completed" already says there is audio — you
+           cannot finish an article that has none — and the row has one slot. #}
+        <span class="s">
+          {% if a.status == 'ready' and a.finished %}
+            <span class="badge completed">completed</span>
+          {% else %}
+            <span class="badge {{ a.status }}">{{ a.status }}</span>
+          {% endif %}
+        </span>
       </a>
     {% endfor %}
   </div>

@@ -372,28 +372,41 @@ def set_flag(article_id: int, field: str, value: bool, conn: sqlite3.Connection 
 # --------------------------------------------------------------------------
 
 
+#: A status you can filter for that no article row ever holds. `article.status`
+#: describes the audio and nothing else, so "listened to the end" lives on the
+#: position row instead and is answered by `_article_filter`.
+COMPLETED = "completed"
+
+
 def _article_filter(
     *,
-    tag: str | None,
-    status: str | None,
-    starred: bool,
-    archived: bool,
-    query: str | None,
+    tag: str | None = None,
+    status: str | None = None,
+    starred: bool = False,
+    archived: bool = False,
+    query: str | None = None,
 ) -> tuple[str, str, list[Any]]:
-    """The JOIN, the WHERE and their parameters, in that order.
+    """The JOIN, the WHERE and their parameters, for the list and its count.
 
-    Written once because two queries read it: the page of rows and the count
-    the pager divides. Written twice, a filter added to one and not the other
-    is a page that says "26-50 of 300" and shows a different 25.
+    Both were written out separately and could disagree, which divides a pager
+    by a total that does not match the rows under it. One producer now, in the
+    order SQL reads them: the join's parameters first, then the where's.
     """
+    joins = ["LEFT JOIN position p ON p.article_id = a.id"]
+    join_params: list[Any] = []
+    if tag:
+        # Ahead of the position join, because its parameter is bound first.
+        joins.insert(0, "JOIN article_tag at ON at.article_id = a.id AND at.tag = ?")
+        join_params.append(tag)
+
     where = ["a.archived = ?"]
     params: list[Any] = [int(archived)]
-    join = ""
-    if tag:
-        join = "JOIN article_tag at ON at.article_id = a.id AND at.tag = ?"
-        # The join is read before the where, so its parameter goes first.
-        params.insert(0, tag)
-    if status:
+    if status == COMPLETED:
+        # Playback reached the end. Only an article with audio can get there,
+        # so the ready check is not redundant: it keeps a stale position row
+        # on an article whose audio was dropped out of the answer.
+        where.append("a.status = 'ready' AND p.finished = 1")
+    elif status:
         where.append("a.status = ?")
         params.append(status)
     if starred:
@@ -401,7 +414,8 @@ def _article_filter(
     if query:
         where.append("(a.title LIKE ? OR a.subtitle LIKE ?)")
         params.extend([f"%{query}%", f"%{query}%"])
-    return join, " AND ".join(where), params
+
+    return " ".join(joins), " AND ".join(where), join_params + params
 
 
 def list_articles(
@@ -431,7 +445,6 @@ def list_articles(
         SELECT a.*, p.ms AS position_ms, p.section_idx AS position_section, p.finished
           FROM article a
           {join}
-          LEFT JOIN position p ON p.article_id = a.id
          WHERE {where}
          ORDER BY a.added_at DESC, a.id DESC
          LIMIT ? OFFSET ?
@@ -766,6 +779,18 @@ def save_position(
         """,
         (article_id, section_idx, ms, int(finished), now()),
     )
+
+
+def clear_position(article_id: int, conn: sqlite3.Connection | None = None) -> None:
+    """Forget where this article was left.
+
+    The row is deleted rather than set back to zero. `continue_listening` asks
+    for `ms > 5000`, so a zeroed row would drop off the list too — but it would
+    still read as finished = 0 and hide the completed badge, and the reader
+    would go on resuming from a position nobody wants any more.
+    """
+    conn = conn or connect()
+    conn.execute("DELETE FROM position WHERE article_id = ?", (article_id,))
 
 
 def get_position(article_id: int, conn: sqlite3.Connection | None = None) -> sqlite3.Row | None:

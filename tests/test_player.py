@@ -582,3 +582,74 @@ def test_playback_starts_where_it_was_asked_even_deep_into_the_file(still_page, 
     )
     assert still_page.evaluate("document.getElementById('audio').readyState") >= 3
     still_page.evaluate("document.getElementById('audio').pause()")
+
+
+def test_stopping_returns_to_the_start_and_forgets_the_position(still_page):
+    """The stop button in the sheet. Playback stops, the playhead goes back to
+    the top of the article, and the saved position is deleted, so the article
+    leaves "Continue listening"."""
+    conn = db.init()
+    db.save_position(1, section_idx=1, ms=9000, conn=conn)
+    assert db.get_position(1, conn) is not None
+
+    still_page.evaluate("document.getElementById('audio').play()")
+    still_page.wait_for_function("() => !document.getElementById('audio').paused", timeout=10000)
+
+    still_page.click("#menu")
+    still_page.click("#stop")
+
+    assert still_page.locator("#sheet").is_hidden(), "the sheet closes behind it"
+    still_page.wait_for_function(
+        "() => { const a = document.getElementById('audio');"
+        " return a.paused && a.currentTime < 1 && a.currentSrc.endsWith('section-000.opus'); }",
+        timeout=15000,
+    )
+
+    for _ in range(60):
+        if db.get_position(1, conn) is None:
+            break
+        time.sleep(0.25)
+    else:
+        raise AssertionError("the position was not cleared")
+
+
+def test_stopping_is_not_undone_by_the_save_that_follows_it(still_page):
+    """Pausing writes the position, and so does hiding the page. Both had to
+    learn to stay quiet, or the row came straight back and the article never
+    left "Continue listening"."""
+    conn = db.init()
+    db.save_position(1, section_idx=1, ms=9000, conn=conn)
+
+    still_page.click("#menu")
+    still_page.click("#stop")
+    for _ in range(60):
+        if db.get_position(1, conn) is None:
+            break
+        time.sleep(0.25)
+    else:
+        raise AssertionError("the position was not cleared")
+
+    # The same path the page uses when it is hidden or unloaded.
+    still_page.evaluate(
+        "Object.defineProperty(document, 'hidden', {value: true, configurable: true});"
+        "document.dispatchEvent(new Event('visibilitychange'))"
+    )
+    time.sleep(1.5)
+
+    assert db.get_position(1, conn) is None, "a save wrote the position back"
+
+
+def test_opening_a_finished_article_does_not_un_finish_it(still_page):
+    """Every save used to send finished = false, so opening a completed
+    article and leaving without playing threw the completed badge away."""
+    conn = db.init()
+    db.save_position(1, section_idx=0, ms=4000, finished=True, conn=conn)
+    still_page.reload(wait_until="domcontentloaded")
+
+    still_page.evaluate(
+        "Object.defineProperty(document, 'hidden', {value: true, configurable: true});"
+        "document.dispatchEvent(new Event('visibilitychange'))"
+    )
+    time.sleep(1.5)
+
+    assert db.get_position(1, conn)["finished"] == 1

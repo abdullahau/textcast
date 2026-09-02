@@ -540,6 +540,71 @@ def test_the_library_row_reads_star_title_length_status_then_who(client, conn):
     assert order == sorted(order), "author, publication, word count, then tags"
 
 
+def test_a_finished_article_wears_a_completed_badge(client, conn):
+    """Playback reaching the end is not an article status. The badge is derived
+    from the saved position, and the article row still says ready."""
+    from textcast.document import Article, Block, BlockKind, Section
+
+    doc = Article(title="Heard it all", sections=[Section(title="One", blocks=[
+        Block(kind=BlockKind.PARA, text="The body of it."),
+    ])]).renumber()
+    article_id = db.save_article(doc, conn)
+    conn.execute("UPDATE article SET status='ready', audio_ms=9000 WHERE id=?", (article_id,))
+
+    # "Continue listening" links the same article above the library, so the
+    # library row is the last link to it, not the first.
+    def library_row(page: str) -> str:
+        row = page[page.rindex('href="/a/heard-it-all"') :]
+        return row[: row.index("</a>")]
+
+    db.save_position(article_id, section_idx=0, ms=9000, finished=False, conn=conn)
+    assert '<span class="badge ready">ready</span>' in library_row(client.get("/").text)
+
+    db.save_position(article_id, section_idx=0, ms=9000, finished=True, conn=conn)
+    row = library_row(client.get("/").text)
+    assert '<span class="badge completed">completed</span>' in row
+    assert "badge ready" not in row, "one badge, not two"
+    assert db.get_article(article_id, conn)["status"] == "ready"
+
+
+def test_the_status_filter_offers_completed_and_finds_it(client, conn):
+    from textcast.document import Article, Block, BlockKind, Section
+
+    for title in ("Heard it all", "Half heard"):
+        doc = Article(title=title, sections=[Section(title="One", blocks=[
+            Block(kind=BlockKind.PARA, text=f"The body of {title}."),
+        ])]).renumber()
+        article_id = db.save_article(doc, conn)
+        conn.execute("UPDATE article SET status='ready', audio_ms=9000 WHERE id=?", (article_id,))
+        db.save_position(article_id, section_idx=0, ms=9000,
+                         finished=title == "Heard it all", conn=conn)
+
+    assert '<option value="completed"' in client.get("/").text
+
+    page = client.get("/?status=completed").text
+    assert 'href="/a/heard-it-all"' in page
+    assert 'href="/a/half-heard"' not in page
+
+
+def test_stopping_an_article_clears_its_saved_position(client, conn):
+    """The player's stop button. The row goes, so the article leaves
+    "Continue listening" and the reader stops resuming it."""
+    from textcast.document import Article, Block, BlockKind, Section
+
+    doc = Article(title="Enough of that", sections=[Section(title="One", blocks=[
+        Block(kind=BlockKind.PARA, text="The body of it."),
+    ])]).renumber()
+    article_id = db.save_article(doc, conn)
+    conn.execute("UPDATE article SET status='ready', audio_ms=9000 WHERE id=?", (article_id,))
+    db.save_position(article_id, section_idx=0, ms=42000, conn=conn)
+
+    response = client.post(f"/api/articles/{article_id}/position/clear")
+
+    assert response.status_code == 204
+    assert db.get_position(article_id, conn) is None
+    assert "Continue listening" not in client.get("/").text
+
+
 def test_a_batch_upload_keeps_going_past_a_file_it_cannot_read(client, conn):
     """The promise of a batch is that one bad file does not cost the rest."""
     good = ("note.md", b"# A note\n\nA paragraph of prose, long enough to parse.\n", "text/markdown")
