@@ -147,14 +147,9 @@ def normalize(text: str, rules: list[pronounce.Rule] | None = None) -> str:
     )
     text = TIMES.sub(lambda m: f"{_strip_commas(m.group(1))} times", text)
 
-    # Word-level rules come from the database, so they can be edited on the
-    # settings page rather than only here.
-    text = pronounce.apply(text, rules if rules is not None else pronounce.active())
-
-    # Pauses on both sides keep the aside from running into the sentence.
-    text = FOOTNOTE.sub(r"... Footnote \1. \2. ...", text)
-
-    # Smart punctuation the engines mispronounce or read aloud.
+    # Smart punctuation the engines mispronounce or read aloud. Before the
+    # rules, not after: web prose is full of curly apostrophes, and a rule
+    # written for who'll would never have matched who’ll.
     text = (
         text.replace("—", ", ")
         .replace("–", " to ")
@@ -164,6 +159,13 @@ def normalize(text: str, rules: list[pronounce.Rule] | None = None) -> str:
         .replace("’", "'")
         .replace("‘", "'")
     )
+
+    # Word-level rules come from the database, so they can be edited on the
+    # settings page rather than only here.
+    text = pronounce.apply(text, rules if rules is not None else pronounce.active())
+
+    # Pauses on both sides keep the aside from running into the sentence.
+    text = FOOTNOTE.sub(r"... Footnote \1. \2. ...", text)
 
     # Replacing an em dash with a comma can leave " , "; tighten it. The full
     # stop is handled separately so the space before an ellipsis survives.

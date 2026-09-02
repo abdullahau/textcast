@@ -284,7 +284,7 @@ def tags_page(request: Request):
 
 
 @app.get("/a/{slug}", response_class=HTMLResponse, dependencies=[Auth])
-def reader(request: Request, slug: str):
+def reader(request: Request, slug: str, edit: bool = False, edited: int = 0):
     row = article_or_404(slug)
     conn = db.connect()
     article = db.load_article(row["id"], conn)
@@ -317,6 +317,9 @@ def reader(request: Request, slug: str):
         selected_speed=_speed_label(options.get("speed") or chosen.speed),
         blocks=sum(len(section.blocks) for section in article.sections),
         has_summary=has_summary,
+        editing=edit,
+        edited=edited,
+        kinds=[str(k) for k in BlockKind],
         summary_model=summaries_config(conn).model,
         build_on_top=build_on_top,
         modify_on_top=build_on_top and not has_summary,
@@ -974,6 +977,31 @@ def api_flag(request: Request, article_id: int, field: str = Form(...), value: b
     if _wants_html(request):
         return RedirectResponse(request.headers.get("referer", "/"), status_code=303)
     return {"ok": True}
+
+
+@app.post("/api/articles/{article_id}/blocks", dependencies=[Auth])
+async def api_edit_blocks(request: Request, article_id: int):
+    """Save hand edits to the text.
+
+    Ids do not move, so the audio and its timing map stay valid — they are
+    merely out of date for whatever changed. Rebuilding re-renders only those
+    blocks, because the cache is keyed by the text itself.
+    """
+    row = db.get_article(article_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="no such article")
+
+    form = await request.form()
+    edits: dict[str, dict] = {}
+    for field, value in form.multi_items():
+        name, _, block_id = field.partition(":")
+        if name in ("text", "kind") and block_id:
+            edits.setdefault(block_id, {})[name] = str(value)
+
+    changed = db.edit_blocks(article_id, edits)
+    if _wants_html(request):
+        return RedirectResponse(f"/a/{row['slug']}?edited={changed}", status_code=303)
+    return {"changed": changed}
 
 
 @app.post("/api/articles/{article_id}/audio/delete", dependencies=[Auth])

@@ -166,6 +166,40 @@ def save_article(article: Article, conn: sqlite3.Connection | None = None) -> in
     return article_id
 
 
+def edit_blocks(article_id: int, edits: dict[str, dict], conn: sqlite3.Connection | None = None) -> int:
+    """Rewrite the text or the kind of blocks that already exist.
+
+    Ids do not move, so the timing map and the audio stay valid — the audio is
+    simply out of date for the blocks that changed, and rebuilding re-renders
+    only those, because the cache is keyed by the text.
+    """
+    conn = conn or connect()
+    kinds = {str(k) for k in BlockKind}
+    changed = 0
+    with transaction(conn):
+        for block_id, edit in edits.items():
+            text = (edit.get("text") or "").strip()
+            kind = edit.get("kind")
+            if not text:
+                continue
+            if kind not in kinds:
+                kind = None
+            cursor = conn.execute(
+                "UPDATE block SET text = ?, kind = COALESCE(?, kind)"
+                " WHERE article_id = ? AND block_id = ? AND (text <> ? OR kind <> COALESCE(?, kind))",
+                (text, kind, article_id, block_id, text, kind),
+            )
+            changed += cursor.rowcount
+        if changed:
+            words = conn.execute(
+                "SELECT COALESCE(SUM(LENGTH(TRIM(text)) - LENGTH(REPLACE(TRIM(text), ' ', '')) + 1), 0)"
+                " AS n FROM block WHERE article_id = ?",
+                (article_id,),
+            ).fetchone()["n"]
+            conn.execute("UPDATE article SET word_count = ? WHERE id = ?", (words, article_id))
+    return changed
+
+
 def replace_blocks(article_id: int, article: Article, conn: sqlite3.Connection | None = None) -> None:
     """Swap in a new set of blocks for an article that is already stored.
 

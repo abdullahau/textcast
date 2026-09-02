@@ -47,16 +47,20 @@ def test_rewrites(written: str, spoken: str):
 
 
 def test_initialisms_are_spelled_and_acronyms_respelled():
-    """Word-level behaviour now comes from the pronunciation rules."""
+    """Word-level behaviour comes from the pronunciation rules.
+
+    Most initialisms have no rule at all any more: misaki spells an acronym
+    out by itself, and better — measured, "CEO" alone is sˌiˌiˈO against the
+    rule's sˈi ˈi ˈO, every letter its own stressed word.
+    """
     from textcast import pronounce
 
     rules = pronounce.builtin_rules()
     say = lambda t: normalize(t, rules=rules)  # noqa: E731
 
-    assert say("The SEC told the CEO") == "The S E C told the C E O"
-    # An ampersand joins letter groups; it must not be spelled itself.
-    assert say("the S&P 500") == "the S and P 500"
-    assert say("the M&A team") == "the M and A team"
+    assert say("The SEC told the CEO") == "The SEC told the CEO"
+    assert say("the S&P 500") == "the S&P 500"
+    assert say("the M&A team") == "the M&A team"
 
     # Acronyms said as words get a respelling, not a spelled-out form.
     assert say("GAAP rules") == "gap rules"
@@ -89,10 +93,22 @@ def test_display_text_is_never_touched():
     """The page keeps the author's punctuation; only the engine sees the rewrite."""
     block = Block(kind=BlockKind.PARA, text="A $72mm round — per the SEC.")
     assert block.text == "A $72mm round — per the SEC."
-    assert block.spoken() == "A 72 million dollars round, per the S E C."
+    assert block.spoken() == "A 72 million dollars round, per the SEC."
 
 
 def test_quotes_are_normalised_and_still_get_their_cue():
     block = Block(kind=BlockKind.QUOTE, text="We raised $5bn.")
     assert block.spoken() == "Start quote. We raised 5 billion dollars. End quote."
     assert block.spoken(quote_markers=False) == "We raised 5 billion dollars."
+
+
+def test_curly_apostrophes_are_flattened_before_the_rules_run():
+    """Web prose is full of them, and a rule written for who'll would never
+    have matched who’ll."""
+    from textcast.normalize import normalize
+    from textcast.pronounce import builtin_rules
+
+    rules = builtin_rules()
+    assert normalize("The people who’ll pay.", rules=rules) == "The people hool pay."
+    assert normalize("Who’ll pay?", rules=rules) == "hool pay?"
+    assert normalize("It’s a “quote” — really.", rules=rules) == 'It\'s a "quote", really.'

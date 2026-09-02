@@ -423,3 +423,45 @@ def test_one_unreadable_file_is_a_bad_request_not_a_crash(client, conn):
 
     assert response.status_code == 400
     assert "could not be read" in response.json()["error"]
+
+
+def test_the_text_can_be_edited_by_hand(client, conn, monkeypatch):
+    """The parser keeps things it should not, and gets things wrong. Ids do not
+    move, so the audio and its timings stay valid — only out of date."""
+    from textcast.document import Article, Block, BlockKind, Section
+
+    monkeypatch.setattr(web, "_voices", lambda: [])
+    doc = Article(title="Needs a fix", sections=[Section(title="One", blocks=[
+        Block(kind=BlockKind.PARA, text="Frist paragrpah with typos."),
+        Block(kind=BlockKind.PARA, text="A line the page should not have kept."),
+    ])]).renumber()
+    article_id = db.save_article(doc, conn)
+
+    assert 'name="text:b0-0"' in client.get("/a/needs-a-fix?edit=1").text
+
+    response = client.post(
+        f"/api/articles/{article_id}/blocks",
+        data={"text:b0-0": "First paragraph, spelled properly.", "kind:b0-0": "quote",
+              "text:b0-1": "A line the page should not have kept."},
+    )
+
+    assert response.json()["changed"] == 1, "only the block that differs"
+    after = db.load_article(article_id, conn)
+    assert after.sections[0].blocks[0].text == "First paragraph, spelled properly."
+    assert after.sections[0].blocks[0].kind is BlockKind.QUOTE
+    assert [b.id for _s, b in after.blocks()] == ["b0-0", "b0-1"], "ids do not move"
+    assert [h["block_id"] for h in db.search("spelled properly", conn) if h["kind"] != "article"] == ["b0-0"]
+
+
+def test_an_edit_that_empties_a_block_is_ignored(client, conn):
+    """Blank would leave the audio with nothing to say and the id still there."""
+    from textcast.document import Article, Block, BlockKind, Section
+
+    doc = Article(title="Keep something", sections=[Section(title="One", blocks=[
+        Block(kind=BlockKind.PARA, text="The only line."),
+    ])]).renumber()
+    article_id = db.save_article(doc, conn)
+
+    client.post(f"/api/articles/{article_id}/blocks", data={"text:b0-0": "   "})
+
+    assert db.load_article(article_id, conn).sections[0].blocks[0].text == "The only line."

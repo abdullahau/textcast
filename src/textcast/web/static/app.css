@@ -368,6 +368,15 @@ button.q:hover, button.q:focus-visible { color: var(--fg); border-color: var(--f
 .rule-io { margin-top: 1.1rem; padding-top: 1rem; border-top: 1px solid var(--border); }
 
 
+/* ---------- editing the text ---------- */
+
+.doc-edit { max-width: var(--measure); margin: 0 auto; }
+.edit-section { font-family: var(--sans); font-size: .72rem; font-weight: 600; text-transform: uppercase;
+  letter-spacing: .09em; color: var(--muted); margin: 1.6rem 0 .6rem; }
+.edit-block { display: flex; gap: .5rem; align-items: flex-start; margin-bottom: .5rem; }
+.edit-block select { flex: 0 0 7rem; }
+.edit-block textarea { flex: 1 1 auto; min-height: 4rem; font-family: var(--serif); font-size: .95rem; }
+
 /* ---------- article list ---------- */
 
 .list {

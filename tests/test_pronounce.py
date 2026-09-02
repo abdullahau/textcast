@@ -253,3 +253,18 @@ def test_ai_is_not_spelled_out_by_a_rule():
 
     assert "AI" not in SPELL_OUT
     assert apply("Investing in AI.", builtin_rules()) == "Investing in AI."
+
+
+def test_only_the_initialisms_the_phonemiser_gets_wrong_have_rules():
+    """Measured against Kokoro: 41 of the 45 spell-out rules produced exactly
+    the same sounds as leaving the word alone, and cost word breaks and a
+    stressed syllable per letter — "C E O" against misaki's own sˌiˌiˈO."""
+    from textcast.pronounce import SPELL_OUT
+
+    rules = builtin_rules()
+    for already_right in ("CEO", "SEC", "ETF", "GDP", "M&A", "US", "ARR", "TAM"):
+        assert already_right not in SPELL_OUT
+        assert apply(f"The {already_right} today.", rules) == f"The {already_right} today."
+
+    # The ones kept are where misaki says a real word instead of the letters.
+    assert apply("Return on equity, or ROE, fell.", rules) == "Return on equity, or R O E, fell."

@@ -215,6 +215,14 @@ JOINED = {
     r"\bstart-up\b": "startup",
 }
 
+#: Contractions the phonemiser gets wrong. Measured: "she'll" is ʃil and
+#: "you'll" is jul, both one syllable and right, but "who'll" comes out hˌuəl —
+#: "hoo-ULL", two syllables. Respelled, it is hˈul, which is the same sound the
+#: IPA would have bought and anyone can read.
+CONTRACTIONS = {
+    "who'll": "hool",
+}
+
 #: Written with dots. Measured against Kokoro: "AI" is ˈAˌI — already "ay-eye"
 #: — while "A.I." comes out ˌAˈI with the stress the other way round, and
 #: "A.I.s" becomes ˌAˌIˈɛs, "ay-eye-ESS". Normalising the dotted spelling to
@@ -265,15 +273,20 @@ ABBREVIATIONS = {
     "IPO": "I P O",
 }
 
-#: Initialisms to read letter by letter.
+#: Initialisms the phonemiser reads as a *word* when it should be spelling
+#: them. There used to be forty-five of these. Measured against Kokoro, forty
+#: one of them produced exactly the same sounds with the rule as without —
+#: misaki already spells an acronym out, and it does it better: "CEO" alone is
+#: sˌiˌiˈO, the natural contour with the stress on the last letter, while the
+#: rule's "C E O" is sˈi ˈi ˈO, every letter its own stressed word, 120 ms
+#: longer and evenly spaced. That is what made them sound recited.
+#:
+#: What is left is the handful where misaki says a real word instead:
+#: "ROE" as roe, "ETH" as the letter eth. `ARR` was dropped for the opposite
+#: reason — misaki gives ˌAˌɑɹˈɑɹ, and the rule turned the leading A into the
+#: article. `TAM` went too: people do say "tam".
 SPELL_OUT = [
-    # "AI" is deliberately absent: measured, misaki already gives ˈAˌI, and
-    # spelling it "A I" only inserts a word break between the two letters.
-    "API", "ARR", "ATM", "BTC", "CDO", "CDS", "CEO", "CFO", "CFTC", "COO",
-    "CTO", "DAO", "DOJ", "EPS", "ESG", "ETF", "ETH", "EU", "FCA", "FDA", "FTC",
-    "FX", "GDP", "HFT", "IRS", "KYC", "LBO", "LLC", "LP", "M&A", "NDA", "NFT",
-    "NYSE", "OTC", "P&L", "ROE", "ROI", "RSU", "S&P", "SEC", "SPV",
-    "TAM", "UK", "US", "USD", "VC", "VIX", "YTD",
+    "ETH", "ROE",
 ]
 
 
@@ -326,6 +339,18 @@ def builtin_rules() -> list[Rule]:
             is_phonemes=True,
             note="phonemes, where no respelling reaches it",
             sort_order=30,
+        ))
+
+    for written, said in CONTRACTIONS.items():
+        add(Rule(
+            kind="word",
+            pattern=written,
+            replacement=said,
+            # Sentence-initial "Who'll" is the same word. The replacement is
+            # lower case either way; nothing downstream reads capitals.
+            ignore_case=True,
+            note="the phonemiser gives this one an extra syllable",
+            sort_order=35,
         ))
 
     for dotted in DOTTED:

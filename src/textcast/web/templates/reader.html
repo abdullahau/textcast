@@ -13,6 +13,7 @@
         {% if has_summary %}<input type="hidden" name="again" value="true">{% endif %}
         <button class="ghost" type="submit">{{ 'Summarise again' if has_summary else 'Summarise' }}</button>
       </form>
+      <a class="btn ghost narrow" href="/a/{{ row.slug }}?edit=1">Edit text</a>
       <form method="post" action="/api/articles/{{ row.id }}/reparse" class="narrow">
         <button class="ghost" type="submit" title="Re-run the parser over the saved source">Re-parse</button>
       </form>
@@ -163,6 +164,38 @@
     </div>
   {% endif %}
 
+  {% if edited %}<p class="notice ok">Saved {{ edited }} block{{ '' if edited == 1 else 's' }}. Rebuild the audio to hear the change — only what you edited is synthesised again.</p>{% endif %}
+
+  {% if editing %}
+    <form method="post" action="/api/articles/{{ row.id }}/blocks" class="doc-edit">
+      <div class="card">
+        <h2>Editing the text</h2>
+        <p class="hint">
+          Fix what the parser got wrong, or cut a line the page should not have kept. Ids do not
+          move, so your audio stays; rebuilding re-reads only the blocks you changed.
+        </p>
+        <div class="row" style="margin:0">
+          <button class="narrow" type="submit">Save changes</button>
+          <a class="btn ghost narrow" href="/a/{{ row.slug }}">Cancel</a>
+        </div>
+      </div>
+      {% for section in article.sections %}
+        <h2 class="edit-section">{{ section.title }}</h2>
+        {% for block in section.blocks %}
+          <div class="edit-block">
+            <select name="kind:{{ block.id }}" aria-label="Kind of block">
+              {% for k in kinds %}<option value="{{ k }}" {{ 'selected' if k == block.kind|string }}>{{ k }}</option>{% endfor %}
+            </select>
+            <textarea name="text:{{ block.id }}" rows="3" aria-label="Block text">{{ block.text }}</textarea>
+          </div>
+        {% endfor %}
+      {% endfor %}
+      <div class="row" style="margin-top:1rem">
+        <button class="narrow" type="submit">Save changes</button>
+        <a class="btn ghost narrow" href="/a/{{ row.slug }}">Cancel</a>
+      </div>
+    </form>
+  {% else %}
   <div class="doc" id="doc">
     {% for section in article.sections %}
       <h2 id="s{{ section.idx }}">{{ section.title }}</h2>
@@ -171,6 +204,7 @@
       {% endfor %}
     {% endfor %}
   </div>
+  {% endif %}
 
   <div class="card" style="margin-top:2.5rem">
     <h2>Details</h2>
