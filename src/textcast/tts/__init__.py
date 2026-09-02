@@ -91,6 +91,21 @@ def publish_engine(engine: TTSEngine) -> None:
         _shared.setdefault(engine.name, engine)
 
 
+def release_shared(engine: TTSEngine) -> bool:
+    """Give up the shared slot, if it still holds this engine.
+
+    The worker calls this when it drops its pool, or the pool's first instance
+    would keep a model resident on this module's behalf alone. A caller in the
+    middle of a synthesis holds its own reference, so nothing is ever taken
+    away from work in progress.
+    """
+    with _shared_lock:
+        if _shared.get(engine.name) is engine:
+            del _shared[engine.name]
+            return True
+        return False
+
+
 def loaded_engine(name: str) -> TTSEngine | None:
     """The shared engine if it is already built, never building one.
 
@@ -146,6 +161,7 @@ __all__ = [
     "is_installed",
     "loaded_engine",
     "publish_engine",
+    "release_shared",
     "shared_engine",
     "silence",
     "spec_for",

@@ -24,8 +24,11 @@ article's synthesis.
 
 from __future__ import annotations
 
+import ctypes
+import gc
 import json
 import logging
+import multiprocessing
 import threading
 import time
 from pathlib import Path
@@ -34,14 +37,54 @@ from . import db
 from .audio import render_article
 from .document import BlockKind
 from .prefs import voice_defaults
-from .settings import Settings, get_settings
-from .tts import ENGINES, TTSEngine, get_engine, publish_engine
+from .settings import Settings, get_settings, use_settings
+from .tts import ENGINES, TTSEngine, get_engine, publish_engine, release_shared
 
 log = logging.getLogger("textcast.jobs")
 
 #: One thread each. Synthesis is CPU-bound and long; summarising is a handful
 #: of network calls. Nothing is gained by making either wait for the other.
 LANES = (("build",), ("summarise",))
+
+
+def _trim_heap() -> None:
+    """Hand the freed arenas back to the operating system.
+
+    Dropping the tensors returns them to the allocator, not to the OS: glibc
+    keeps large arenas mapped and RSS does not move until it is asked to. On
+    any other allocator this is a no-op, and the memory comes back on its own
+    terms.
+    """
+    try:
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except (OSError, AttributeError):
+        pass
+
+
+def drain_jobs(settings: Settings, kinds: tuple[str, ...]) -> None:
+    """Run every queued job of these kinds, then exit. The child's entry point.
+
+    Whatever the work needs is imported inside this process and dies with it.
+    That is the only way the memory comes back: a C extension cannot be
+    unimported, and deleting it from ``sys.modules`` leaves the shared
+    libraries mapped and the allocator's arenas grown.
+
+    Measured here. A build loads torch, the model, spaCy and misaki: a worker
+    that had built once held about a gigabyte for the rest of its life,
+    against 37 MB before its first build. A summary loads openai, which brings
+    httpx and pydantic: 38 MB became 79 MB, and stayed.
+
+    It drains rather than doing one job, so a queue of nine pays the start-up
+    once instead of nine times.
+    """
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s %(levelname)-7s %(name)s  %(message)s"
+    )
+    use_settings(settings)
+    db.init(settings.db_path)
+    worker = Worker(settings)
+    while worker.step(kinds):
+        pass
 
 
 class Worker:
@@ -52,8 +95,10 @@ class Worker:
         self.poll_seconds = poll_seconds
         self._engines: list[TTSEngine] = []
         self._engine_key: tuple[str, int] | None = None
+        self._engines_used: float | None = None
         self._stop = threading.Event()
         self._threads: list[threading.Thread] = []
+        self._children: dict[str, multiprocessing.process.BaseProcess] = {}
         self._mail_checked: float | None = None
 
     # -- lifecycle ---------------------------------------------------------
@@ -74,6 +119,14 @@ class Worker:
 
     def stop(self, timeout: float = 5.0) -> None:
         self._stop.set()
+        for child in list(self._children.values()):
+            if not child.is_alive():
+                continue
+            # Nothing else will reap them. watchfiles restarts this process on
+            # every source edit, and an orphaned build would hold the model
+            # and go on writing to the job it no longer owns.
+            child.terminate()
+            child.join(timeout=timeout)
         for thread in self._threads:
             thread.join(timeout=timeout)
         self._threads = []
@@ -90,11 +143,21 @@ class Worker:
             self.stop()
 
     def _loop(self, kinds: tuple[str, ...]) -> None:
+        # Mail polling stays in the parent: imaplib is the standard library
+        # and costs nothing to keep.
+        in_child = self.settings.job_subprocess
         while not self._stop.is_set():
             try:
                 if "summarise" in kinds:
                     self._poll_mail()
-                if not self.step(kinds):
+                worked = self._run_in_child(kinds) if in_child else self.step(kinds)
+                if not worked:
+                    # The build lane owns the pool, so it is the one that
+                    # decides the pool is no longer earning its memory. With
+                    # the child process this is a fallback: the child takes
+                    # the model with it when it exits.
+                    if "build" in kinds:
+                        self._release_idle_engines()
                     self._stop.wait(self.poll_seconds)
             except Exception:
                 log.exception("%s lane failed", kinds[0])
@@ -142,6 +205,7 @@ class Worker:
         """
         count = self.settings.build_concurrency()
         key = (name, count)
+        self._engines_used = time.monotonic()
         if self._engines and self._engine_key == key:
             return self._engines
 
@@ -153,10 +217,80 @@ class Worker:
         log.info("loading %d %s instance(s) %s", count, name, options)
         self._engines = [get_engine(name, **options) for _ in range(count)]
         self._engine_key = key
+        self._engines_used = time.monotonic()
         # Web requests in this process reuse the first one rather than paying
         # to load a second copy of the model.
         publish_engine(self._engines[0])
         return self._engines
+
+    def _start_job_process(self, kinds: tuple[str, ...]) -> multiprocessing.process.BaseProcess:
+        """Spawn, never fork: this process runs a thread per lane."""
+        context = multiprocessing.get_context("spawn")
+        child = context.Process(
+            target=drain_jobs, args=(self.settings, kinds), name=f"textcast-{kinds[0]}"
+        )
+        child.start()
+        return child
+
+    def _run_in_child(self, kinds: tuple[str, ...]) -> bool:
+        """Hand this lane's queued jobs to a child process and wait for it.
+
+        Returns True when there was something to do, so the lane knows not to
+        sleep. The parent imports neither torch nor openai, which is the whole
+        point: it polls a table and stays under 40 MB.
+        """
+        conn = db.connect(self.settings.db_path)
+        holes = ", ".join("?" for _ in kinds)
+        queued = conn.execute(
+            f"SELECT 1 FROM job WHERE kind IN ({holes}) AND state = 'queued' LIMIT 1", kinds
+        ).fetchone()
+        if queued is None:
+            return False
+
+        lane = kinds[0]
+        child = self._children[lane] = self._start_job_process(kinds)
+        try:
+            child.join()
+        finally:
+            self._children.pop(lane, None)
+        if child.exitcode:
+            # The child marks its own failures. This is the other kind: killed
+            # outright, by the OOM killer or a shutdown, with a job still
+            # marked running and nobody left to finish it.
+            log.error("the %s process exited with %s", lane, child.exitcode)
+            self._requeue_orphans()
+        return True
+
+    def _release_idle_engines(self) -> None:
+        """Drop the pool once nothing has needed it for a while.
+
+        The pool is kept between jobs because loading it costs seconds. That
+        trade stops paying when the queue has been empty for minutes: an idle
+        worker was holding gigabytes to save one reload on a build that
+        happens a few times a day.
+
+        Only this module's references are given up. Anything mid-synthesis
+        holds its own, so the model outlives the drop and dies when that
+        finishes.
+        """
+        minutes = self.settings.idle_unload_minutes
+        if minutes <= 0 or not self._engines or self._engines_used is None:
+            return
+        idle = time.monotonic() - self._engines_used
+        if idle < minutes * 60:
+            return
+
+        engines, self._engines = self._engines, []
+        self._engine_key = None
+        self._engines_used = None
+        release_shared(engines[0])
+        count = len(engines)
+        del engines
+        # The pipelines hold cycles, so the collector has to run before the
+        # weights are unreachable and the allocator can be asked for them.
+        gc.collect()
+        _trim_heap()
+        log.info("dropped %d engine(s) after %.0f idle minute(s)", count, idle / 60)
 
     def step(self, kinds: tuple[str, ...] | None = None) -> bool:
         """Run one job of these kinds. Returns False when there is none."""
@@ -288,6 +422,11 @@ class Worker:
             cache_dir=settings.cache_dir,
             progress=progress,
         )
+
+        # Idle is measured from when the work stopped, not when it started,
+        # or a long build would leave the pool eligible to drop the moment it
+        # finished.
+        self._engines_used = time.monotonic()
 
         audio_bytes = sum(f.stat().st_size for f in out_dir.glob("*.opus"))
         db.save_manifest(article_id, manifest, audio_bytes, conn)
