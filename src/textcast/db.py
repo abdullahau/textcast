@@ -1129,23 +1129,53 @@ def import_pronunciations(
     return {"added": added, "updated": updated, "skipped": skipped}
 
 
-def seed_pronunciations(conn: sqlite3.Connection | None = None, force: bool = False) -> int:
-    """Install the built-in rules. Skipped once anything is stored.
+#: Which built-ins have ever been offered, so a rule deleted on purpose stays
+#: deleted while a rule added to a later release still arrives.
+SEEDED_KEY = "pronunciation_seeded"
 
-    Re-seeding would resurrect rules the user deliberately deleted.
+
+def seed_pronunciations(conn: sqlite3.Connection | None = None, force: bool = False) -> int:
+    """Install built-in rules the library has never been offered.
+
+    Skipping once anything was stored kept a deleted rule deleted, and it also
+    meant a rule added to a later release never reached an existing library.
+    Both are wanted, so what has been offered is recorded rather than inferred
+    from what is present.
+
+    A library seeded before that record existed takes its current rules as the
+    baseline. That costs one pass: a built-in deleted before the record began
+    comes back on the first start after upgrading, because nothing can tell it
+    apart from one never shown. The baseline is written on the way out, so it
+    cannot happen twice.
     """
     from .pronounce import builtin_rules
 
     conn = conn or connect()
-    if not force and conn.execute("SELECT 1 FROM pronunciation LIMIT 1").fetchone():
-        return 0
+    rules = builtin_rules()
+
+    if force:
+        offered: set[tuple[str, str]] = set()
+    else:
+        stored = get_setting(SEEDED_KEY, "", conn)
+        if stored:
+            offered = {(kind, pattern) for kind, pattern in json.loads(stored)}
+        else:
+            offered = {
+                (row["kind"], row["pattern"])
+                for row in conn.execute("SELECT kind, pattern FROM pronunciation")
+            }
 
     added = 0
-    for rule in builtin_rules():
+    for rule in rules:
+        if (rule.kind, rule.pattern) in offered:
+            continue
         add_pronunciation(
             rule.kind, rule.pattern, rule.replacement, conn,
             is_phonemes=rule.is_phonemes, note=rule.note,
             sort_order=rule.sort_order, builtin=True,
         )
         added += 1
+
+    offered |= {(r.kind, r.pattern) for r in rules}
+    set_setting(SEEDED_KEY, json.dumps(sorted(offered)), conn)
     return added

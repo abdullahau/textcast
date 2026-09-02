@@ -178,6 +178,41 @@ def test_seeding_happens_once(conn):
     assert len(db.list_pronunciations(conn)) == first - 1
 
 
+def test_a_rule_added_to_a_later_release_reaches_an_old_library(conn, monkeypatch):
+    """Skipping whenever anything was stored kept deleted rules deleted, and
+    also meant a new built-in never arrived."""
+    from textcast import pronounce
+
+    before = len(db.list_pronunciations(conn))
+    extra = pronounce.Rule(kind="word", pattern="ZZZTOP", replacement="zee zee top")
+    shipped = pronounce.builtin_rules()
+    monkeypatch.setattr(pronounce, "builtin_rules", lambda: [*shipped, extra])
+
+    assert db.seed_pronunciations(conn) == 1, "only the new one"
+    assert len(db.list_pronunciations(conn)) == before + 1
+    assert db.seed_pronunciations(conn) == 0, "and not again on the next start"
+
+
+def test_a_library_predating_the_record_is_offered_the_built_ins_once_more(conn):
+    """The cost of the record, paid once.
+
+    Without it there is no way to tell a rule the user deleted from one they
+    have never been shown, so a library that deleted a built-in before the
+    record existed gets that one back on the first start after upgrading. The
+    baseline is written on the way out, so it cannot happen twice.
+    """
+    gone = db.list_pronunciations(conn)[0]
+    db.delete_pronunciation(gone.id, conn)
+    conn.execute("DELETE FROM setting WHERE key = ?", (db.SEEDED_KEY,))
+
+    assert db.seed_pronunciations(conn) == 1, "the deleted rule came back, once"
+
+    db.delete_pronunciation(db.list_pronunciations(conn)[0].id, conn)
+    after = len(db.list_pronunciations(conn))
+    assert db.seed_pronunciations(conn) == 0, "and never again"
+    assert len(db.list_pronunciations(conn)) == after
+
+
 def test_adding_a_rule_takes_effect_immediately(conn):
     assert normalize("Hodlers gonna FOOBAR") == "Hodlers gonna FOOBAR"
     db.add_pronunciation("word", "FOOBAR", "foo bar", conn)
