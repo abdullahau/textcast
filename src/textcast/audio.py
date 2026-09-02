@@ -295,8 +295,11 @@ def render_article(
         else:
             rendered = dict(render_block(item) for item in work_items)
 
+        # Lay the audio out first, then decide where the cues fall in it.
         chunks: list[np.ndarray] = []
-        timings: list[BlockTiming] = []
+        speech_at: list[int] = []
+        speech_for: list[int] = []
+        pause_after: list[int] = []
         cursor = 0
         for index, block in work_items:
             samples = rendered[index]
@@ -305,17 +308,32 @@ def render_article(
 
             chunks.append(samples)
             chunks.append(silence(sample_rate, pause))
-            dur_ms = speech_ms + pause
+            speech_at.append(cursor)
+            speech_for.append(speech_ms)
+            pause_after.append(pause)
+            cursor += speech_ms + pause
+
+        # A block begins in the middle of the silence in front of it, not on
+        # its first syllable. Landing exactly on the attack means anything
+        # slow — a decoder still spinning up, a browser a frame behind — starts
+        # you inside the first word. Half a gap of run-up costs nothing to
+        # listen to and absorbs all of it.
+        starts = [
+            0 if i == 0 else speech_at[i] - pause_after[i - 1] // 2
+            for i in range(len(work_items))
+        ]
+        timings: list[BlockTiming] = []
+        for i, (_index, block) in enumerate(work_items):
+            end = starts[i + 1] if i + 1 < len(starts) else cursor
             timings.append(
                 BlockTiming(
                     id=block.id,
                     kind=str(block.kind),
-                    start_ms=cursor,
-                    dur_ms=dur_ms,
-                    speech_ms=speech_ms,
+                    start_ms=starts[i],
+                    dur_ms=end - starts[i],
+                    speech_ms=speech_for[i],
                 )
             )
-            cursor += dur_ms
 
         audio = np.concatenate(chunks) if chunks else np.zeros(0, dtype=np.float32)
         stem = f"section-{section.idx:03d}"

@@ -215,6 +215,28 @@ JOINED = {
     r"\bstart-up\b": "startup",
 }
 
+#: Written with dots. Measured against Kokoro: "AI" is ˈAˌI — already "ay-eye"
+#: — while "A.I." comes out ˌAˈI with the stress the other way round, and
+#: "A.I.s" becomes ˌAˌIˈɛs, "ay-eye-ESS". Normalising the dotted spelling to
+#: the bare one puts every form through the one path misaki already gets right.
+DOTTED = ["A.I."]
+
+
+def dotted_patterns(dotted: str) -> list[tuple[str, str]]:
+    """Two shapes, because the last dot is doing two jobs.
+
+    Mid-sentence it is only the abbreviation's, and eating it is right. At the
+    end of a sentence it is the full stop as well, and eating it runs two
+    sentences together — the same trap the month rules have.
+    """
+    letters = re.escape(dotted.rstrip("."))
+    plain = dotted.replace(".", "")
+    return [
+        (rf"\b{letters}\.(?=\s+[A-Z\u201c\"']|\s*$)", f"{plain}."),
+        (rf"\b{letters}\.?", plain),
+    ]
+
+
 #: Written short, said long.
 ABBREVIATIONS = {
     "approx.": "approximately",
@@ -245,7 +267,9 @@ ABBREVIATIONS = {
 
 #: Initialisms to read letter by letter.
 SPELL_OUT = [
-    "AI", "API", "ARR", "ATM", "BTC", "CDO", "CDS", "CEO", "CFO", "CFTC", "COO",
+    # "AI" is deliberately absent: measured, misaki already gives ˈAˌI, and
+    # spelling it "A I" only inserts a word break between the two letters.
+    "API", "ARR", "ATM", "BTC", "CDO", "CDS", "CEO", "CFO", "CFTC", "COO",
     "CTO", "DAO", "DOJ", "EPS", "ESG", "ETF", "ETH", "EU", "FCA", "FDA", "FTC",
     "FX", "GDP", "HFT", "IRS", "KYC", "LBO", "LLC", "LP", "M&A", "NDA", "NFT",
     "NYSE", "OTC", "P&L", "ROE", "ROI", "RSU", "S&P", "SEC", "SPV",
@@ -303,6 +327,16 @@ def builtin_rules() -> list[Rule]:
             note="phonemes, where no respelling reaches it",
             sort_order=30,
         ))
+
+    for dotted in DOTTED:
+        for order, (pattern, plain) in enumerate(dotted_patterns(dotted)):
+            add(Rule(
+                kind="regex",
+                pattern=pattern,
+                replacement=plain,
+                note=f"{dotted} said the same way as {dotted.replace('.', '')}",
+                sort_order=18 + order,
+            ))
 
     for pattern, joined in JOINED.items():
         add(Rule(

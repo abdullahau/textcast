@@ -223,3 +223,33 @@ def test_a_hyphen_that_reads_as_a_pause_is_joined_up():
     assert apply("A Start-Up raised money.", rules) == "A startup raised money."
     # It must not reach inside an unrelated word.
     assert apply("They restart-upgrade nightly.", rules) == "They restart-upgrade nightly."
+
+
+def test_the_dotted_and_plain_spellings_of_ai_are_read_alike():
+    """Measured against Kokoro: AI gives ˈAˌI, already "ay-eye", while A.I.
+    gives ˌAˈI and A.I.s gives ˌAˌIˈɛs — "ay-eye-ESS"."""
+    rules = builtin_rules()
+
+    assert apply("About A.I. today.", rules) == "About AI today."
+    assert apply("About A.I today.", rules) == "About AI today."
+    assert apply("The A.I.s are coming.", rules) == "The AIs are coming."
+    assert apply("Plain AI here.", rules) == "Plain AI here.", "misaki already says this one"
+
+
+def test_a_dotted_abbreviation_at_the_end_keeps_its_full_stop():
+    """The last dot is the abbreviation's and the sentence's. Eating it runs
+    two sentences together — the trap the month rules already carry."""
+    rules = builtin_rules()
+
+    assert apply("It is all about A.I.", rules) == "It is all about AI."
+    assert apply("We discussed A.I. Then we left.", rules) == "We discussed AI. Then we left."
+    assert apply("A.I., in short.", rules) == "AI, in short."
+
+
+def test_ai_is_not_spelled_out_by_a_rule():
+    """The rule turned it into "A I", which only put a word break between two
+    letters the phonemiser already reads as one token."""
+    from textcast.pronounce import SPELL_OUT
+
+    assert "AI" not in SPELL_OUT
+    assert apply("Investing in AI.", builtin_rules()) == "Investing in AI."

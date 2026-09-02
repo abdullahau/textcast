@@ -95,14 +95,19 @@ def test_a_block_that_is_quiet_all_through_is_kept_whole():
 
 @pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not installed")
 def test_the_gap_between_blocks_is_the_gap_that_was_asked_for(tmp_path):
+    gap = 350
     manifest = render_article(
-        sample_article(), PaddedEngine(), tmp_path, voice="v1", gap_ms=350, heading_gap_ms=350
+        sample_article(), PaddedEngine(), tmp_path, voice="v1", gap_ms=gap, heading_gap_ms=gap
     )
     timings = manifest.sections[0].blocks
 
+    # What you hear, which is not where the cues fall: a cue opens half a gap
+    # before its speech, so the audible silence has to be measured from where
+    # the speech actually sits in the file.
     speech = timings[0].speech_ms
-    between = timings[1].start_ms - (timings[0].start_ms + speech)
-    assert between == 350, f"expected the configured pause, got {between} ms"
+    second_speech_at = timings[1].start_ms + gap // 2
+    between = second_speech_at - speech
+    assert between == gap, f"expected the configured pause, got {between} ms"
     assert speech < 1200, f"the model's own silence is still in the block: {speech} ms"
 
 
@@ -256,3 +261,46 @@ def test_a_pool_reports_progress_once_per_block(tmp_path):
     )
     assert len(seen) == 4
     assert sorted(d for d, _t in seen) == [1, 2, 3, 4], "counted once each, no duplicates"
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not installed")
+def test_a_block_begins_in_the_silence_before_it_not_on_its_first_word(tmp_path):
+    """Landing exactly on the attack means anything slow — a decoder spinning
+    up, a browser a frame behind — starts you inside the first word. Half the
+    gap in front absorbs that, and costs nothing to listen to."""
+    gap = 350
+    manifest = render_article(
+        sample_article(), FakeEngine(), tmp_path, voice="v1", gap_ms=gap, heading_gap_ms=gap
+    )
+    timings = manifest.sections[0].blocks
+
+    speech_at = 0
+    for index, timing in enumerate(timings):
+        run_up = speech_at - timing.start_ms
+        if index == 0:
+            assert run_up == 0, "the first block has no silence in front of it"
+        else:
+            assert run_up == gap // 2, f"{timing.id} had {run_up} ms of run-up"
+        speech_at += timing.speech_ms + gap
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not installed")
+def test_the_cues_still_cover_the_section_without_a_gap(tmp_path):
+    manifest = render_article(sample_article(), FakeEngine(), tmp_path, voice="v1", gap_ms=350)
+    timings = manifest.sections[0].blocks
+
+    for earlier, later in zip(timings[:-1], timings[1:], strict=True):
+        assert earlier.start_ms + earlier.dur_ms == later.start_ms
+    assert timings[0].start_ms == 0
+    last = timings[-1]
+    assert last.start_ms + last.dur_ms == manifest.sections[0].duration_ms
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not installed")
+def test_moving_the_cues_does_not_move_the_audio(tmp_path):
+    """The map changed; the file did not. A rebuild for this is encode-only."""
+    manifest = render_article(sample_article(), FakeEngine(), tmp_path / "a", voice="v1", gap_ms=350)
+
+    spoken = sum(t.speech_ms for t in manifest.sections[0].blocks)
+    pauses = 350 * len(manifest.sections[0].blocks)
+    assert abs(manifest.sections[0].duration_ms - (spoken + pauses)) <= 2
