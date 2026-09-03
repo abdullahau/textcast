@@ -5,13 +5,26 @@ from __future__ import annotations
 from ..document import Article
 from .base import blocks_from_dom, finish, text_of
 from .dom import Tree, drop, first_text, root, select_one
+from .visuals import VisualRules
 
+#: `figure` used to be here, which is how the Alphaville lead image and every
+#: FT chart drawn as one were lost. The furniture it was standing in for is
+#: named directly now: a teaser card, the onward rail, an advert slot.
 NOISE = [
-    "figure", "aside", "nav", "script", "style", "noscript",
+    "aside", "nav", "script", "style", "noscript",
     ".o-ads", ".o-teaser", '[class*="onward"]', '[class*="follow"]',
     '[class*="share"]', '[class*="Share"]', '[class*="related"]',
     '[data-trackable="teaser"]',
 ]
+
+#: The FT draws a data table with Origami's `o-table`, prints its title in a
+#: single filled header cell rather than in the `<caption>` beside it, and
+#: publishes its own charts from `ig.ft.com` in a frame. The lead image sits
+#: in `n-content-image`, which the shared figure selectors already reach.
+VISUALS = VisualRules(
+    keep=('[class*="n-content-image"]', ".o-table", '[class*="o-table"]'),
+    drop=(".o-teaser__image", '[data-trackable="teaser"] img', ".n-content-related-box"),
+)
 
 
 def _author(tree: Tree) -> str:
@@ -44,7 +57,7 @@ class FTAdapter:
             Article(
                 title=title,
                 subtitle=subtitle,
-                sections=blocks_from_dom(container),
+                sections=blocks_from_dom(container, visuals=VISUALS, base_url=url),
                 source="Financial Times",
                 url=url,
                 author=_author(tree),

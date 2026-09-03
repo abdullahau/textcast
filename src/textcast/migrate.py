@@ -35,6 +35,7 @@ def has_column(conn: sqlite3.Connection, table: str, name: str) -> bool:
 
 
 def run(conn: sqlite3.Connection) -> None:
+    _add_block_media(conn)
     _add_phoneme_columns(conn)
     _drop_is_phonemes(conn)
     # Separate from adding the columns, and run every start: a column may have
@@ -209,6 +210,19 @@ def _scope_summary_key(conn: sqlite3.Connection) -> None:
             )
         log.info("summary key filed under %s", endpoint)
     conn.execute("DELETE FROM setting WHERE key = ?", (KEY_API_KEY,))
+
+
+def _add_block_media(conn: sqlite3.Connection) -> None:
+    """A block can now show something as well as say it.
+
+    Nothing backfills: an article parsed before visuals existed has no record
+    of the picture it dropped. Re-parse reads the stored source again and
+    fills it in, which is what Re-parse is for.
+    """
+    if not has_table(conn, "block") or has_column(conn, "block", "media"):
+        return
+    conn.execute("ALTER TABLE block ADD COLUMN media TEXT")
+    log.info("added block.media")
 
 
 def _add_phoneme_columns(conn: sqlite3.Connection) -> None:

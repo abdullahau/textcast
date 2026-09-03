@@ -63,9 +63,14 @@ def drop(scope: Node | Tree, selectors: list[str]) -> None:
 
 
 def ancestor_tags(node: Node, tags: set[str], stop: Node | None = None) -> bool:
-    """True when any ancestor of ``node`` has one of ``tags``."""
+    """True when any ancestor of ``node`` has one of ``tags``.
+
+    ``stop`` is compared with ``!=``. lexbor hands out a fresh wrapper object
+    per lookup, so the container a caller holds is never ``is`` the one this
+    walk arrives at, and an identity test would walk past it to the root.
+    """
     current = node.parent
-    while current is not None and current is not stop:
+    while current is not None and current != stop:
         if current.tag in tags:
             return True
         current = current.parent

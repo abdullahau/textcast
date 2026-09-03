@@ -27,6 +27,26 @@ SCHEMA = Path(__file__).with_name("schema.sql")
 _local = threading.local()
 
 
+def dump_media(media: dict | None) -> str | None:
+    """A visual's payload as JSON, and nothing at all for every other block.
+
+    Stored as text rather than as columns because the three visual kinds hold
+    different things — a picture has an address, a table has cells — and a
+    column per kind would be empty on every row but its own.
+    """
+    return json.dumps(media, separators=(",", ":")) if media else None
+
+
+def load_media(raw: str | None) -> dict | None:
+    if not raw:
+        return None
+    try:
+        value = json.loads(raw)
+    except ValueError:
+        return None
+    return value if isinstance(value, dict) else None
+
+
 def now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
@@ -146,11 +166,13 @@ def save_article(article: Article, conn: sqlite3.Connection | None = None) -> in
         )
         conn.executemany(
             """
-            INSERT INTO block (article_id, section_idx, idx, block_id, kind, text, footnote_ref)
-            VALUES (?,?,?,?,?,?,?)
+            INSERT INTO block
+                (article_id, section_idx, idx, block_id, kind, text, footnote_ref, media)
+            VALUES (?,?,?,?,?,?,?,?)
             """,
             [
-                (article_id, b.section_idx, b.idx, b.id, str(b.kind), b.text, b.footnote_ref)
+                (article_id, b.section_idx, b.idx, b.id, str(b.kind), b.text,
+                 b.footnote_ref, dump_media(b.media))
                 for _s, b in article.blocks()
             ],
         )
@@ -213,11 +235,13 @@ def replace_blocks(article_id: int, article: Article, conn: sqlite3.Connection |
         conn.execute("DELETE FROM block WHERE article_id = ?", (article_id,))
         conn.executemany(
             """
-            INSERT INTO block (article_id, section_idx, idx, block_id, kind, text, footnote_ref)
-            VALUES (?,?,?,?,?,?,?)
+            INSERT INTO block
+                (article_id, section_idx, idx, block_id, kind, text, footnote_ref, media)
+            VALUES (?,?,?,?,?,?,?,?)
             """,
             [
-                (article_id, b.section_idx, b.idx, b.id, str(b.kind), b.text, b.footnote_ref)
+                (article_id, b.section_idx, b.idx, b.id, str(b.kind), b.text,
+                 b.footnote_ref, dump_media(b.media))
                 for _s, b in article.blocks()
             ],
         )
@@ -258,7 +282,7 @@ def load_article(article_id: int, conn: sqlite3.Connection | None = None) -> Art
     }
     for b in conn.execute(
         """
-        SELECT section_idx, idx, kind, text, footnote_ref
+        SELECT section_idx, idx, kind, text, footnote_ref, media
           FROM block WHERE article_id = ? ORDER BY section_idx, idx
         """,
         (article_id,),
@@ -269,6 +293,7 @@ def load_article(article_id: int, conn: sqlite3.Connection | None = None) -> Art
                 kind=BlockKind(b["kind"]),
                 text=b["text"],
                 footnote_ref=b["footnote_ref"],
+                media=load_media(b["media"]),
                 section_idx=b["section_idx"],
                 idx=b["idx"],
             )

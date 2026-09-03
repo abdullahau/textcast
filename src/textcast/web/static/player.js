@@ -53,10 +53,14 @@
 
   // ------------------------------------------------------- highlighting
 
+  var pauseAtVisual = store("pause-visual", "0") === "1";
+  var pausedAt = null;
+
   function highlight(blockId) {
     /* Called every frame while playing, so the common case — nothing has
        changed — costs a string compare and no DOM lookup at all. */
     if (activeEl && activeEl.id === blockId) return;
+    if (pausedAt && pausedAt !== blockId) pausedAt = null;
     var el = blockId ? document.getElementById(blockId) : null;
     if (el === activeEl) return;
     if (activeEl) activeEl.classList.remove("on");
@@ -64,6 +68,19 @@
     if (!el) return;
     el.classList.add("on");
     if (follow) el.scrollIntoView({ block: "center", behavior: "smooth" });
+    stopToLook(el);
+  }
+
+  /* Stop at a chart or a table, so it can be looked at rather than talked
+     over. Only while playing: seeking *to* a figure is already a decision to
+     look at it, and pausing there would fight the person who asked. The id is
+     remembered so pressing play again carries on past it instead of stopping
+     on the same block for ever. */
+  function stopToLook(el) {
+    if (!pauseAtVisual || !el.dataset.visual) return;
+    if (audio.paused || pausedAt === el.id) return;
+    pausedAt = el.id;
+    audio.pause();
   }
 
   /* Which block covers this moment, from the timing map the page already
@@ -429,6 +446,26 @@
     document.body.classList.toggle("hide-summaries", !this.checked);
   });
   $("opt-sleep").addEventListener("change", function () { sleepAtSectionEnd = this.checked; });
+
+  var visualBox = $("opt-pause-visual");
+  visualBox.checked = pauseAtVisual;
+  visualBox.addEventListener("change", function () {
+    pauseAtVisual = this.checked;
+    store("pause-visual", pauseAtVisual ? "1" : "0", true);
+  });
+
+  /* A live chart is a third party. Nothing is fetched from it until the
+     reader asks, and then the button becomes the frame. */
+  doc.addEventListener("click", function (event) {
+    var open = event.target.closest("[data-embed]");
+    if (!open) return;
+    var frame = document.createElement("iframe");
+    frame.src = open.dataset.embed;
+    frame.loading = "lazy";
+    frame.referrerPolicy = "no-referrer";
+    frame.setAttribute("sandbox", "allow-scripts allow-same-origin allow-popups");
+    open.replaceWith(frame);
+  });
 
   var offlineBox = $("opt-offline");
   offlineBox.checked = store("offline:" + cfg.slug, "0") === "1";

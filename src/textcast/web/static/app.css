@@ -996,6 +996,48 @@ button.chip[aria-pressed="true"] .star { fill: var(--warn); stroke: var(--warn);
 body.hide-footnotes .b.footnote { display: none; }
 body.hide-summaries .b.summary { display: none; }
 
+/* ---------- visuals ---------- */
+/* A figure, a table and a live chart are blocks, so they keep the gutter,
+   the highlight and the seek handle. Only what sits inside them differs. */
+.b.figure, .b.table, .b.embed { margin: 1.6rem 0; cursor: default; }
+.b.figure img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius-sm);
+  background: var(--sunk);
+}
+.b figcaption {
+  margin-top: .5rem;
+  font-size: .82rem;
+  line-height: 1.45;
+  color: var(--muted);
+}
+.b figcaption .credit { color: var(--border-hi); }
+
+/* A wide table scrolls inside itself. The page never scrolls sideways: on a
+   phone that is how a column of prose ends up half off the screen. */
+.b .scroller { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+table.data {
+  border-collapse: collapse;
+  width: 100%;
+  min-width: max-content;
+  font-size: .84rem;
+  font-variant-numeric: tabular-nums;
+}
+table.data th, table.data td {
+  padding: .4rem .6rem;
+  text-align: right;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+table.data th[scope="row"], table.data tr > :first-child { text-align: left; }
+table.data th { font-weight: 600; color: var(--fg-soft); }
+.b.table .foot { margin: .4rem 0 0; font-size: .76rem; color: var(--muted); }
+
+.b.embed iframe { width: 100%; min-height: 26rem; border: 0; border-radius: var(--radius-sm); }
+.b.embed .embed-open { margin: 0; }
+
 ::selection { background: color-mix(in srgb, var(--accent) 25%, transparent); }
 
 /* ---------- player ---------- */

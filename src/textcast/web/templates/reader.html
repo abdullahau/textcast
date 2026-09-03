@@ -107,6 +107,7 @@
       <div class="row" style="margin-top:.7rem">
         <label class="check"><input type="checkbox" name="skip_footnotes" value="true" {{ 'checked' if build.get('skip_footnotes') }}> Skip footnotes</label>
         <label class="check"><input type="checkbox" name="skip_summaries" value="true" {{ 'checked' if build.get('skip_summaries') }}> Skip summaries</label>
+        <label class="check"><input type="checkbox" name="skip_visuals" value="true" {{ 'checked' if build.get('skip_visuals') }}> Skip figure captions</label>
       </div>
       <div class="row" style="margin-top:.9rem">
         <button class="narrow" type="submit">{{ 'Rebuild' if row.status == 'ready' else 'Build' }}</button>
@@ -268,7 +269,39 @@
     {% for section in article.sections %}
       <h2 id="s{{ section.idx }}">{{ section.title }}</h2>
       {% for block in section.blocks %}
-        <p class="b {{ block.kind }}" id="{{ block.id }}" data-b="{{ block.id }}" data-s="{{ section.idx }}">{% if row.status == 'ready' %}<button type="button" class="seek" data-seek="{{ block.id }}" aria-label="Play from here" tabindex="-1"><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg></button>{% endif %}{{ block.text }}</p>
+        {%- set seek %}{% if row.status == 'ready' %}<button type="button" class="seek" data-seek="{{ block.id }}" aria-label="Play from here" tabindex="-1"><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg></button>{% endif %}{% endset -%}
+        {% if block.media and block.kind in visual_kinds %}
+          {# A visual is a block like any other: same id, same place in the
+             read-along, same seek handle. `data-visual` is what the player
+             stops at, so a chart can be looked at rather than talked over. #}
+          <figure class="b {{ block.kind }}" id="{{ block.id }}" data-b="{{ block.id }}"
+                  data-s="{{ section.idx }}" data-visual="1">{{ seek }}
+            {% if block.kind == 'figure' %}
+              <img src="{{ block.media.src }}" alt="{{ block.media.alt or block.text }}"
+                   loading="lazy" decoding="async" referrerpolicy="no-referrer">
+            {% elif block.kind == 'table' %}
+              <div class="scroller"><table class="data">
+                {% for cells in block.media.rows %}{% set head = block.media.header and loop.first %}
+                  <tr>{% for cell in cells %}{% if head or loop.first %}<th scope="{{ 'col' if head else 'row' }}">{{ cell }}</th>{% else %}<td>{{ cell }}</td>{% endif %}{% endfor %}</tr>
+                {% endfor %}
+              </table></div>
+              {% if block.media.foot %}<p class="foot">{{ block.media.foot }}</p>{% endif %}
+            {% else %}
+              {# The frame is not loaded until it is asked for: a live chart is
+                 a third party, and the reader has not agreed to one yet. #}
+              <button type="button" class="ghost narrow embed-open"
+                      data-embed="{{ block.media.src }}">Load the chart</button>
+            {% endif %}
+            {# The caption alone, not the block's text: "Table." under a table
+               tells a reader nothing they cannot see. The label is for the
+               listener, and it is in `block.text` where the audio reads it. #}
+            {% if block.media.caption or block.media.credit %}
+              <figcaption>{{ block.media.caption }}{% if block.media.credit %} <span class="credit">{{ block.media.credit }}</span>{% endif %}</figcaption>
+            {% endif %}
+          </figure>
+        {% else %}
+          <p class="b {{ block.kind }}" id="{{ block.id }}" data-b="{{ block.id }}" data-s="{{ section.idx }}">{{ seek }}{{ block.text }}</p>
+        {% endif %}
       {% endfor %}
     {% endfor %}
   </div>
@@ -348,6 +381,7 @@
     <div class="toggles">
       <label class="check"><input type="checkbox" id="opt-footnotes" checked> Show footnotes</label>
       <label class="check"><input type="checkbox" id="opt-summaries" checked> Show summaries</label>
+      <label class="check"><input type="checkbox" id="opt-pause-visual"> Pause at a chart or table</label>
       <label class="check"><input type="checkbox" id="opt-sleep"> Stop at end of section</label>
       <label class="check"><input type="checkbox" id="opt-offline"> Keep offline</label>
     </div>

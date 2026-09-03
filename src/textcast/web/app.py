@@ -24,7 +24,7 @@ from fastapi.templating import Jinja2Templates
 from markupsafe import Markup
 
 from .. import __version__, db
-from ..document import BlockKind, to_markdown
+from ..document import VISUAL_KINDS, BlockKind, to_markdown
 from ..jobs import Worker
 from ..prefs import save_voice_defaults, voice_defaults
 
@@ -501,6 +501,9 @@ def reader(request: Request, slug: str, edit: bool = False, edited: int = 0, rem
         edited=edited,
         removed=removed,
         kinds=[str(k) for k in BlockKind],
+        # What the reader draws rather than prints. Read off the model, so a
+        # fourth visual kind does not need finding in a template as well.
+        visual_kinds=[str(k) for k in VISUAL_KINDS],
         summary_model=summaries_config(conn).model,
         last_summary=_last_summary(row["id"], conn),
         build_on_top=build_on_top,
@@ -1050,6 +1053,7 @@ def _build_options(
     skip_footnotes: bool,
     summarize: bool = False,
     skip_summaries: bool = False,
+    skip_visuals: bool = False,
     speed: str = "",
     engine: str = "",
 ) -> dict:
@@ -1070,6 +1074,8 @@ def _build_options(
         options["skip_footnotes"] = True
     if skip_summaries:
         options["skip_summaries"] = True
+    if skip_visuals:
+        options["skip_visuals"] = True
     if summarize:
         options["summarize"] = True
     return options
@@ -1248,12 +1254,13 @@ def api_rebuild(
     quote_voice: str = Form(default=""),
     skip_footnotes: bool = Form(default=False),
     skip_summaries: bool = Form(default=False),
+    skip_visuals: bool = Form(default=False),
     speed: str = Form(default=""),
     engine: str = Form(default=""),
 ):
     options = _build_options(
         voice, quote_voice, skip_footnotes, skip_summaries=skip_summaries,
-        speed=speed, engine=engine,
+        skip_visuals=skip_visuals, speed=speed, engine=engine,
     )
     # Remember the choice, so a later rebuild does not silently revert.
     db.set_build_options(article_id, options)

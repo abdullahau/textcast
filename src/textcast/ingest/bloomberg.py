@@ -11,6 +11,7 @@ import re
 from ..document import Article, BlockKind
 from .base import blocks_from_dom, finish, inline_footnotes, text_of
 from .dom import Tree, attr, clean, drop, first_text, root, select, select_one
+from .visuals import VisualRules
 
 DEK = '[class*="HedAndDek_dek"]'
 FOOTNOTE_LIST = 'ol[class*="Footnotes_base"]'
@@ -19,11 +20,25 @@ FOOTNOTE_LINK = 'a[data-component="footnote-link"]'
 #: Money Stuff ends with a links roundup and a subscription pitch.
 STOP_AT = "if you'd like to get money stuff in handy email form"
 
+#: `figure` used to head this list, which cost every Money Stuff chart and
+#: every article image. What it was standing in for is named below instead.
 NOISE = [
-    "figure", "aside", "nav", "script", "style", "noscript",
+    "aside", "nav", "script", "style", "noscript",
     '[data-component="in-this-article"]', '[class*="InThisArticle"]',
     '[class*="Recirc"]', '[class*="Paywall"]', '[class*="Newsletter"]',
 ]
+
+#: Bloomberg wraps an article image in `ArticleImage` and a chart in Toaster,
+#: which it serves in a frame. It also prints the writer's headshot twice, in
+#: `BylineAuthorBio` and `AuthorBio`, and both are pictures of a person rather
+#: than of anything the article is about.
+VISUALS = VisualRules(
+    keep=('[data-component="article-image"]', '[class*="ArticleImage"]', '[class*="Toaster"]'),
+    drop=(
+        '[class*="AuthorBio"] img', '[class*="BylineAuthorBio"] img',
+        '[class*="Ad_"]', '[class*="Outbrain"]', '[data-component="ad"]',
+    ),
+)
 
 
 #: Bloomberg names the writer three times over in the head, and again in the
@@ -76,7 +91,9 @@ class BloombergAdapter:
         drop(container, NOISE)
         drop(container, [FOOTNOTE_LIST])
 
-        sections = blocks_from_dom(container, heading_tags=("h2", "h3"), stop_at=STOP_AT)
+        sections = blocks_from_dom(
+            container, heading_tags=("h2", "h3"), stop_at=STOP_AT, visuals=VISUALS, base_url=url
+        )
 
         # The dek is repeated as a paragraph in the body; drop that copy.
         if subtitle:

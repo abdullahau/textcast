@@ -298,7 +298,7 @@ def edit_blocks(
     rebuild is encode-only, since the cache is keyed by the text and every
     surviving block is still in it.
     """
-    from .document import BlockKind
+    from .document import VISUAL_KINDS, BlockKind
 
     settings = settings or get_settings()
     conn = db.connect(settings.db_path)
@@ -324,6 +324,10 @@ def edit_blocks(
                 block.text = text
             if edit.get("kind") in kinds:
                 block.kind = BlockKind(edit["kind"])
+                # Retyped out of a visual, the payload describes nothing on
+                # the page any more: a paragraph has no picture to draw.
+                if block.kind not in VISUAL_KINDS:
+                    block.media = None
             surviving.append(block)
             kept += 1
         section.blocks = surviving

@@ -54,6 +54,9 @@ CREATE TABLE IF NOT EXISTS block (
     kind         TEXT    NOT NULL,
     text         TEXT    NOT NULL,
     footnote_ref TEXT,
+    -- What a visual block shows: the picture's address, the table's cells.
+    -- JSON, because the three visual kinds hold different things.
+    media        TEXT,
     -- Filled in once audio exists; start_ms is relative to the section file.
     start_ms     INTEGER,
     dur_ms       INTEGER,

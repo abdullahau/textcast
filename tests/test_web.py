@@ -1246,3 +1246,41 @@ def test_a_bare_date_is_not_moved_into_a_zone(client):
     """A publication date has no time in it, and converting it loses a day."""
     assert 'data-when' not in web.when("2026-09-03")
     assert "2026-09-03" in web.when("2026-09-03")
+
+
+def test_the_reader_shows_a_table_and_a_picture_where_the_prose_cites_them(client, conn, monkeypatch):
+    """A visual block is a block, so it keeps its id, its gutter and its seek handle.
+
+    `data-visual` is what the player stops at, which is the whole reason the
+    parsers keep these: a chart you can pause on and look at.
+    """
+    from textcast.document import Article, Block, BlockKind, Section
+
+    monkeypatch.setattr(web, "_voices", lambda *a: [])
+    doc = Article(title="A charted note", sections=[Section(title="One", blocks=[
+        Block(kind=BlockKind.PARA, text="You can do a little ready reckoner."),
+        Block(kind=BlockKind.TABLE, text="Table: Ker-CHING",
+              media={"rows": [["Life", "$7bn"], ["Two years", "160%"]], "header": True,
+                     "foot": "FTAV"}),
+        Block(kind=BlockKind.FIGURE, text="Figure: Colossus I",
+              media={"src": "https://images.test/c.png", "alt": "Colossus I"}),
+        Block(kind=BlockKind.EMBED, text="Chart: Contract length",
+              media={"src": "https://datawrapper.dwcdn.net/aB3/2/"}),
+    ])]).renumber()
+    db.save_article(doc, conn)
+
+    body = client.get("/a/a-charted-note").text
+
+    assert '<figure class="b table" id="b0-1"' in body
+    assert 'data-visual="1"' in body
+    assert '<th scope="col">Life</th>' in body
+    assert '<img src="https://images.test/c.png"' in body
+    assert 'referrerpolicy="no-referrer"' in body
+    # The frame is not fetched until the reader asks for it.
+    assert "<iframe" not in body
+    assert 'data-embed="https://datawrapper.dwcdn.net/aB3/2/"' in body
+
+
+def test_skipping_the_figure_captions_is_a_build_option(client):
+    assert web._build_options("", "", False, skip_visuals=True) == {"skip_visuals": True}
+    assert "skip_visuals" not in web._build_options("", "", False)

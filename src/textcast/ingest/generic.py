@@ -8,6 +8,7 @@ from ..document import Article
 from .base import blocks_from_dom, finish, text_of
 from .dom import Tree, meta, select_one
 from .extract import article_body
+from .visuals import DEFAULT_RULES
 
 
 class GenericAdapter:
@@ -34,7 +35,7 @@ class GenericAdapter:
             Article(
                 title=title,
                 subtitle=subtitle,
-                sections=blocks_from_dom(body),
+                sections=blocks_from_dom(body, visuals=DEFAULT_RULES, base_url=url),
                 source=source,
                 url=url,
                 author=author,

@@ -11,12 +11,18 @@ import re
 from typing import Protocol
 
 from ..document import Article, Block, BlockKind, Section
-from .dom import Node, Tree, ancestor_tags, children, clean, parse, text_of
+from .dom import Node, Tree, ancestor_tags, children, clean, drop, parse, text_of
+from .visuals import NO_VISUALS, VisualRules, visual_block
 
 BLOCK_SELECTOR = "h1, h2, h3, h4, blockquote, p, ol, ul"
 
+#: The tags `BLOCK_SELECTOR` matches. Anything else the walk stops at came
+#: from the visual half of the selector, so this is how one is told from the
+#: other without asking the matcher which half fired.
+_BLOCK_TAGS = {"h1", "h2", "h3", "h4", "blockquote", "p", "ol", "ul"}
+
 #: Nested inside these, a paragraph belongs to the parent block, not itself.
-_ENCLOSING = {"blockquote", "li"}
+_ENCLOSING = {"blockquote", "li", "figure"}
 
 
 class Adapter(Protocol):
@@ -33,17 +39,53 @@ def blocks_from_dom(
     heading_tags: tuple[str, ...] = ("h2", "h3"),
     skip: str | None = None,
     stop_at: str | None = None,
+    visuals: VisualRules = NO_VISUALS,
+    base_url: str = "",
 ) -> list[Section]:
     """Walk a content container into sections of blocks.
 
     ``skip`` and ``stop_at`` are lowercase text prefixes: the first drops a
     paragraph, the second ends parsing (newsletter sign-off boilerplate).
+
+    ``visuals`` says what pictures, tables and charts this publication draws.
+    They are matched in the *same* pass as the prose, because a chart's place
+    in the argument is the whole of what it means. Off by default: a walk that
+    has not been told what a publication's furniture looks like keeps text
+    only, which is what every parser did before visuals existed.
     """
     sections: list[Section] = []
     current = Section(title="")
     headings = set(heading_tags) | {"h1"}
 
-    for elem in container.css(BLOCK_SELECTOR):
+    if visuals.enabled and visuals.drop:
+        drop(container, list(visuals.drop))
+    selector = f"{BLOCK_SELECTOR}, {visuals.selector}" if visuals.enabled else BLOCK_SELECTOR
+
+    #: Visual containers that already produced a block. Their contents belong
+    #: to them, so a caption is not read again as a paragraph and a picture is
+    #: not emitted a second time as a bare `img`.
+    consumed: list[Node] = []
+    seen: set[str] = set()
+
+    for elem in container.css(selector):
+        # lexbor's `css` searches the node as well as its subtree, so the
+        # container matches its own selectors. Left in, an article whose
+        # wrapper is called "...no-full-width-graphics" is one figure.
+        if elem == container or _within(elem, consumed):
+            continue
+
+        if elem.tag not in _BLOCK_TAGS:
+            block = visual_block(elem, visuals, base_url=base_url, stop=container)
+            if block is None:
+                continue
+            key = _visual_key(block)
+            if key in seen:
+                continue
+            seen.add(key)
+            consumed.append(elem)
+            current.blocks.append(block)
+            continue
+
         # A <p> inside a <blockquote> or <li> is emitted by its parent.
         if ancestor_tags(elem, _ENCLOSING, stop=container):
             continue
@@ -85,6 +127,31 @@ def blocks_from_dom(
     if current.blocks:
         sections.append(current)
     return sections
+
+
+def _within(node: Node, containers: list[Node]) -> bool:
+    """True when ``node`` sits inside something already emitted."""
+    if not containers:
+        return False
+    # lexbor hands out a fresh wrapper per lookup, so two objects for one
+    # node are not `is` each other. They compare equal; identity does not.
+    current = node.parent
+    while current is not None:
+        if any(current == done for done in containers):
+            return True
+        current = current.parent
+    return False
+
+
+def _visual_key(block: Block) -> str:
+    """What makes two visuals the same one.
+
+    A publication often prints the lead picture twice — once in the topper and
+    once at the head of the body — and a saved page keeps both. The address is
+    the thing that says so; a table has none, so its cells stand in.
+    """
+    media = block.media or {}
+    return media.get("src") or f"{block.kind}:{block.text}:{media.get('rows')}"
 
 
 def inline_footnotes(scope: Node | Tree, footnotes: dict[str, str], selector: str) -> None:

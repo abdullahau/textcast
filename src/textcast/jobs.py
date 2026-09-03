@@ -41,7 +41,7 @@ import time
 from . import db
 from .audio import render_article
 from .cache import sweep_cache
-from .document import BlockKind
+from .document import VISUAL_KINDS, BlockKind
 from .prefs import voice_defaults
 from .settings import Settings, get_settings, use_settings
 from .tts import ENGINES, TTSEngine, get_engine, publish_engine
@@ -430,6 +430,10 @@ class Worker:
             include.discard(BlockKind.FOOTNOTE)
         if options.get("skip_summaries"):
             include.discard(BlockKind.SUMMARY)
+        # A figure's block says "Figure: what it shows". Worth hearing the
+        # first time through and worth turning off once you know the article.
+        if options.get("skip_visuals"):
+            include -= VISUAL_KINDS
 
         out_dir = settings.media_dir / row["slug"]
         out_dir.mkdir(parents=True, exist_ok=True)

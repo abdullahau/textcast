@@ -17,7 +17,7 @@ docker compose logs -f worker  # builds and mail polling land here
 
 uv sync --extra cpu --extra kokoro --extra kokoro-onnx --extra web \
         --extra documents --extra summaries --group dev
-uv run pytest                  # 363 tests
+uv run pytest                  # 413 tests
 uv run ruff check src tests    # before committing; formatting is not enforced
 ```
 
@@ -87,6 +87,13 @@ Everything reads that same table: the reader renders it, synthesis walks it,
 the WebVTT cue ids are block ids, search returns block ids, and the player
 highlights by block id. They cannot drift apart because there is only one list.
 
+**A picture is a block too.** A figure, a table and a live chart are
+`BlockKind.FIGURE`, `TABLE` and `EMBED`: same ids, same place in the
+read-along, same row. `block.text` is the cue a listener hears and the string
+search indexes; `block.media` is the one thing text cannot carry — the
+picture's address, the table's cells, the frame's link. So the audio can stop
+on a chart and the reader shows it, at the point the prose cites it.
+
 If you are tempted to store text anywhere else, don't.
 
 ---
@@ -109,7 +116,9 @@ src/textcast/
 │   ├── base.py     the shared DOM walker + junk pruning
 │   ├── extract.py  content-density fallback (replaces readability-lxml)
 │   ├── documents.py text, Markdown, PDF, DOCX
-│   └── bloomberg.py / ft.py / newsletter.py / generic.py
+│   ├── visuals.py  what a picture, a table and a live chart are, and what
+│   │               is furniture wearing one. Asked once, per publication.
+│   └── bloomberg.py / ft.py / substack.py / newsletter.py / generic.py
 ├── tts/            engine registry and kokoro.py; shared_engine is the
 │                   one instance a process ever loads
 ├── audio.py        synthesis, Opus encoding, WebVTT emission
@@ -283,6 +292,10 @@ Re-measure before overturning any of these. The numbers are from this box:
 | **Kokoro is the only engine** | A second, ONNX engine was ~2× faster (RTF 0.31 vs 0.65) but its delivery drifted in volume and glitched on long paragraphs. It was never the one worth listening to, so it went, and with it a build option, a second set of weights and a second licence. |
 | **A rule is skipped by a substring test before the regex engine sees it** | `pronounce.apply` ran all 86 rules against every block, and a `sub` that cannot match is a full scan with a regex engine on top. A word or a phrase rule is a literal inside guards, so the literal has to be in the text: `needle in lowered` is the same scan at C speed and skips 96% of the rules. Deciding whether a rule fires, fetching its pattern and building its replacement moved to `_prepared`, an `lru_cache` keyed on the rules themselves — 86 distinct answers were being recomputed 206,400 times. Measured over 2,400 blocks against the seeded rules: **1.014 s to 0.633 s**, and the sweep that derives the same spoken text went 1.074 s to 0.636 s. Byte-identical output over every block of `tests/corpus` on both phonemisers, with and without phonemes. |
 | **A rule's literal narrows the rebuild scan in SQL, not in Python** | `articles_matching` read every block of every built article into Python because a rule may be a regular expression. Most are not: a word or a phrase rule is a literal inside guards, so `b.text LIKE ?` is a superset of what the pattern would match and SQLite reads only the rows that pass it. Measured over 12,000 blocks across 200 ready articles: **48 ms to 5 ms**, and it now grows with the hits rather than with the library. Identical answers against the exhaustive scan across case, substrings of longer words, LIKE wildcards and a regex with no literal. A regex rule still reads them all. |
+| **A visual is a block, not a second table** | The alternative was a `figure` table beside `block`, keyed by the block it follows. It would have needed its own ids, its own ordering and its own answer to "what does the player highlight" — and the read-along already has one list and cannot afford two. One `media` column of JSON instead, empty on every prose row. The three visual kinds hold different things, so a column per kind would have been three mostly-empty columns. |
+| **The page shows the caption, the audio says the label** | `block.text` is `Table: Ker-CHING 💰`, which is what the synthesiser reads, what search indexes and what the block editor shows. `media["caption"]` is `Ker-CHING 💰` alone, and is what the page prints — a reader can see it is a table. A picture with no caption gets `Figure.` for the listener and nothing under it on the page. Where the FT lifts the title out of the header row, `caption` is left off entirely: printed again below, it read as a second title. |
+| **Visuals are opt-in per adapter, and the newsletter walk stays text-only** | `blocks_from_dom` takes `visuals=NO_VISUALS` by default, so a walk that has not been told what a publication's furniture looks like behaves exactly as it did before. FT, Bloomberg, Substack and the generic extractor pass rules; `newsletter.py` does not, because a newsletter is built out of layout tables and `_table_block` cannot tell a two-by-two of prose from data. |
+| **An `iframe` is kept by allowlist, never by blocklist** | `EMBED_HOSTS` names fifteen chart tools. Everything else is refused, because an `iframe` is far more often an advert, a consent shim or a beacon — the SpaceX page carries three and not one is a graphic. A new advert network appears more often than a new chart tool does. And the frame is not fetched until the reader presses **Load the chart**: a live chart is a third party the reader has not agreed to. |
 | **selectolax, not BeautifulSoup** | 4.8× faster on the corpus (66 ms vs 314 ms for 6.3 MB), one wheel, no lxml. Its `[class*="Footnotes_base"]` also beats a regex over the class list. |
 | **torch from the CPU index** | The default pulls CUDA: 15 nvidia packages, 5.2 GB venv, 9.3 GB image, on a box with no GPU. Pinned in `[tool.uv.sources]`. Now 1.4 GB and 3.3 GB. |
 | **4 single-threaded engines, not 1 four-threaded** | RTF 0.562 vs 0.629, an 11% gain. 2×2 gives 0.633 (no gain); 6×1 gives 0.593 (worse). The model is bound more by memory bandwidth than cores — do not expect 4× from 4 cores. |
@@ -444,6 +457,48 @@ Things that have already bitten once.
   columns on `article`. `search` runs a substring match over those as well and
   puts the article hits first; they open at the top, having no block to point
   at.
+- **`node.css()` searches the node *and* its subtree.** So a `<table>` asked
+  whether it holds another table says yes about itself, a container matches
+  its own selectors, and `blocks_from_dom` turned a whole article into one
+  figure the moment `article-grid--no-full-width-graphics` matched
+  `[class*="graphic"]`. `css_matches` and `any_css_matches` are no help: both
+  are true when a *descendant* matches, which is how every wrapper on an FT
+  page "matched" `.o-table` and rescued the promo banners the junk filter had
+  just refused. The only self-only test is `node.css_first(sel) == node`.
+- **Two lexbor nodes for the same element are not `is` each other.** lexbor
+  hands out a fresh wrapper per lookup. They compare equal — `__eq__` and
+  `__hash__` are the node's `mem_id` — so every ancestor walk, every "have I
+  emitted this" check and every `stop=container` guard uses `==`. `ancestor_
+  tags` had the identity bug from the start and walked past its stop to the
+  root; harmless for `blockquote` and `li`, and not harmless at all once the
+  same helper was asked about figures.
+- **A srcset is not comma-separated, quite.** Substack serves every picture
+  through Cloudinary, whose path is `w_1456,c_limit,f_webp`, so
+  `split(",")` cut one candidate into three and produced an address that
+  resolved against the article's own host. The comma that separates two
+  candidates has whitespace after it; a comma inside a URL never does.
+  Reading the srcset at all is worth it twice over: the widest candidate is
+  the best copy on a live page, and on a page saved to disk it is the only
+  *absolute* address, because the browser rewrote `src` to point at the
+  `_files` directory beside the HTML.
+- **`figure` was in both noise lists, and that is what dropped every chart.**
+  FT and Bloomberg each opened with `"figure"`, which is a blunt way of saying
+  "teasers, promos and author headshots". Those are named directly now —
+  `.o-teaser`, `[class*="AuthorBio"] img`, `event-promo` via the shared
+  `JUNK_CLASS` — and the pictures that carry an argument survive.
+- **A `keep` rule must not outrank the junk filter from six levels up.**
+  `VisualRules.keep` exists to rescue a publication's charts from
+  `JUNK_CLASS`. Matched loosely it rescued the FT's event promo instead,
+  because an ancestor of the promo also contained the article's `o-table`.
+  Both walks are depth-capped and both stop at the container.
+- **`©\b` never matches.** Neither the symbol nor the space after it is a
+  word character, so the boundary has nowhere to sit. `BARE_CREDIT` puts the
+  `\b` on the words only, which is why "© Reuters" is now recognised as a
+  credit and kept out of the caption.
+- **A cell may claim any span it likes.** The FT's table footer is
+  `colspan="1000"`, which is a way of saying "the whole row", not a width.
+  Left alone it made a row of a thousand cells. Capped at 12, and `tfoot` is
+  read into `media["foot"]` rather than into the rows: it is a credit line.
 - **A publication puts its byline in the head, not the body.** Bloomberg names
   the writer in `parsely-author`, `sailthru.author` and `author`, and again in
   a byline whose class carries a build hash. The meta tags are the stable
@@ -998,6 +1053,11 @@ while they run, so anything landing on `main` unwatched is landing unread.
   everywhere but the tailnet. Access control is on.
 - **Access control, offline caching, the iOS Shortcut, batched rebuilds after
   a rule change, and import/export of the rules** all exist.
+- **Pictures, tables and live charts are parsed and shown.** FT, Bloomberg,
+  Substack and the generic extractor all keep them, and the reader draws them
+  where the prose cites them. Nothing in the library has been re-parsed yet:
+  `block.media` is empty for every article stored before this, and **Re-parse**
+  on the article page is what fills it in from the saved source.
 
 ## Still open
 
@@ -1056,7 +1116,24 @@ while they run, so anything landing on `main` unwatched is landing unread.
     whole library. A scoped ingest-only token would cap what a stolen one is
     worth. Nor does anything rate-limit `/api/ingest`, which is the one route
     that takes a credential in a body from anywhere on the internet.
-12. **A hand-written summary is not protected.** Nothing marks a summary block
+12. **A visual is hotlinked, not stored.** The reader points an `<img>` at the
+    publication's own CDN, with `referrerpolicy="no-referrer"` and lazy
+    loading. Three costs follow, and none is paid yet: an article kept
+    offline has no picture, a paywalled image may answer 403 to a reader who
+    is not signed in, and the publication learns the reader's address. The
+    fix is to fetch each picture at ingest into `media/<slug>/`, which then
+    needs a sweep in `service.delete`, a place in the audio export and a size
+    budget. Worth doing; it is the next step, not this one.
+13. **Only the audio's own cue says a chart is there.** The build speaks
+    "Table: Ker-CHING", and the player can stop on the block if **Pause at a
+    chart or table** is ticked in the sheet. Nothing tells you *before* you
+    start that an article has visuals in it, and the library shows no mark.
+14. **Newsletters get no visuals.** `newsletter.py` walks with
+    `NO_VISUALS`, because it reads leaf table cells and a layout table is not
+    distinguishable from a small data table there. A Substack issue arriving
+    by email is fine — `SubstackAdapter` sits before it in the registry — but
+    anything else loses its charts.
+15. **A hand-written summary is not protected.** Nothing marks a summary block
     as yours, so "Summarise again" replaces it with the model's, and "Delete
     summaries" removes it with the rest. The reader now says which model wrote
     the summaries and stays silent where it does not know, which makes the
@@ -1069,9 +1146,14 @@ while they run, so anything landing on `main` unwatched is landing unread.
   rejected, and what broke to make the code look like this.
 - **Test names are sentences** describing the behaviour, and the docstring
   carries the reason where the name cannot.
-- **The parse corpus is `tests/corpus`.** Eight saved pages that
-  `test_ingest.py` parses. It sits in the tests because `data/` is ignored, and
-  a test may not depend on a copy that is not in the repository.
+- **The parse corpus is `tests/corpus`.** Ten saved pages that
+  `test_ingest.py` parses, and that `test_visuals.py` reads again for the
+  pictures and tables in them. It sits in the tests because `data/` is
+  ignored, and a test may not depend on a copy that is not in the repository.
+  Two were added for the visuals: the Alphaville post whose argument rests on
+  a ready reckoner, and a Substack fixture written by hand — nothing in the
+  library was one, and a fixture can carry the subscribe widget, the avatar
+  and the Cloudinary srcset that the filters exist to handle.
 - **Measure before switching engines, parsers or dependencies.** Every table
   entry above exists because a guess was wrong at least once.
 - `uv run ruff check src tests` before committing. Formatting is not enforced;

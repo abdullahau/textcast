@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from textcast.document import Article, BlockKind
-from textcast.ingest import parse_html, pick_adapter
+from textcast.ingest import adapter_names, parse_html, pick_adapter
 from textcast.ingest.base import is_junk_block
 from textcast.ingest.dom import parse as parse_tree
 from textcast.ingest.newsletter import article_from_eml, is_cutoff, parse_eml
@@ -152,7 +152,9 @@ def test_money_stuff_issues_are_grouped_into_a_series():
 
 @pytest.mark.skipif(not PAGES, reason="corpus not present")
 def test_adapter_is_recorded_on_the_article():
-    assert {load(p).adapter for p in PAGES} <= {"bloomberg", "ft", "newsletter", "generic"}
+    # Against the registry, not a copy of it: a new publication is one file
+    # and one line there, and this list was the third place to remember.
+    assert {load(p).adapter for p in PAGES} <= set(adapter_names())
 
 
 def test_generic_extractor_finds_the_body_and_drops_the_rails():

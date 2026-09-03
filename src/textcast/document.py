@@ -22,10 +22,20 @@ class BlockKind(StrEnum):
     LIST_ITEM = "list_item"
     FOOTNOTE = "footnote"
     SUMMARY = "summary"
+    #: A picture, whether it is a photograph or a chart drawn as one.
+    FIGURE = "figure"
+    TABLE = "table"
+    #: A chart the publication draws live, in a frame of its own.
+    EMBED = "embed"
 
+
+#: Blocks you look at rather than listen to. They are ordinary blocks — one
+#: row, one id, one place in the read-along — so the audio can stop on one and
+#: the reader can show the thing itself at exactly the point it is cited.
+VISUAL_KINDS = {BlockKind.FIGURE, BlockKind.TABLE, BlockKind.EMBED}
 
 #: Kinds the player can hide and the synthesiser can skip, per user setting.
-OPTIONAL_KINDS = {BlockKind.FOOTNOTE, BlockKind.SUMMARY}
+OPTIONAL_KINDS = {BlockKind.FOOTNOTE, BlockKind.SUMMARY} | VISUAL_KINDS
 
 
 @dataclass
@@ -34,6 +44,11 @@ class Block:
     text: str
     #: Footnote number this block carries, when the source cited one inline.
     footnote_ref: str | None = None
+    #: What a visual block *shows*, which text cannot carry: the picture's
+    #: address, the table's cells, the frame's link. Empty for every other
+    #: kind. `text` stays the caption, so search, editing and the spoken cue
+    #: all keep working without knowing this field exists.
+    media: dict | None = None
     section_idx: int = 0
     idx: int = 0
 
@@ -131,6 +146,7 @@ class Article:
                         kind=BlockKind(b.get("kind", "para")),
                         text=b["text"],
                         footnote_ref=b.get("footnote_ref"),
+                        media=b.get("media"),
                         section_idx=b.get("section_idx", i),
                         idx=b.get("idx", j),
                     )
@@ -175,10 +191,38 @@ def to_markdown(article: Article) -> str:
             elif block.kind is BlockKind.FOOTNOTE:
                 mark = f"[{block.footnote_ref}] " if block.footnote_ref else ""
                 body.append(f"{mark}{block.text}")
+            elif block.kind in VISUAL_KINDS:
+                body.append(_visual_markdown(block))
             else:
                 body.append(block.text)
 
     return "\n\n".join([*head, *body]) + "\n"
+
+
+def _visual_markdown(block: Block) -> str:
+    """A visual as Markdown: the thing itself where it can be written down.
+
+    An image becomes an image, a table becomes a table, and a live chart
+    becomes a link — there is nothing else to write for a frame. The caption
+    is the block's text either way, so an export never loses what it said.
+    """
+    media = block.media or {}
+    if block.kind is BlockKind.TABLE:
+        rows = media.get("rows") or []
+        if not rows:
+            return block.text
+        head, *rest = rows
+        width = max(len(r) for r in rows)
+        def line(cells: list[str]) -> str:
+            padded = list(cells) + [""] * (width - len(cells))
+            return "| " + " | ".join(c.replace("|", "\\|") for c in padded) + " |"
+        table = [line(head), "| " + " | ".join(["---"] * width) + " |", *(line(r) for r in rest)]
+        return f"**{block.text}**\n\n" + "\n".join(table) if block.text else "\n".join(table)
+    if block.kind is BlockKind.EMBED:
+        src = media.get("src") or ""
+        return f"[{block.text}]({src})" if src else block.text
+    src = media.get("src") or ""
+    return f"![{block.text}]({src})" if src else block.text
 
 
 _SLUG_STRIP = re.compile(r"[^a-z0-9]+")
