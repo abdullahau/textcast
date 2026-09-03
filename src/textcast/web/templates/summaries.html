@@ -91,9 +91,14 @@
       </div>
     </div>
     <div class="row" style="margin-top:.7rem">
+      {# The key field is `autocomplete="new-password"`, which is the only thing
+         Chrome honours here. It ignores `off` on a password input: it reads the
+         form as a sign-in, takes the nearest text field above as the username
+         — Endpoint — and fills it, with the caret in it and the text selected.
+         Nothing on the page was doing that, and no other field behaves so. #}
       <div>
         <label for="api_key">API key</label>
-        <input type="password" name="api_key" id="api_key" autocomplete="off"
+        <input type="password" name="api_key" id="api_key" autocomplete="new-password"
                placeholder="{{ '•••••••• stored' if cfg.api_key else 'not set' }}">
         <p class="hint" style="margin-top:.35rem">
           Kept in the database on this machine. Leave blank to keep the one already stored.

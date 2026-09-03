@@ -403,3 +403,44 @@ def test_a_smaller_pool_also_drops_the_bigger_one(settings, monkeypatch):
     smaller = worker.engines_for("kokoro")
 
     assert len(smaller) == 2, "the pool was rebuilt, not trimmed in place"
+
+
+def test_the_idle_unload_never_runs_while_jobs_go_to_a_child(settings, monkeypatch):
+    """The setting exists and does nothing under the default configuration.
+
+    `_loop` takes the child branch, so the parent never calls `step`, never
+    builds a pool, and has nothing to drop. Every idle test above calls
+    `engines_for` and `_release_idle_engines` by hand, which is why none of
+    them showed this. The child's exit does the whole job instead.
+    """
+    worker = switchable(settings, monkeypatch)
+    monkeypatch.setattr(settings, "job_subprocess", True)
+    monkeypatch.setattr(settings, "idle_unload_minutes", 10)
+    dropped = []
+    monkeypatch.setattr(worker, "_drop_engines", lambda why: dropped.append(why))
+    # No work, so the lane reaches the idle check. Stopping from inside the
+    # lane leaves exactly one pass through the body.
+    monkeypatch.setattr(worker, "_run_in_child", lambda kinds: worker._stop.set())
+    monkeypatch.setattr(worker, "_poll_mail", lambda: None)
+
+    worker._loop(("build",))
+
+    assert worker._engines == [], "the parent builds no pool of its own"
+    assert dropped == [], "so there is never one to drop"
+
+
+def test_the_idle_unload_is_the_whole_mechanism_without_a_child(settings, monkeypatch):
+    """JOB_SUBPROCESS=0 is why the path stays. There the pool is in-process."""
+    import time
+
+    worker = switchable(settings, monkeypatch)
+    monkeypatch.setattr(settings, "job_subprocess", False)
+    monkeypatch.setattr(settings, "idle_unload_minutes", 10)
+    worker.engines_for("kokoro")
+    worker._engines_used = time.monotonic() - 11 * 60
+    monkeypatch.setattr(worker, "step", lambda kinds: worker._stop.set())
+    monkeypatch.setattr(worker, "_poll_mail", lambda: None)
+
+    worker._loop(("build",))
+
+    assert worker._engines == [], "the lane dropped the pool it had built"
