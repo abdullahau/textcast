@@ -15,11 +15,16 @@ assumed, and what is still open.
 docker compose up -d --build   # http://127.0.0.1:8000, app + worker
 docker compose logs -f worker  # builds and mail polling land here
 
-uv sync --extra kokoro --extra kokoro-onnx --extra web --extra documents \
-        --extra summaries --group dev
-uv run pytest                  # 280 tests
+uv sync --extra cpu --extra kokoro --extra kokoro-onnx --extra web \
+        --extra documents --extra summaries --group dev
+uv run pytest                  # 333 tests
 uv run ruff check src tests    # before committing; formatting is not enforced
 ```
+
+**`--extra cpu` is not optional.** It picks the CPU wheels of torch and
+onnxruntime. Leave it out and torch comes from PyPI, which is the CUDA build
+and ~4 GB of NVIDIA runtime. `--extra cuda` is the other one, and the two are
+declared as conflicting extras so uv refuses both.
 
 **There is no command line.** `cli.py` was deleted: the app is the interface,
 and a second one drifts. `python -m textcast` runs the build worker, which is
@@ -47,6 +52,16 @@ build. The choice is stored per article, so one article can be ONNX and the
 rest Kokoro, and the block cache is keyed on the engine so switching back and
 forth costs nothing after the first build of each. `TEXTCAST_TTS_ENGINE` in
 `.env` moves the default for everything, and needs a restart.
+
+**Two images, one Dockerfile.** `docker build .` builds the CPU image;
+`--build-arg ACCEL=cuda` builds `textcast:gpu`, and
+`docker-compose.gpu.yml` layers both on top of the base compose file. The
+device cannot be an `.env` setting: torch and onnxruntime each ship a
+different *distribution* per device, so it is decided when the image is
+built. The code then asks the machine — `torch.cuda.is_available()` in
+`tts/kokoro.shared_model`, `onnxruntime.get_available_providers()` in
+`tts/kokoro_onnx.providers` — so the GPU image still runs where no device was
+passed through. Neither has been measured on a GPU: this box has none.
 
 **The ONNX engine's weights are not baked into the image.** They are published
 as a GitHub release, not a hub repo. Put `kokoro-v1.0.onnx` and
@@ -261,7 +276,8 @@ Re-measure before overturning any of these. The numbers are from this box:
 | **One KModel behind the whole pool** | `KPipeline` builds its own `KModel` unless you hand it one, and the pool built four. Kokoro's own docstring asks for the opposite: "For multiple KPipelines, you should reuse one KModel instance across all of them." Measured on this box: four pipelines each with their own held **4,188 MB** after a build; four sharing one held **1,535 MB**, and rendered no slower — RTF 0.561 against 0.574. The weights are 312 MB of the ~650 MB each instance cost; the rest is a second G2P and torch's slack. |
 | **Kokoro is not deterministic, so a shared model is no riskier** | Sharing worried me, because kokoro uses the deprecated `torch.nn.utils.weight_norm`, which mutates the module inside `forward`. Measured instead of assumed. One pipeline, same sentence, three times in a row: max abs difference 0.081 and 0.084. Four independent pipelines, concurrent: 0.088, 0.130, 0.129. Four sharing one model, concurrent: 0.113, 0.104, 0.087. The spread is the model's own; sharing sits inside it. A useful corollary: the block cache is *why a rebuild sounds like the first build*, not only why it is fast. |
 | **Every job runs in a child process that then exits** | `import torch` cannot be undone. Deleting it from `sys.modules` leaves the shared libraries mapped and the allocator's arenas grown, so a worker that had built once held **1,006 MB for the rest of its life** against **37 MB** before its first build. The only way to get it back is to leave the process. The parent polls the job table and never imports torch; `drain_jobs` is spawned, takes the whole queue, and dies. Re-measured over three builds: parent **38.3–38.4 MB** in all 66 samples, idle and building, and `torch/lib` never in its maps. The child holds 1,600–1,880 MB on ONNX for one article and **2,892 MB** after two, and gives every byte back **1.2–2.5 s** after the last job. Start-up is **~2 s**, not the ~7 s measured when torch was the default — four ONNX instances load in 1–2 s. Summaries go the same way for the same reason, one size down: `openai` brings httpx and pydantic, and took the worker from 38 MB to 79 MB permanently. |
-| **The pool is dropped when it stops earning its memory** | Keeping it between jobs was measured against a reload, and a reload is 6.1 s. It was never measured against an idle process holding gigabytes for the rest of the day. Two paths call `_drop_engines` now. **The engine switch is the live one**: one queue can hold a job per engine and the same child takes them all, so `engines_for` drops the old pool before building the new one. **The idle timer is not**: with `JOB_SUBPROCESS=true`, the default, the parent never calls `step`, so it never builds a pool to drop, and `_release_idle_engines` returns on its first line for ever. `TTS_IDLE_MINUTES` changes nothing unless you set `JOB_SUBPROCESS=false`. The child's exit does that whole job, and does it better. |
+| **A process's exit is the only way the pool is dropped** | Keeping the pool between jobs was measured against a reload, and a reload is 6.1 s. It was never measured against an idle process holding gigabytes for the rest of the day. There were two answers to that: an idle timer, and the child process's exit. Only one of them ran. The timer needed `JOB_SUBPROCESS=false`, which nobody sets, and returned on its first line under the default for ever. Both it and the mode it served are gone — `_release_idle_engines`, `_drop_engines`, `_trim_heap`, `TTS_IDLE_MINUTES` and `JOB_SUBPROCESS`. A lane hands its queue to a child, the child drains it and exits, and the exit gives every byte back. |
+| **One process, one engine** | The pool is built once per child and never replaced. A build job for the other engine is put back on the queue and passed over — `step` resolves the engine before it commits the process to the job, and `claim_job` takes a `skip` set so the released job does not stall the ones behind it. `engines_for` still raises if a second engine is ever asked for, which is a bug rather than a case. This replaces the drop-and-rebuild that used to happen mid-drain: dropping was correct and worked, but it still meant one process importing both torch and onnxruntime, and the failure it guarded against cost 7.5 GB. Measured on one queue holding a job per engine, one instance each: the ONNX child peaked at **717 MB with no `torch/lib` in its maps**, the kokoro child at **1,933 MB with no `onnxruntime` in its maps**, and the parent at 49 MB with neither. |
 | **One engine instance per process** | Building a Kokoro engine loads an 82M-parameter model. The web app built a new one for every voice list, preview and phoneme lookup. `tts.shared_engine` keeps one; the worker publishes its first pool instance into the same slot. |
 | **A block's cue opens half a gap before its first word** | Landing the cue exactly on the attack means anything slow — a decoder spinning up, a browser a frame behind — starts you inside the first word. The 350 ms between two blocks is split between them. The audio is untouched: decoded output hashes identically, only the map moves. |
 | **Ask misaki before writing a spell-out rule** | Its notation is not IPA — capital `A` is the /eɪ/ of "day", capital `I` the /aɪ/ of "eye". Of 45 `SPELL_OUT` entries, 41 produced identical sounds with the rule and without: misaki already spells acronyms out, and better. "CEO" alone is `sˌiˌiˈO`, the natural contour with the stress on the last letter; the rule's "C E O" is `sˈi ˈi ˈO`, every letter its own stressed word and 120 ms longer. Two rules remain, for the words misaki says instead — `ROE` as "roe", `ETH` as the letter eth. Check `engine.phonemes()` before adding another. |
@@ -274,6 +290,8 @@ Re-measure before overturning any of these. The numbers are from this box:
 | **float32 to int16 costs nothing audible** | Measured, because it is the conversion opusenc would force: the quantisation error peaks at −90 dBFS, and after encoding the result differs from the float32 path by −47 dBFS while the encoder's own loss is −45 dBFS. It is quieter than the codec's own noise. The file is 0.17% *smaller*. So the 4.9% above is opusenc, not the integers. |
 | **Ogg page size was ruled out first** | The files are on a 1.02 s page grid, which looked like the cause. A tone-per-block probe in Chromium showed seeking is sample accurate at that grid, so nothing was changed. Re-encoding finer would have cost ~10% in size for nothing. |
 | **One sound, two spellings, both measured** | The espeak notation for LIBOR was not converted from misaki's — it was measured the same way misaki's was. espeak's own phonemisation of "lie bore" is `lˈaɪ bˈɔːɹ`, which is where `lˈaɪbɔːɹ` comes from. Left alone espeak says `lˈɪbɚ`, "LIB-er", so the rule is worth as much there as here. A library that already holds the rule gets the second spelling from a migration, not from seeding: seeding skips anything it has offered before, which is what keeps a deleted built-in deleted. |
+| **Shein is "SHEE-in", and both engines said "Shane"** | `ʃˈAn` on misaki, `ʃˈeɪn` on espeak. "Sheein" is `ʃˈiɪn` and `ʃˈiːɪn`, right on both. A regex with `(?!\w)` rather than a word rule, so the possessive comes with it, and case-insensitive because the brand writes itself SHEIN — and misaki spells an all-capital SHEEIN out letter by letter. |
+| **"refund" is a house preference, not a correction** | Both engines already read the verb correctly: `ɹəfˈʌnd` on misaki, `ɹᵻfˈʌnd` on espeak, which is the textbook "to refund". The rule puts the noun's stress on every form — "reefund" is `ɹˈifʌnd` and `ɹˈiːfʌnd`. The inflections are named (`s|ed|ing`) rather than left to a bare prefix, because "refundable" keeps the verb's stress and "reefundable" wrecks it: `ɹˈifəndəbᵊl`, "REE-fund-a-bull". Delete the rule on the Voice page to go back to the engines' answer. |
 | **Respellings, not IPA** | Every acronym was checked against Kokoro. `GAAP`→`gap` works and anyone can edit it. Exactly one rule needs IPA: `LIBOR`, where Kokoro is already right and every respelling is worse. |
 | **NASDAQ, LIBOR, SPAC, NAV already correct** | Kept as explicit rules anyway, so they stay correct if the voice or model changes. |
 | **Summaries speak the OpenAI protocol, not a router** | Every provider now offers an OpenAI-compatible endpoint, so one `openai` dependency reaches 14 of them, listed in `summarize.PROVIDERS`. litellm was measured and refused: 183 MB across 114 packages against 21 MB, and the only thing it adds is a provider with no OpenAI endpoint at all — Bedrock, Vertex, SageMaker, which need a signed cloud SDK. |
@@ -449,6 +467,20 @@ Things that have already bitten once.
   select it had nothing to do with. Under 44rem it takes a row of its own,
   lined up with the selects. It also names what it counts — "10 articles",
   not "10": a bare number on its own line reads as a stray.
+- **A position at the end is the end, whatever the flag says.** The player
+  carries `finished`, and it is the only thing that knows the last section
+  ended rather than the user having skipped there. But a lost flag left a
+  fully played article in "Continue listening" for ever, showing
+  **"-1:59:57 left"** — `duration()` given minus three seconds, because
+  divmod on a negative renders it that way. The three seconds are real and
+  are not a bug: the player's clock runs on the *decoded* audio while
+  `article.audio_ms` comes from the build manifest, and Opus files sit on a
+  ~1.02 s page grid, so each section decodes a little longer than the
+  manifest says. `save_position` now marks a position within `end_slack` of
+  the total as finished, `continue_listening` drops such a row anyway, and
+  `duration()` refuses to render a negative. The slack is a tenth of the
+  article capped at five seconds — flat five seconds is most of a
+  twenty-second note, and starting one would have marked it played.
 - **The player must carry `finished`, not recompute it.** Every ordinary save
   sent `finished: false`, so opening a completed article and leaving without
   playing threw the completed state away. It was invisible until the badge
@@ -599,18 +631,21 @@ Things that have already bitten once.
   first instance into it. Nothing but `release_shared` takes it back, so the
   old pool's first instance pinned its session for the life of the child. One
   queue that switched engine mid-drain: 1.8 GB on ONNX, 3.5 GB the moment the
-  kokoro pool finished loading, peak **7,508 MB**. `engines_for` calls
-  `_drop_engines` before it builds under a new key. The `WeakValueDictionary`
-  in `tts/kokoro_onnx.py` cannot help here — a strong reference holds its
-  value.
-- **The idle unload does nothing under the default settings**, and it was
-  kept rather than deleted: `JOB_SUBPROCESS=0` is a documented mode, and
-  there the pool is in-process and this is the only thing that drops it. What
-  hid the truth was the tests — all four called `engines_for` and
-  `_release_idle_engines` by hand, and nothing tested `_loop`, which is where
-  the two meet. Two tests pin it now, one per setting, so nobody can believe
-  `TTS_IDLE_MINUTES` does something it does not. `_trim_heap` and
-  `release_shared` are reachable either way, through the engine switch.
+  kokoro pool finished loading, peak **7,508 MB**. No process loads two
+  engines now — a job for the other one is left for the next process — and
+  `engines_for` raises rather than building a second pool. The
+  `WeakValueDictionary` in `tts/kokoro_onnx.py` cannot help here: a strong
+  reference holds its value.
+- **A released job must be skipped, not just released.** `claim_job` takes
+  the oldest queued job, so a build process that puts back a job for the
+  other engine would claim the same one again on its next turn and never
+  reach the work behind it. `drain_jobs` carries a `skip` set for the life of
+  the process, and `step` returns True for a released job: there is still
+  work in this lane, just not this process's work.
+- **Releasing a job must put the article back too.** `claim_job` sets
+  `article.status` to `building` in the same transaction, and a job handed
+  back with the article still building is an article that shows as building
+  with nothing building it. `db.release_job` undoes both.
 - **`release_shared` checks identity, not just the name.** The worker publishes
   its first pool instance into `tts._shared`. When it drops the pool it must
   take that entry back, but only if the slot still holds *its* engine — a web
@@ -681,19 +716,23 @@ the owner asked for no feature branches unless they say so.
    names the built articles that use the word and rebuilds them on one click.
    It does not queue them for you, and it does not notice a rule that has
    *stopped* matching text it used to change.
-5. **`/login` is a token box, not accounts.** One shared token, one cookie. It
+5. **The GPU path is untested.** The wheels resolve, the extras conflict as
+   they should and both engines ask the machine at load time, but this box
+   has no device, so nothing here has run on one. Nor is there a number:
+   every RTF in this file is CPU.
+6. **`/login` is a token box, not accounts.** One shared token, one cookie. It
    is the right size for one person behind a tailnet, and the wrong size for
    anything with more than one reader.
-6. **`db.articles_matching` scans block text in Python.** A rule may be a
+7. **`db.articles_matching` scans block text in Python.** A rule may be a
    regular expression, which SQLite cannot match, so every ready article's
    blocks are read. Fine at a few hundred articles; measure before it is
    thousands.
-7. **The offline test covers one article, not eviction.** It caches, drops the
+8. **The offline test covers one article, not eviction.** It caches, drops the
    network and reloads. Nothing exercises the browser evicting a cache under
    storage pressure, or `drop-article`.
-8. **Mail polling has no test.** `mail.py` talks IMAP and nothing stands in
+9. **Mail polling has no test.** `mail.py` talks IMAP and nothing stands in
    for a server, and it now runs inside the worker rather than on a timer.
-9. **Article hits and block hits are ranked separately.** `search` puts
+10. **Article hits and block hits are ranked separately.** `search` puts
    metadata matches first and FTS matches after, rather than in one order.
    Right at this size; revisit past a few thousand articles.
 

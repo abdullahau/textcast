@@ -759,6 +759,26 @@ def search(query: str, conn: sqlite3.Connection | None = None, limit: int = 40) 
 # --------------------------------------------------------------------------
 
 
+#: How close to the end of an article counts as the end.
+#:
+#: The player's clock runs on the decoded audio; the library's total comes
+#: from the build manifest. They are not the same number. Opus files sit on a
+#: ~1.02 s page grid, so each section decodes a little longer than the
+#: manifest says it is, and a finished three-section article saved a position
+#: a few seconds *past* its own duration. "Continue listening" then showed it
+#: as "-1:59:57 left" — `duration()` given minus three seconds.
+END_MS = 5000
+
+
+def end_slack(total_ms: int) -> int:
+    """How far from the end still counts as the end, for an article this long.
+
+    A tenth of it, at most five seconds. Flat five seconds is most of a
+    twenty-second note, and starting one would have marked it played.
+    """
+    return min(END_MS, max(0, total_ms // 10))
+
+
 def save_position(
     article_id: int,
     section_idx: int,
@@ -766,7 +786,19 @@ def save_position(
     finished: bool = False,
     conn: sqlite3.Connection | None = None,
 ) -> None:
+    """Remember where playback is, and notice when that is the end.
+
+    The flag is carried by the player, which is the only thing that knows the
+    last section ended rather than the user having skipped there. But a missed
+    flag left a fully played article sitting in "Continue listening" for ever,
+    so a position at the end counts as the end here as well. Scrubbing back
+    clears it again on the next save.
+    """
     conn = conn or connect()
+    row = conn.execute("SELECT audio_ms FROM article WHERE id = ?", (article_id,)).fetchone()
+    total = row["audio_ms"] if row else 0
+    if total and ms >= total - end_slack(total):
+        finished = True
     conn.execute(
         """
         INSERT INTO position (article_id, section_idx, ms, finished, updated_at)
@@ -805,11 +837,18 @@ def continue_listening(conn: sqlite3.Connection | None = None, limit: int = 6) -
         SELECT a.*, p.ms AS position_ms, p.section_idx AS position_section
           FROM position p
           JOIN article a ON a.id = p.article_id
-         WHERE p.finished = 0 AND p.ms > 5000 AND a.archived = 0 AND a.status = 'ready'
+         WHERE p.finished = 0
+           AND p.ms > 5000
+           -- Belt as well as braces. A row written before `save_position`
+           -- read the total, or by a player that never sent the flag, still
+           -- drops off the list once there is nothing left to hear.
+           AND (a.audio_ms = 0 OR p.ms < a.audio_ms - MIN(?, a.audio_ms / 10))
+           AND a.archived = 0
+           AND a.status = 'ready'
          ORDER BY p.updated_at DESC
          LIMIT ?
         """,
-        (limit,),
+        (END_MS, limit),
     ).fetchall()
 
 
@@ -845,7 +884,9 @@ def enqueue(
 
 
 def claim_job(
-    conn: sqlite3.Connection | None = None, kinds: tuple[str, ...] | None = None
+    conn: sqlite3.Connection | None = None,
+    kinds: tuple[str, ...] | None = None,
+    exclude: set[int] | None = None,
 ) -> sqlite3.Row | None:
     """Atomically take the oldest queued job of these kinds.
 
@@ -854,6 +895,11 @@ def claim_job(
     meet on the same article — but on different articles they use different
     machines entirely, one the network and one the CPU, and there is no reason
     for either to wait.
+
+    `exclude` passes over jobs this caller has already put back. A build
+    process is bound to one engine, and a job for the other one is left for
+    the next process rather than loading a second model beside the first.
+    Without the skip the same job would be claimed and released for ever.
 
     Only a build sets the article to `building`. A summary pass does not
     change the state of the audio, so it does not pretend to.
@@ -864,6 +910,9 @@ def claim_job(
     if kinds:
         where += f" AND kind IN ({','.join('?' * len(kinds))})"
         params.extend(kinds)
+    if exclude:
+        where += f" AND id NOT IN ({','.join('?' * len(exclude))})"
+        params.extend(sorted(exclude))
 
     with transaction(conn):
         row = conn.execute(
@@ -886,6 +935,29 @@ def claim_job(
                 "UPDATE article SET status = 'building' WHERE id = ?", (row["article_id"],)
             )
     return row
+
+
+def release_job(job_id: int, conn: sqlite3.Connection | None = None) -> None:
+    """Put a claimed job back on the queue, exactly as it was found.
+
+    Used when a build process is handed a job for the engine it is not the
+    one for. Nothing has been done to the article, so its status goes back to
+    `queued` too — `claim_job` set it to `building` a moment ago.
+    """
+    conn = conn or connect()
+    with transaction(conn):
+        conn.execute(
+            "UPDATE job SET state = 'queued', started_at = NULL, progress = 0 WHERE id = ?",
+            (job_id,),
+        )
+        conn.execute(
+            """
+            UPDATE article SET status = 'queued'
+             WHERE id = (SELECT article_id FROM job WHERE id = ?)
+               AND status = 'building'
+            """,
+            (job_id,),
+        )
 
 
 def update_job(

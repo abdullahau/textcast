@@ -186,63 +186,6 @@ def pooled(settings, monkeypatch, count=4):
     return Worker(settings)
 
 
-def test_the_pool_is_kept_while_the_queue_has_only_just_gone_quiet(settings, monkeypatch):
-    """Loading the model costs seconds, so a short lull must not drop it."""
-    worker = pooled(settings, monkeypatch)
-    monkeypatch.setattr(settings, "idle_unload_minutes", 10)
-    first = worker.engines_for("fake")
-
-    worker._release_idle_engines()
-
-    assert worker.engines_for("fake") is first, "the same instances came back"
-
-
-def test_the_pool_is_dropped_once_the_queue_has_been_quiet(settings, monkeypatch):
-    """An idle worker held gigabytes to save one reload a day."""
-    import time
-
-    worker = pooled(settings, monkeypatch)
-    monkeypatch.setattr(settings, "idle_unload_minutes", 10)
-    worker.engines_for("fake")
-    worker._engines_used = time.monotonic() - 11 * 60
-
-    worker._release_idle_engines()
-
-    assert worker._engines == [], "the pool let go"
-    assert worker._engine_key is None, "and will be rebuilt, not reused"
-
-
-def test_a_zero_timeout_keeps_the_pool_for_ever(settings, monkeypatch):
-    """The old behaviour is still available to anyone who wants it."""
-    import time
-
-    worker = pooled(settings, monkeypatch)
-    monkeypatch.setattr(settings, "idle_unload_minutes", 0)
-    worker.engines_for("fake")
-    worker._engines_used = time.monotonic() - 10_000
-
-    worker._release_idle_engines()
-
-    assert worker._engines, "the pool stayed"
-
-
-def test_dropping_the_pool_gives_up_the_shared_slot(settings, monkeypatch):
-    """The published instance would otherwise keep a model resident alone."""
-    import time
-
-    from textcast import tts
-
-    worker = pooled(settings, monkeypatch)
-    monkeypatch.setattr(settings, "idle_unload_minutes", 10)
-    worker.engines_for("fake")
-    assert tts.loaded_engine("fake") is not None, "the worker published its first instance"
-
-    worker._engines_used = time.monotonic() - 11 * 60
-    worker._release_idle_engines()
-
-    assert tts.loaded_engine("fake") is None, "and took it back"
-
-
 def test_releasing_leaves_an_engine_somebody_else_published(settings, monkeypatch):
     """A web process that built its own must not lose it to the worker."""
     from textcast import tts
@@ -375,72 +318,65 @@ def test_asking_for_the_same_engine_again_reuses_the_pool(settings, monkeypatch)
     assert worker.engines_for("kokoro") is worker.engines_for("kokoro")
 
 
-def test_switching_engine_drops_the_pool_it_replaces(settings, monkeypatch):
-    """One queue can hold a job per engine, and the same child takes them all.
+def test_a_second_engine_is_refused_inside_one_process(settings, monkeypatch):
+    """One process, one engine. Loading the second beside the first is 7.5 GB.
 
-    Building the second pool beside the first held two models at once. Worse,
-    `tts._shared` is a strong reference, so the old pool's first instance was
-    never collected — measured at 1.8 GB before the switch and 7.5 GB after.
-    """
-    from textcast import tts
-
-    worker = switchable(settings, monkeypatch)
-    first = worker.engines_for("kokoro-onnx")
-
-    second = worker.engines_for("kokoro")
-
-    assert second is not first, "a new pool, not the old one"
-    assert tts.loaded_engine("kokoro-onnx") is None, "the old pool gave its slot up"
-    assert tts.loaded_engine("kokoro") is second[0], "and the new one took it"
-
-
-def test_a_smaller_pool_also_drops_the_bigger_one(settings, monkeypatch):
-    """The key is the engine and the count, so concurrency changes it too."""
-    worker = switchable(settings, monkeypatch, count=4)
-    worker.engines_for("kokoro")
-
-    monkeypatch.setattr(settings, "concurrency", 2)
-    smaller = worker.engines_for("kokoro")
-
-    assert len(smaller) == 2, "the pool was rebuilt, not trimmed in place"
-
-
-def test_the_idle_unload_never_runs_while_jobs_go_to_a_child(settings, monkeypatch):
-    """The setting exists and does nothing under the default configuration.
-
-    `_loop` takes the child branch, so the parent never calls `step`, never
-    builds a pool, and has nothing to drop. Every idle test above calls
-    `engines_for` and `_release_idle_engines` by hand, which is why none of
-    them showed this. The child's exit does the whole job instead.
+    Measured on a queue that switched engine mid-drain: the child sat at
+    1.8 GB on ONNX and reached 3.5 GB the moment the kokoro pool finished
+    loading. `step` puts the other engine's jobs back before it ever gets
+    here, so this is the backstop, not the mechanism.
     """
     worker = switchable(settings, monkeypatch)
-    monkeypatch.setattr(settings, "job_subprocess", True)
-    monkeypatch.setattr(settings, "idle_unload_minutes", 10)
-    dropped = []
-    monkeypatch.setattr(worker, "_drop_engines", lambda why: dropped.append(why))
-    # No work, so the lane reaches the idle check. Stopping from inside the
-    # lane leaves exactly one pass through the body.
-    monkeypatch.setattr(worker, "_run_in_child", lambda kinds: worker._stop.set())
-    monkeypatch.setattr(worker, "_poll_mail", lambda: None)
+    worker.engines_for("kokoro-onnx")
 
-    worker._loop(("build",))
-
-    assert worker._engines == [], "the parent builds no pool of its own"
-    assert dropped == [], "so there is never one to drop"
+    with pytest.raises(RuntimeError, match="another one"):
+        worker.engines_for("kokoro")
 
 
-def test_the_idle_unload_is_the_whole_mechanism_without_a_child(settings, monkeypatch):
-    """JOB_SUBPROCESS=0 is why the path stays. There the pool is in-process."""
-    import time
+def test_a_job_for_the_other_engine_is_put_back_untouched(conn, settings, monkeypatch):
+    """A build process is bound to the engine of the first job it takes."""
+    from textcast import db as database
 
+    theirs = ingest(text=LONG_NOTE, title="Theirs", build=False)
+    other = database.enqueue(
+        theirs.article_id, kind="build", options={"engine": "kokoro-onnx"}, conn=conn
+    )
     worker = switchable(settings, monkeypatch)
-    monkeypatch.setattr(settings, "job_subprocess", False)
-    monkeypatch.setattr(settings, "idle_unload_minutes", 10)
-    worker.engines_for("kokoro")
-    worker._engines_used = time.monotonic() - 11 * 60
-    monkeypatch.setattr(worker, "step", lambda kinds: worker._stop.set())
-    monkeypatch.setattr(worker, "_poll_mail", lambda: None)
+    worker._engine_name = "kokoro"
+    skip: set[int] = set()
 
-    worker._loop(("build",))
+    assert worker.step(("build",), skip) is True, "there is work, just not ours"
 
-    assert worker._engines == [], "the lane dropped the pool it had built"
+    row = conn.execute("SELECT state, started_at FROM job WHERE id = ?", (other,)).fetchone()
+    assert row["state"] == "queued", "put back for a process loaded with that engine"
+    assert row["started_at"] is None, "and left as it was found"
+    assert skip == {other}, "and passed over, or it would be claimed for ever"
+    article = conn.execute(
+        "SELECT status FROM article WHERE id = ?", (theirs.article_id,)
+    ).fetchone()
+    assert article["status"] == "queued", "the article never started building"
+
+
+def test_a_released_job_does_not_block_the_ones_behind_it(conn, settings, monkeypatch):
+    """`claim_job` takes the oldest, so a skipped job would stall the lane."""
+    from textcast import db as database
+
+    theirs = ingest(text=LONG_NOTE, title="Theirs, and first", build=False)
+    ours = ingest(text=LONG_NOTE, title="Ours, and second", build=False)
+    other = database.enqueue(
+        theirs.article_id, kind="build", options={"engine": "kokoro-onnx"}, conn=conn
+    )
+    database.enqueue(ours.article_id, kind="build", options={"engine": "kokoro"}, conn=conn)
+    worker = switchable(settings, monkeypatch)
+    worker._engine_name = "kokoro"
+    monkeypatch.setattr(worker, "_build", lambda conn, job: None)
+    skip: set[int] = set()
+
+    worker.step(("build",), skip)   # the ONNX job, put back
+    worker.step(("build",), skip)   # ours, behind it
+
+    ran = conn.execute(
+        "SELECT state FROM job WHERE article_id = ?", (ours.article_id,)
+    ).fetchone()
+    assert ran["state"] == "done", "the job behind the skipped one still ran"
+    assert other in skip

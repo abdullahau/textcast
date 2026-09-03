@@ -387,6 +387,25 @@ RESPELL = {
     # espeak says the s of "acquisition" as an s; the word has a z. A regex
     # rather than two word rules, so the plural comes with it.
     r"(?<!\w)acquisition(s?)(?!\w)": r"ackwizition\1",
+    # Shein is "SHEE-in". Both phonemisers read it as "Shane": ʃˈAn for
+    # misaki, ʃˈeɪn for espeak. "Sheein" gives ʃˈiɪn and ʃˈiːɪn, right on
+    # both, and the possessive comes with it — which is why this is a regex
+    # with (?!\w) and not a word rule, whose (?![\w']) refuses to match
+    # before an apostrophe. Ignoring case matters here: the brand writes
+    # itself SHEIN, and misaki spells an all-capital SHEEIN out letter by
+    # letter.
+    r"(?<!\w)Shein(?!\w)": "Sheein",
+    # "REE-fund", the noun's stress, on every form of the word. Both engines
+    # already put the verb's stress on the second syllable — ɹəfˈʌnd for
+    # misaki, ɹᵻfˈʌnd for espeak — which is the textbook reading of "to
+    # refund"; this is a house preference for one pronunciation throughout.
+    # "reefund" gives ɹˈifʌnd and ɹˈiːfʌnd. Delete the rule on the Voice page
+    # to go back to the engines' own answer.
+    #
+    # The inflections are named rather than left to a bare prefix, because
+    # "refundable" keeps the verb's stress and "reefundable" wrecks it:
+    # ɹˈifəndəbᵊl, "REE-fund-a-bull".
+    r"(?<!\w)refund(s|ed|ing)?(?!\w)": r"reefund\1",
 }
 
 #: Written with dots. Measured against Kokoro: "AI" is ˈAˌI — already "ay-eye"

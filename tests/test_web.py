@@ -557,7 +557,9 @@ def test_a_finished_article_wears_a_completed_badge(client, conn):
         row = page[page.rindex('href="/a/heard-it-all"') :]
         return row[: row.index("</a>")]
 
-    db.save_position(article_id, section_idx=0, ms=9000, finished=False, conn=conn)
+    # Part heard, and well short of the end: a position at the end counts as
+    # the end whatever the flag says.
+    db.save_position(article_id, section_idx=0, ms=6000, finished=False, conn=conn)
     assert '<span class="badge ready">ready</span>' in library_row(client.get("/").text)
 
     db.save_position(article_id, section_idx=0, ms=9000, finished=True, conn=conn)
@@ -576,8 +578,9 @@ def test_the_status_filter_offers_completed_and_finds_it(client, conn):
         ])]).renumber()
         article_id = db.save_article(doc, conn)
         conn.execute("UPDATE article SET status='ready', audio_ms=9000 WHERE id=?", (article_id,))
-        db.save_position(article_id, section_idx=0, ms=9000,
-                         finished=title == "Heard it all", conn=conn)
+        heard_it_all = title == "Heard it all"
+        db.save_position(article_id, section_idx=0, ms=9000 if heard_it_all else 6000,
+                         finished=heard_it_all, conn=conn)
 
     assert '<option value="completed"' in client.get("/").text
 
@@ -596,7 +599,7 @@ def test_stopping_an_article_clears_its_saved_position(client, conn):
     ])]).renumber()
     article_id = db.save_article(doc, conn)
     conn.execute("UPDATE article SET status='ready', audio_ms=9000 WHERE id=?", (article_id,))
-    db.save_position(article_id, section_idx=0, ms=42000, conn=conn)
+    db.save_position(article_id, section_idx=0, ms=6000, conn=conn)
 
     response = client.post(f"/api/articles/{article_id}/position/clear")
 

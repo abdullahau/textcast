@@ -1,0 +1,38 @@
+# The GPU overlay. Layer it over the base file, never on its own:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
+#
+# It changes two things and nothing else. The image is built from the `cuda`
+# extra rather than `cpu`, and the worker is given the host's NVIDIA devices.
+# The web service is left alone: it serves files and never loads a model.
+#
+# Needs the NVIDIA container toolkit on the host. Check it first with
+# `docker run --rm --gpus all nvidia/cuda:12.8.0-base-ubuntu24.04 nvidia-smi`.
+# Nothing in the app is configured for the GPU: torch asks
+# `torch.cuda.is_available()` and onnxruntime asks for its provider list, so
+# this image runs on the CPU if the device is not passed through.
+
+services:
+  app:
+    build:
+      context: .
+      args:
+        ACCEL: cuda
+    image: textcast:gpu
+
+  worker:
+    build:
+      context: .
+      args:
+        ACCEL: cuda
+    image: textcast:gpu
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    # Synthesis is the GPU's now, so the CPU limit in the base file is not
+    # what bounds it. Left in place: the phonemiser, the Opus encode and the
+    # parser are all still CPU work.

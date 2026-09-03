@@ -1,6 +1,6 @@
 [project]
 name = "textcast"
-version = "0.2.3"
+version = "0.3.0"
 description = "Turn newsletters and articles into a private, self-hosted audio reader"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
@@ -16,8 +16,9 @@ dependencies = [
 # The engine. Pulls PyTorch and spaCy, and needs espeak-ng on the system.
 kokoro = [
     "kokoro>=0.9",
-    # Declared explicitly so [tool.uv.sources] can pin it to the CPU index;
-    # a source only binds a direct dependency, and kokoro pulls torch itself.
+    # Declared explicitly so [tool.uv.sources] can pick the wheel index; a
+    # source only binds a direct dependency, and kokoro pulls torch itself.
+    # Which index it comes from is the `cpu`/`cuda` extra's business.
     "torch>=2.4",
     # Pinned explicitly: kokoro otherwise pip-installs this spaCy model at
     # first synthesis, which needs network and write access to the venv —
@@ -30,6 +31,28 @@ kokoro = [
 # different pronunciation path, not only a different runtime.
 kokoro-onnx = [
     "kokoro-onnx>=0.6",
+]
+# --- accelerator: pick exactly one ----------------------------------------
+# Nothing here is a runtime switch. torch and onnxruntime each ship a
+# different wheel for a different device, so which one is installed is chosen
+# when the image is built and cannot be chosen again afterwards. Both engines
+# already ask the machine at load time: `KModel.to("cuda")` when torch sees a
+# GPU, and the CUDA execution provider when onnxruntime has one. Install the
+# CPU wheels and there is nothing for either to find.
+#
+# `--extra cpu` is what the plain image builds. `--extra cuda` is the one
+# behind `textcast:gpu`.
+# torch is named again in both, and not only under `kokoro`: uv binds an
+# index to a requirement, and a requirement can only carry an extra where it
+# is declared.
+cpu = [
+    "torch>=2.4",
+    "onnxruntime>=1.20",
+]
+cuda = [
+    # 12 nvidia-* wheels, ~2.5 GB unpacked. Worth it only with a device.
+    "torch>=2.4",
+    "onnxruntime-gpu>=1.20",
 ]
 web = [
     "fastapi>=0.141",
@@ -61,15 +84,33 @@ dev = [
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
-# Kokoro depends on torch, which defaults to the CUDA build and drags in
-# ~4 GB of NVIDIA runtime. This box has no GPU and neither does the container,
-# so take torch from PyTorch's CPU index instead.
+# torch defaults to the CUDA build and drags in ~4 GB of NVIDIA runtime, which
+# is dead weight on a box with no GPU: 15 nvidia packages, a 5.2 GB venv and a
+# 9.3 GB image, measured. So the index is chosen by extra rather than taken as
+# it comes, and the two extras cannot both be installed.
+#
+# kokoro-onnx depends on `onnxruntime`, the CPU build. The GPU package is a
+# *different distribution* with the same import name, so `cuda` pulls
+# onnxruntime-gpu and the two conflict for the same reason torch's indexes do.
+[tool.uv]
+conflicts = [
+    [{ extra = "cpu" }, { extra = "cuda" }],
+]
+
 [tool.uv.sources]
-torch = [{ index = "pytorch-cpu" }]
+torch = [
+    { index = "pytorch-cpu", extra = "cpu" },
+    { index = "pytorch-cuda", extra = "cuda" },
+]
 
 [[tool.uv.index]]
 name = "pytorch-cpu"
 url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cuda"
+url = "https://download.pytorch.org/whl/cu128"
 explicit = true
 
 [tool.hatch.metadata]

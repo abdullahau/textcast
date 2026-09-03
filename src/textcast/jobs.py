@@ -18,14 +18,20 @@ other is the network for seconds; queueing the quick one behind the long one
 bought nothing. ``claim_job`` keeps them off the same article, which is the
 only place they actually collide.
 
-The engine is loaded once and kept, because loading it costs more than a short
-article's synthesis.
+Nothing in this process does the work. Each lane hands its queue to a child
+process, which imports what that work needs, drains the queue and exits. The
+imports leave with it, which is the only way the memory comes back: torch and
+the model for a build, openai and httpx for a summary. This process polls a
+table and stays under 40 MB.
+
+A build child is bound to one engine as well as one lane. The two engines are
+two model runtimes, and loading the second beside the first is how a child
+reached 7.5 GB. The first build job it takes decides which engine it is for;
+a job for the other one is put back for the next child.
 """
 
 from __future__ import annotations
 
-import ctypes
-import gc
 import json
 import logging
 import multiprocessing
@@ -38,27 +44,13 @@ from .audio import render_article
 from .document import BlockKind
 from .prefs import voice_defaults
 from .settings import Settings, get_settings, use_settings
-from .tts import ENGINES, TTSEngine, get_engine, publish_engine, release_shared
+from .tts import ENGINES, TTSEngine, get_engine, publish_engine
 
 log = logging.getLogger("textcast.jobs")
 
 #: One thread each. Synthesis is CPU-bound and long; summarising is a handful
 #: of network calls. Nothing is gained by making either wait for the other.
 LANES = (("build",), ("summarise",))
-
-
-def _trim_heap() -> None:
-    """Hand the freed arenas back to the operating system.
-
-    Dropping the tensors returns them to the allocator, not to the OS: glibc
-    keeps large arenas mapped and RSS does not move until it is asked to. On
-    any other allocator this is a no-op, and the memory comes back on its own
-    terms.
-    """
-    try:
-        ctypes.CDLL("libc.so.6").malloc_trim(0)
-    except (OSError, AttributeError):
-        pass
 
 
 def drain_jobs(settings: Settings, kinds: tuple[str, ...]) -> None:
@@ -76,6 +68,10 @@ def drain_jobs(settings: Settings, kinds: tuple[str, ...]) -> None:
 
     It drains rather than doing one job, so a queue of nine pays the start-up
     once instead of nine times.
+
+    ``skipped`` holds the jobs it has put back, which is how a build process
+    bound to one engine passes over the jobs for the other one instead of
+    claiming and releasing the same job for ever.
     """
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(levelname)-7s %(name)s  %(message)s"
@@ -83,7 +79,8 @@ def drain_jobs(settings: Settings, kinds: tuple[str, ...]) -> None:
     use_settings(settings)
     db.init(settings.db_path)
     worker = Worker(settings)
-    while worker.step(kinds):
+    skipped: set[int] = set()
+    while worker.step(kinds, skipped):
         pass
 
 
@@ -94,8 +91,9 @@ class Worker:
         self.settings = settings or get_settings()
         self.poll_seconds = poll_seconds
         self._engines: list[TTSEngine] = []
-        self._engine_key: tuple[str, int] | None = None
-        self._engines_used: float | None = None
+        #: The engine this process is bound to, set by the first build job it
+        #: takes. A child never loads a second one beside it.
+        self._engine_name: str | None = None
         self._stop = threading.Event()
         self._threads: list[threading.Thread] = []
         self._children: dict[str, multiprocessing.process.BaseProcess] = {}
@@ -144,23 +142,13 @@ class Worker:
 
     def _loop(self, kinds: tuple[str, ...]) -> None:
         # Mail polling stays in the parent: imaplib is the standard library
-        # and costs nothing to keep.
-        in_child = self.settings.job_subprocess
+        # and costs nothing to keep. Everything that drags a C extension in
+        # goes to a child, which is the whole reason this process is small.
         while not self._stop.is_set():
             try:
                 if "summarise" in kinds:
                     self._poll_mail()
-                worked = self._run_in_child(kinds) if in_child else self.step(kinds)
-                if not worked:
-                    # The build lane owns the pool, so it is the one that
-                    # decides the pool is no longer earning its memory. This
-                    # is dead while `job_subprocess` is on, which is the
-                    # default: the parent never calls `step`, so it never
-                    # builds a pool to drop, and the child gives every byte
-                    # back when it exits. It is the whole mechanism with
-                    # `JOB_SUBPROCESS=false`, which is why it stays.
-                    if "build" in kinds:
-                        self._release_idle_engines()
+                if not self._run_in_child(kinds):
                     self._stop.wait(self.poll_seconds)
             except Exception:
                 log.exception("%s lane failed", kinds[0])
@@ -201,26 +189,29 @@ class Worker:
     # -- work --------------------------------------------------------------
 
     def engines_for(self, name: str) -> list[TTSEngine]:
-        """A pool of instances, kept between jobs because loading is slow.
+        """A pool of instances, kept for the life of this process.
 
         The pipelines are not safe to share, so parallelism means one instance
         per worker rather than one instance driven by several threads.
+
+        One engine per process, and this is where that is enforced. A second
+        engine loaded beside the first holds two models at once, and
+        ``tts._shared`` is a strong dict, so the first pool's first instance
+        is never collected — it pins its session for the life of the process.
+        Measured on one queue that switched engine mid-drain: the child sat at
+        1.8 GB on ONNX, reached 3.5 GB the moment the kokoro pool finished
+        loading, and peaked at 7.5 GB. ``step`` puts the other engine's jobs
+        back before it gets here, so this only ever fires on a bug.
         """
-        count = self.settings.build_concurrency()
-        key = (name, count)
-        if self._engines and self._engine_key == key:
-            self._engines_used = time.monotonic()
+        if self._engines:
+            if name != self._engine_name:
+                raise RuntimeError(
+                    f"this process is loaded with {self._engine_name}; "
+                    f"a {name} job belongs to another one"
+                )
             return self._engines
 
-        # A different engine, or a different pool size. Drop the old pool
-        # first. Building the new one alongside it holds two models at once,
-        # and `tts._shared` is a strong dict, so the old pool's first instance
-        # would never be collected at all — it pins its session for the life
-        # of the process. Measured on one queue that switched engine mid-drain:
-        # the child sat at 1.8 GB on ONNX, reached 3.5 GB the moment the
-        # kokoro pool finished loading, and peaked at 7.5 GB.
-        self._drop_engines(f"loading {name} instead")
-
+        count = self.settings.build_concurrency()
         options = dict(self.settings.engine_options())
         if count > 1:
             # Each instance takes one core; the pool provides the parallelism.
@@ -228,8 +219,7 @@ class Worker:
 
         log.info("loading %d %s instance(s) %s", count, name, options)
         self._engines = [get_engine(name, **options) for _ in range(count)]
-        self._engine_key = key
-        self._engines_used = time.monotonic()
+        self._engine_name = name
         # Web requests in this process reuse the first one rather than paying
         # to load a second copy of the model.
         publish_engine(self._engines[0])
@@ -273,55 +263,32 @@ class Worker:
             self._requeue_orphans()
         return True
 
-    def _drop_engines(self, why: str) -> None:
-        """Give up the pool and hand the memory back to the operating system.
+    def step(self, kinds: tuple[str, ...] | None = None, skip: set[int] | None = None) -> bool:
+        """Run one job of these kinds. Returns False when there is none.
 
-        Only this module's references are given up. Anything mid-synthesis
-        holds its own, so the model outlives the drop and dies when that
-        finishes.
+        A build job for an engine this process is not loaded with is put back
+        untouched and recorded in ``skip``, so the next claim passes over it
+        and the next process picks it up. Returning True there is deliberate:
+        there is still work in this lane, just not this process's work.
         """
-        if not self._engines:
-            return
-
-        engines, self._engines = self._engines, []
-        self._engine_key = None
-        self._engines_used = None
-        # The shared slot is a strong reference. Left in place it would be the
-        # one thing keeping the weights alive on this module's behalf alone.
-        release_shared(engines[0])
-        count = len(engines)
-        del engines
-        # The pipelines hold cycles, so the collector has to run before the
-        # weights are unreachable and the allocator can be asked for them.
-        gc.collect()
-        _trim_heap()
-        log.info("dropped %d engine(s): %s", count, why)
-
-    def _release_idle_engines(self) -> None:
-        """Drop the pool once nothing has needed it for a while.
-
-        The pool is kept between jobs because loading it costs seconds. That
-        trade stops paying when the queue has been empty for minutes: an idle
-        worker was holding gigabytes to save one reload on a build that
-        happens a few times a day.
-        """
-        minutes = self.settings.idle_unload_minutes
-        if minutes <= 0 or not self._engines or self._engines_used is None:
-            return
-        idle = time.monotonic() - self._engines_used
-        if idle < minutes * 60:
-            return
-
-        self._drop_engines(f"idle for {idle / 60:.0f} minute(s)")
-
-    def step(self, kinds: tuple[str, ...] | None = None) -> bool:
-        """Run one job of these kinds. Returns False when there is none."""
         conn = db.connect(self.settings.db_path)
-        job = db.claim_job(conn, kinds)
+        job = db.claim_job(conn, kinds, skip)
         if job is None:
             return False
 
         article_id = job["article_id"]
+        if job["kind"] == "build":
+            wanted = self._engine_for(conn, job)
+            if self._engine_name and wanted != self._engine_name:
+                log.info(
+                    "leaving article %s for a %s process; this one is %s",
+                    article_id, wanted, self._engine_name,
+                )
+                db.release_job(job["id"], conn)
+                if skip is not None:
+                    skip.add(job["id"])
+                return True
+
         try:
             if job["kind"] == "summarise":
                 self._summarise(conn, job)
@@ -396,6 +363,28 @@ class Worker:
                 f"{run.added} of {run.total} sections summarised, {run.failed} failed. {detail}"
             )
 
+    def _options_for(self, conn, job) -> dict:
+        """Three layers, most specific first: the job, the article, the default."""
+        stored = db.get_build_options(job["article_id"], conn)
+        return {**stored, **json.loads(job["options"] or "{}")}
+
+    def _engine_for(self, conn, job) -> str:
+        """Which engine this build job needs, resolved the same way twice.
+
+        ``step`` asks before it commits the process to a job, and ``_build``
+        asks again when it runs it. One function, so the answer that decided
+        the process is the answer that loads the model.
+        """
+        options = self._options_for(conn, job)
+        name = options.get("engine") or voice_defaults(conn, self.settings).engine
+        if name not in ENGINES:
+            # An article saved against an engine that no longer ships still
+            # builds, with the engine that does.
+            log.warning("article %s asks for engine %r; using %s",
+                        job["article_id"], name, self.settings.engine)
+            name = self.settings.engine
+        return name
+
     def _build(self, conn, job) -> None:
         article_id = job["article_id"]
         article = db.load_article(article_id, conn)
@@ -404,22 +393,12 @@ class Worker:
 
         row = db.get_article(article_id, conn)
 
-        # Three layers, most specific first: what this job asked for, what the
-        # article was saved with, then the global default.
-        stored = db.get_build_options(article_id, conn)
-        options = {**stored, **json.loads(job["options"] or "{}")}
-
+        options = self._options_for(conn, job)
         settings = self.settings
         # Three layers again: this article's own choice, the saved default,
         # then the environment. `voice_defaults` folds the last two.
         chosen = voice_defaults(conn, settings)
-        engine_name = options.get("engine") or chosen.engine
-        if engine_name not in ENGINES:
-            # An article saved against an engine that no longer ships still
-            # builds, with the engine that does.
-            log.warning("article %s asks for engine %r; using %s",
-                        article_id, engine_name, settings.engine)
-            engine_name = settings.engine
+        engine_name = self._engine_for(conn, job)
         voice = options.get("voice") or chosen.voice or ENGINES[engine_name].default_voice
         quote_voice = options.get("quote_voice") or chosen.quote_voice
         speed = float(options.get("speed") or chosen.speed or 1.0)
@@ -471,11 +450,6 @@ class Worker:
             cache_dir=settings.cache_dir,
             progress=progress,
         )
-
-        # Idle is measured from when the work stopped, not when it started,
-        # or a long build would leave the pool eligible to drop the moment it
-        # finished.
-        self._engines_used = time.monotonic()
 
         audio_bytes = sum(f.stat().st_size for f in out_dir.glob("*.opus"))
         db.save_manifest(article_id, manifest, audio_bytes, conn)

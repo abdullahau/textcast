@@ -64,16 +64,34 @@ On a server, leave the override out:
 docker compose -f docker-compose.yml up -d
 ```
 
+With an NVIDIA GPU, add the GPU overlay. It builds the same image from the
+CUDA wheels and passes the device to the worker:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
+```
+
+The device cannot be a setting in `.env`: torch and onnxruntime each ship a
+different distribution per device, so it is chosen when the image is built.
+Both engines then ask the machine themselves, so the GPU image still runs
+where there is no device.
+
 One trap: the service worker caches `/static/` hard, so a CSS or JS edit can
 be invisible in the browser while live on disk. Hard-reload to see it.
 
 ### Without Docker
 
 ```bash
-uv sync --extra kokoro --extra web --extra documents --extra summaries
+uv sync --extra cpu --extra kokoro --extra kokoro-onnx \
+        --extra web --extra documents --extra summaries
 uv run uvicorn textcast.web.app:app --port 8000   # the app, worker included
 uv run python -m textcast                         # or the worker on its own
 ```
+
+`--extra cpu` is not optional. It is what picks the CPU wheels of torch and
+onnxruntime; without it torch comes from PyPI, which means the CUDA build and
+about 4 GB of NVIDIA runtime. Swap it for `--extra cuda` on a machine with an
+NVIDIA GPU. The two conflict, so exactly one.
 
 Kokoro needs **espeak-ng** on the system (`brew install espeak-ng`, or
 `apt install espeak-ng espeak-ng-data`); textcast finds it in the usual places.

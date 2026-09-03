@@ -412,6 +412,35 @@ def test_the_names_both_engines_mispronounced_are_respelled(conn):
     assert "ackwizitions" in out
 
 
+def test_the_brand_shein_is_not_shane(conn):
+    """Both phonemisers read it ʃˈAn / ʃˈeɪn. It is "SHEE-in"."""
+    out = normalize("SHEIN said Shein\u2019s IPO priced")
+
+    assert out.count("Sheein") == 2, "the brand's own capitals, and the possessive"
+    assert "Shein" not in out.replace("Sheein", "")
+
+
+def test_shein_does_not_eat_a_longer_name(conn):
+    assert "Sheinberg" in normalize("Sidney Sheinberg ran the studio")
+
+
+def test_refund_takes_the_noun_stress_on_every_form(conn):
+    """A house preference, not a correction: both engines already say the verb.
+
+    misaki gives \u0279\u0259f\u02c8\u028cnd and espeak \u0279\u1d7cf\u02c8\u028cnd for "to refund", which is
+    the textbook reading. The rule puts the noun's stress on all of them.
+    """
+    out = normalize("a refund, two refunds, refunded and refunding")
+
+    assert "reefund," in out and "reefunds," in out
+    assert "reefunded" in out and "reefunding" in out
+
+
+def test_refundable_keeps_the_verb_stress(conn):
+    """"reefundable" is \u0279\u02c8if\u0259nd\u0259b\u1d4al, "REE-fund-a-bull"."""
+    assert "refundable" in normalize("a fully refundable deposit")
+
+
 def test_openai_gets_its_word_boundary_back(conn):
     """misaki ran it together as ˌOpᵊnˈAˌI."""
     assert "Open AI" in normalize("SpaceX and OpenAI remain private")

@@ -164,7 +164,10 @@ def _safe_next(target: str) -> str:
 
 
 def duration(ms: int | None) -> str:
-    if not ms:
+    # Negative is not a length. It reached here as "how much is left" on an
+    # article whose saved position had run past its own total, and divmod on
+    # a negative renders minus three seconds as "-1:59:57".
+    if not ms or ms < 0:
         return ""
     total = round(ms / 1000)
     hours, rest = divmod(total, 3600)

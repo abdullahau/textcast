@@ -57,19 +57,6 @@ class Settings:
     #: Measured on 4 cores: four single-threaded instances beat one
     #: four-threaded instance by ~11%, and six are worse than four.
     concurrency: int = field(default_factory=lambda: _env_int("CONCURRENCY", 0))
-    #: Minutes of an empty queue before the engine pool is dropped. Loading it
-    #: again costs seconds; holding it costs gigabytes for as long as the
-    #: process lives, and most of a day is an empty queue. 0 keeps it loaded.
-    idle_unload_minutes: int = field(
-        default_factory=lambda: _env_int("TTS_IDLE_MINUTES", 10)
-    )
-    #: Run jobs in a child process that exits when its queue empties. A C
-    #: extension cannot be unimported, so this is the only way their memory
-    #: comes back: torch and the model for a build, openai and httpx for a
-    #: summary. Off runs them in the worker, as they used to.
-    job_subprocess: bool = field(
-        default_factory=lambda: _env_bool("JOB_SUBPROCESS", True)
-    )
     #: Minutes between IMAP polls. 0 disables the poller.
     mail_poll_minutes: int = field(default_factory=lambda: _env_int("MAIL_POLL_MINUTES", 0))
 

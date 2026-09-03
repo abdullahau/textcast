@@ -3,6 +3,20 @@
 # Deploy it anywhere: it binds a plain port and takes no view on how you reach
 # it. Put a reverse proxy, a VPN or nothing in front, as you prefer.
 #
+# Two images, one Dockerfile. ACCEL picks the wheels:
+#
+#   docker build -t textcast:latest .                      # cpu, the default
+#   docker build --build-arg ACCEL=cuda -t textcast:gpu .  # NVIDIA
+#
+# It cannot be a runtime setting. torch and onnxruntime each ship a different
+# distribution per device, so the device is decided when the image is built.
+# Both engines then ask the machine themselves — `torch.cuda.is_available()`
+# and `onnxruntime.get_available_providers()` — so the GPU image still runs on
+# a host with no device, just on the CPU. The CPU image cannot do the reverse.
+# The GPU image is ~2.5 GB larger: 12 nvidia-* wheels and a CUDA build of
+# torch. Run it with `docker compose -f docker-compose.yml -f
+# docker-compose.gpu.yml up -d`, which needs the NVIDIA container toolkit.
+#
 # The TTS weights ARE baked in, at /opt/models. A first run then needs no
 # network and no download, which is what you want from a fresh deploy, a CI
 # run, or a container that scales to zero. It costs ~330 MB of image for
@@ -16,14 +30,18 @@ ENV UV_COMPILE_BYTECODE=1 \
 
 WORKDIR /app
 
+# cpu or cuda. The two are declared as conflicting extras, so exactly one.
+ARG ACCEL=cpu
+ENV EXTRAS="--extra kokoro --extra kokoro-onnx --extra web --extra documents --extra summaries"
+
 # Dependencies first: this layer survives every source-only change.
 COPY pyproject.toml uv.lock README.md LICENSE ./
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-install-project --no-dev --extra kokoro --extra kokoro-onnx --extra web --extra documents --extra summaries
+    uv sync --frozen --no-install-project --no-dev --extra "$ACCEL" $EXTRAS
 
 COPY src/ ./src/
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev --extra kokoro --extra kokoro-onnx --extra web --extra documents --extra summaries
+    uv sync --frozen --no-dev --extra "$ACCEL" $EXTRAS
 
 # --- warm the model cache into the image -----------------------------------
 ARG BAKE_MODEL=1
@@ -58,6 +76,11 @@ ENV PATH="/app/.venv/bin:$PATH" \
     # every model load to revalidate them: it works offline either way, but it
     # is a round trip and a second of startup for nothing.
     HF_HUB_OFFLINE=1 \
+    # The CUDA libraries torch brings are pip packages, not system ones, and
+    # onnxruntime-gpu's loader does not look in a venv. Harmless on the CPU
+    # image, where the directory does not exist. The driver itself comes from
+    # the host, through the NVIDIA container toolkit.
+    LD_LIBRARY_PATH="/app/.venv/lib/python3.12/site-packages/nvidia/cuda_runtime/lib:/app/.venv/lib/python3.12/site-packages/nvidia/cudnn/lib:/app/.venv/lib/python3.12/site-packages/nvidia/cublas/lib:/app/.venv/lib/python3.12/site-packages/nvidia/cufft/lib:/app/.venv/lib/python3.12/site-packages/nvidia/curand/lib" \
     # The app user has no home, so HOME is "/", which is not writable.
     # libespeak-ng links pulseaudio, which tries to make ~/.config/pulse on
     # every engine it phonemises with and prints three lines when it cannot.

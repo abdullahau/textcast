@@ -165,15 +165,55 @@ def test_position_survives_and_feeds_continue_listening(conn):
     article_id = db.save_article(make_article(), conn)
     db.save_manifest(article_id, manifest_for(), audio_bytes=1, conn=conn)
 
-    db.save_position(article_id, section_idx=1, ms=42000, conn=conn)
+    db.save_position(article_id, section_idx=1, ms=6000, conn=conn)
     position = db.get_position(article_id, conn)
-    assert position["ms"] == 42000 and position["section_idx"] == 1
+    assert position["ms"] == 6000 and position["section_idx"] == 1
 
     assert [r["id"] for r in db.continue_listening(conn)] == [article_id]
 
     # Finished articles drop off the list rather than nagging.
-    db.save_position(article_id, section_idx=1, ms=42000, finished=True, conn=conn)
+    db.save_position(article_id, section_idx=1, ms=6000, finished=True, conn=conn)
     assert db.continue_listening(conn) == []
+
+
+def test_a_position_at_the_end_is_finished_even_without_the_flag(conn):
+    """The player carries the flag, and a lost one left an article nagging.
+
+    The player's clock runs on the decoded audio and the library's total comes
+    from the manifest, so a fully played article can report a position a few
+    seconds past its own duration. That showed as "-1:59:57 left" in
+    "Continue listening", on an article that had been played to the end.
+    """
+    article_id = db.save_article(make_article(), conn)
+    db.save_manifest(article_id, manifest_for(), audio_bytes=1, conn=conn)  # 9,000 ms
+
+    db.save_position(article_id, section_idx=1, ms=9003, conn=conn)
+
+    assert db.get_position(article_id, conn)["finished"] == 1, "played to the end"
+    assert db.continue_listening(conn) == [], "so it is not still being listened to"
+
+
+def test_scrubbing_back_from_the_end_is_unfinished_again(conn):
+    """The rule reads the position, so it un-reads it too."""
+    article_id = db.save_article(make_article(), conn)
+    db.save_manifest(article_id, manifest_for(), audio_bytes=1, conn=conn)
+    db.save_position(article_id, section_idx=1, ms=9003, conn=conn)
+
+    db.save_position(article_id, section_idx=0, ms=6000, conn=conn)
+
+    assert db.get_position(article_id, conn)["finished"] == 0
+    assert [r["id"] for r in db.continue_listening(conn)] == [article_id]
+
+
+def test_a_short_note_is_not_finished_five_seconds_in(conn):
+    """A flat five-second window is most of a twenty-second note."""
+    article_id = db.save_article(make_article(), conn)
+    db.save_manifest(article_id, manifest_for(), audio_bytes=1, conn=conn)  # 9,000 ms
+
+    db.save_position(article_id, section_idx=0, ms=5500, conn=conn)
+
+    assert db.get_position(article_id, conn)["finished"] == 0
+    assert [r["id"] for r in db.continue_listening(conn)] == [article_id]
 
 
 def test_clearing_a_position_takes_the_article_out_of_continue_listening(conn):
@@ -181,7 +221,7 @@ def test_clearing_a_position_takes_the_article_out_of_continue_listening(conn):
     would still resume the reader at the top and still read as unfinished."""
     article_id = db.save_article(make_article(), conn)
     db.save_manifest(article_id, manifest_for(), audio_bytes=1, conn=conn)
-    db.save_position(article_id, section_idx=1, ms=42000, conn=conn)
+    db.save_position(article_id, section_idx=1, ms=6000, conn=conn)
     assert [r["id"] for r in db.continue_listening(conn)] == [article_id]
 
     db.clear_position(article_id, conn)
