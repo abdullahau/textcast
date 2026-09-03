@@ -266,8 +266,15 @@ SAY_AS_WORD = {
 #: ``I`` is the /aɪ/ of "eye", which espeak spells out and reads as the letter.
 #: Both measured, not converted: espeak's own "lie bore" is ``lˈaɪ bˈɔːɹ``.
 #: Left alone it says ``lˈɪbɚ``, "LIB-er", so the rule earns its place there too.
+#: A hint may name one phonemiser only. "homogeneous" is one: misaki says
+#: hˌOməʤˈiniəs, "ho-muh-JEE-nee-us", which is right, while espeak drops a
+#: syllable and gives həmˈoʊdʒniəs — very nearly "homogenous", a different
+#: word. Every respelling tried either failed on espeak or moved misaki off a
+#: correct answer; "homo geneous" fixed both and inserted a pause. So espeak
+#: gets IPA and misaki is left alone, which is what an empty field means.
 PHONEME_HINTS = {
     "LIBOR": {"misaki": "lˈIbɔɹ", "espeak": "lˈaɪbɔːɹ"},
+    "homogeneous": {"espeak": "hˌoʊmoʊdʒˈiːniəs"},
 }
 
 #: Names and words the phonemisers get wrong, respelled. A respelling is
@@ -293,9 +300,21 @@ SAY_AS_WRITTEN = {
 
 #: The same, but case-insensitive because they are ordinary words rather than
 #: names, and a sentence can start with one.
+#: * **culinary** espeak puts a short vowel after the glide: kjˈʊlɪnˌɛɹi,
+#:   "kyull-in-air-ee". misaki is already right (kˈʌlənˌɛɹi). "cullinary" gives
+#:   kˈʌlɪnˌɛɹi on both, which is misaki's answer in all but the schwa.
+#: * **stochastic** espeak says the ch: stətʃˈæstɪk, "stuh-CHAS-tik".
+#:   "stokastic" gives stəkˈæstɪk on both — and that is misaki's original,
+#:   character for character, which is the case this table exists for.
+#: * **sensuous** espeak keeps a bare /sj/: sˈɛnsjuːəs. "senshoous" is
+#:   sˈɛnʃuːəs / sˈɛnʃuəs. "senshuous" was measured first and leaves a stray
+#:   /j/ behind on both.
 SAY_AS_WRITTEN_ANYCASE = {
     "accretive": "accreetive",
     "tokenization": "token-eye-zation",
+    "culinary": "cullinary",
+    "stochastic": "stokastic",
+    "sensuous": "senshoous",
 }
 
 #: Names that are one thing with one stress. "Wall Street" is wˈɔl stɹˈit, a
@@ -355,6 +374,10 @@ RESPELL = {
     # because the brand writes itself SHEIN — and misaki spells an all-capital
     # SHEEIN out letter by letter.
     r"(?<!\w)Shein(?!\w)": "Sheein",
+    # V. S. Naipaul is "NY-pawl" and both engines said "NAY-pawl": nˈeɪpɔːl on
+    # espeak, nˈApɔl on misaki, whose capital A is that same /eɪ/. "Nypaul" is
+    # nˈaɪpɔːl / nˈIpɔl, right on both. A regex, so Naipaul's comes too.
+    r"(?<!\w)Naipaul(?!\w)": "Nypaul",
     # The noun's stress on every form. Not a correction: ɹəfˈʌnd / ɹᵻfˈʌnd is
     # the textbook verb, and this is a house preference. Delete it on the
     # Voice page to go back. The inflections are named rather than left to a
@@ -469,8 +492,8 @@ def builtin_rules() -> list[Rule]:
             pattern=token,
             # No plain replacement: this table exists for the words where
             # every respelling was worse than the engine's own guess.
-            misaki=spellings["misaki"],
-            espeak=spellings["espeak"],
+            misaki=spellings.get("misaki", ""),
+            espeak=spellings.get("espeak", ""),
             note="phonemes, where no respelling reaches it",
             sort_order=30,
         ))

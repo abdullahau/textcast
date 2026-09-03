@@ -132,11 +132,16 @@ def test_acronyms_said_as_words_are_respelled(written, spoken):
 
 
 def test_almost_everything_ships_as_letters_not_ipa():
-    """IPA is hard to write, so it is the exception, not the default."""
+    """IPA is hard to write, so it is the exception, not the default.
+
+    Two words have earned it. LIBOR, where Kokoro is already right and every
+    respelling was worse. homogeneous, where misaki is right and espeak drops
+    a syllable, and no respelling fixed the one without moving the other.
+    """
     rules = builtin_rules()
     ipa = [r for r in rules if r.is_phonemes]
     assert len(ipa) <= 2, "respell where a respelling works"
-    assert {r.pattern for r in ipa} == {"LIBOR"}
+    assert {r.pattern for r in ipa} == {"LIBOR", "homogeneous"}
 
 
 # --------------------------------------------------------------------------
@@ -483,3 +488,46 @@ def test_whether_a_rule_speaks_phonemes_is_read_off_its_fields(conn):
     assert "is_phonemes" not in row.keys()
     assert row["replacement_misaki"] == "spˈOkən"
     assert row["replacement"] == ""
+
+
+def test_the_espeak_only_words_are_respelled_without_moving_misaki(conn):
+    """Each was measured on both engines before it was written down.
+
+    espeak said "kyull-in-air-ee", "stuh-CHAS-tik" and a bare /sj/ in
+    sensuous. misaki said all three correctly, so the respelling had to leave
+    its answer where it was — "stokastic" is misaki's own stəkˈæstɪk exactly.
+    """
+    assert "cullinary" in normalize("a culinary triumph")
+    assert "stokastic" in normalize("a stochastic process")
+    assert "senshoous" in normalize("a sensuous line")
+    # Ordinary words, so a sentence may start with one.
+    assert "cullinary" in normalize("Culinary school is expensive")
+
+
+def test_naipaul_keeps_his_own_vowel_and_his_possessive(conn):
+    """Both engines said "NAY-pawl": nˈeɪpɔːl on espeak, nˈApɔl on misaki,
+    whose capital A is that same /eɪ/. A regex, so the possessive comes too."""
+    assert "Nypaul" in normalize("the Naipaul estate")
+    assert "Nypaul's" in normalize("Naipaul's last novel")
+
+
+def test_homogeneous_is_aimed_at_espeak_and_misses_misaki_on_purpose(conn):
+    """misaki is right (hˌOməʤˈiniəs). espeak drops a syllable and lands on
+    həmˈoʊdʒniəs, very nearly "homogenous", which is a different word.
+
+    No respelling fixed one without moving the other, so the rule speaks IPA
+    to espeak only. An empty field means the rule does not fire there.
+    """
+    assert "/hˌoʊmoʊdʒˈiːniəs/" in normalize("a homogeneous blend", g2p="espeak")
+    assert normalize("a homogeneous blend", g2p="misaki") == "a homogeneous blend"
+
+
+def test_a_phoneme_hint_may_name_one_phonemiser(conn):
+    """LIBOR names both. homogeneous names espeak alone, and the builder must
+    not demand the other."""
+    hints = {r.pattern: r for r in builtin_rules() if r.is_phonemes}
+
+    assert hints["LIBOR"].misaki and hints["LIBOR"].espeak
+    assert hints["homogeneous"].espeak
+    assert hints["homogeneous"].misaki == ""
+    assert hints["homogeneous"].replacement == ""
