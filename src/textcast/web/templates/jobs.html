@@ -11,7 +11,7 @@
         <td>{% if j.slug %}<a href="/a/{{ j.slug }}">{{ j.title }}</a>{% else %}<em>deleted</em>{% endif %}</td>
         <td><span class="pill {{ j.state }}">{{ j.state }}</span></td>
         <td>{{ (j.progress * 100)|round|int }}%</td>
-        <td class="mono">{{ j.started_at or j.created_at }}</td>
+        <td>{{ (j.started_at or j.created_at)|when }}</td>
         <td class="mono">{{ j.error or j.message }}</td>
       </tr>
     {% endfor %}

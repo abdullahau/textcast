@@ -622,6 +622,19 @@ Things that have already bitten once.
   1.55rem) / 2` is the whole answer. Measured 3px above and 3px below, and the
   "no file chosen" text does not move: it is still placed by the same
   line-height as before.
+- **A stored time is UTC and a shown time is not.** `db.now()` writes
+  `datetime.now(UTC).isoformat`, which is the only sane thing to store. The
+  Builds page printed it raw, so a build that started at 16:41 in Dubai read
+  `2026-09-03T12:41:19+00:00`. The zone cannot be a setting either: one
+  library is read from a phone abroad and a laptop at home. The `when` filter
+  emits `<time datetime="...">` and a script in `base.html` formats it with
+  `Intl.DateTimeFormat` in the browser's own zone and locale — measured at
+  `3 Sep 2026, 04:41 PM` under `Asia/Dubai` against `3 Sept 2026, 12:41`
+  under UTC, from one page. The fallback text names UTC rather than
+  pretending, because a wrong-looking time is worse than an honest one.
+- **A bare date must not be moved into a zone.** `published_at` often has no
+  time in it, and formatting `2026-09-03` as an instant lands it a day early
+  west of UTC. `when` converts only a value with a `T` in it.
 - **A refused Shortcut looks exactly like a success.** iOS Shortcuts' "Get
   Contents of URL" runs, gets a 401, and the shortcut carries on. Nine
   identical 401s from a phone sat in the app's log while the phone reported

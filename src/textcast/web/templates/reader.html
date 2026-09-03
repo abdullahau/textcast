@@ -125,7 +125,7 @@
       {% for t in tags %}<a class="tag" href="/?tag={{ t|urlencode }}">{{ t }}</a>{% endfor %}
       <span>{{ row.source }}</span>
       {% if row.author %}<span>{{ row.author }}</span>{% endif %}
-      {% if row.published_at %}<span>{{ row.published_at|date }}</span>{% endif %}
+      {% if row.published_at %}<span>{{ row.published_at|when("date") }}</span>{% endif %}
       <span>{{ "{:,}".format(row.word_count) }} words</span>
       {% if row.audio_ms %}<span>{{ row.audio_ms|duration }} audio</span>{% endif %}
       {# What made the audio, not what would make it now: the default can move

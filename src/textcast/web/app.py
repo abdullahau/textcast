@@ -21,6 +21,7 @@ from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request, Uploa
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from markupsafe import Markup
 
 from .. import __version__, db
 from ..document import BlockKind, to_markdown
@@ -243,8 +244,35 @@ def short_date(value: str | None) -> str:
     return value[:10]
 
 
+def when(value: str | None, style: str = "datetime") -> Markup:
+    """A stored instant, rendered where the reader is, not where the server is.
+
+    Everything in the database is UTC, which is the only sane thing to store
+    and the wrong thing to show: the server sits in UTC and the reader does
+    not, so a build that started at 15:22 in Dubai read 11:22 on the page.
+    The zone cannot be a setting either — the same library is read from a
+    phone abroad and a laptop at home.
+
+    So the page carries the instant and the browser formats it. The text
+    inside is the fallback, and it names UTC rather than pretending: without
+    JavaScript a wrong-looking time is worse than an honest one.
+
+    A value with no time in it is left alone. A bare `2026-09-03` is a
+    publication date, and converting it to a zone would move it a day.
+    """
+    if not value:
+        return Markup("")
+    if "T" not in value:
+        return Markup('<time datetime="{}">{}</time>').format(value, value[:10])
+    if style == "date":
+        return Markup('<time datetime="{}" data-when="date">{}</time>').format(value, value[:10])
+    shown = value[:16].replace("T", " ") + " UTC"
+    return Markup('<time datetime="{}" data-when="datetime">{}</time>').format(value, shown)
+
+
 templates.env.filters["duration"] = duration
 templates.env.filters["date"] = short_date
+templates.env.filters["when"] = when
 # One cache-busting suffix for every static asset. The service worker is
 # stamped with the same version when it is served, so the two cannot drift.
 templates.env.globals["assets"] = __version__

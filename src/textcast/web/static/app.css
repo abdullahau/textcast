@@ -766,6 +766,11 @@ input[type=file]::file-selector-button:hover { background: var(--raised); color:
 
 /* A value meant to be copied, not read: it wraps rather than overflowing a
    phone, and it says it is a control by looking like one. */
+/* A formatted time is short but has spaces in it, and a narrow table column
+   broke "3 Sep 2026, 04:41 PM" across three lines. The table scrolls; the
+   time does not wrap. */
+time { white-space: nowrap; }
+
 code.copy {
   display: inline-block;
   max-width: 100%;

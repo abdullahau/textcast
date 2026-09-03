@@ -1195,3 +1195,27 @@ def test_the_token_never_reaches_a_page_while_access_control_is_off(client, sett
 
     assert "open-sesame" not in client.get("/add").text
 
+
+def test_a_stored_instant_is_handed_to_the_browser_to_format(client, conn):
+    """Everything is stored in UTC, and the reader is not in UTC.
+
+    The zone cannot be a server setting: one library is read from a phone
+    abroad and a laptop at home. So the page carries the instant.
+    """
+    from textcast.document import Article, Block, BlockKind, Section
+
+    doc = Article(title="A timed note", sections=[Section(title="One", blocks=[
+        Block(kind=BlockKind.PARA, text="The body of it."),
+    ])]).renumber()
+    db.enqueue(db.save_article(doc, conn), conn=conn)
+
+    body = client.get("/jobs").text
+
+    assert 'data-when="datetime"' in body
+    assert "UTC" in body
+
+
+def test_a_bare_date_is_not_moved_into_a_zone(client):
+    """A publication date has no time in it, and converting it loses a day."""
+    assert 'data-when' not in web.when("2026-09-03")
+    assert "2026-09-03" in web.when("2026-09-03")

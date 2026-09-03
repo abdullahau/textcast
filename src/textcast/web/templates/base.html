@@ -177,6 +177,27 @@ if ("serviceWorker" in navigator) {
   label();
 })();
 </script>
+<script>
+/* Times are stored in UTC and shown where the reader is. The server cannot
+   know that zone — the same library is read from a phone abroad and a laptop
+   at home — so the page carries the instant and the browser formats it.
+   Anything left unconverted still reads correctly, because the fallback text
+   says UTC. */
+(function () {
+  var fmt = {
+    date: { year: "numeric", month: "short", day: "numeric" },
+    datetime: { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }
+  };
+  document.querySelectorAll("time[data-when]").forEach(function (el) {
+    var at = new Date(el.getAttribute("datetime"));
+    if (isNaN(at)) return;
+    try {
+      el.textContent = new Intl.DateTimeFormat(undefined, fmt[el.dataset.when] || fmt.datetime).format(at);
+      el.title = at.toString();
+    } catch (e) {}
+  });
+})();
+</script>
 {% block scripts %}{% endblock %}
 </body>
 </html>
