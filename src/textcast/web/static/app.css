@@ -720,10 +720,11 @@ textarea.code { font-family: var(--mono); font-size: .78rem; min-height: 7rem; }
    A fixed height, not a minimum: the button inside pushed the box taller than
    the control beside it, and the row aligns on the bottom edge, so the two
    sat with their centres a few pixels apart. line-height centres the "no file
-   chosen" text; vertical-align centres the button against it. */
+   chosen" text, and the padding-left matches the gap above and below the
+   button, so its inset is the same on all three sides. */
 input[type=file] {
   height: 2.1rem;
-  padding: 0 .45rem 0 .28rem;
+  padding: 0 .45rem 0 .2125rem;
   font: inherit;
   font-size: .82rem;
   line-height: 2.1rem;
@@ -735,16 +736,23 @@ input[type=file] {
      it grows — "Upload 3 files" is wider than "Upload". */
   flex: 1 1 13rem;
 }
+/* Not `vertical-align: middle`: that puts the button's centre half an
+   x-height above the baseline, which is a font metric and not the middle of
+   anything. It left 5px of box above the button and 2px below. `top` is the
+   top of the line box, which the 2.1rem line-height fixes, so the margin is
+   the whole answer: (2.1rem - 2px of border - 1.55rem) / 2. Measured 3px
+   above and 3px below. */
 input[type=file]::-webkit-file-upload-button,
 input[type=file]::file-selector-button {
   height: 1.55rem;
+  margin-top: .2125rem;
   margin-right: .55rem;
   padding: 0 .65rem;
   font: inherit;
   font-size: .8rem;
   font-weight: 500;
   line-height: 1;
-  vertical-align: middle;
+  vertical-align: top;
   color: var(--fg-soft);
   background: var(--sunk);
   border: 1px solid var(--border);

@@ -613,6 +613,15 @@ Things that have already bitten once.
   patch release — a minor-version drift on either side would have broken it
   without a word. The builder is the runtime image now, with the `uv` binary
   copied in, which is what uv's own Docker guide asks for. No size change.
+- **`vertical-align: middle` is not the middle of the box.** It puts an
+  inline box's centre half an x-height above the baseline, which is a font
+  metric, not a measurement of the field it sits in. The Add page's "Choose
+  Files" button had 5px of box above it and 2px below for exactly that reason.
+  `vertical-align: top` is the top of the *line box*, which the input's own
+  `line-height: 2.1rem` fixes, so a `margin-top` of `(2.1rem - 2px of border -
+  1.55rem) / 2` is the whole answer. Measured 3px above and 3px below, and the
+  "no file chosen" text does not move: it is still placed by the same
+  line-height as before.
 - **Equal box gaps are not equal ink gaps.** The theme toggle sat between a
   run of text links and the Add button with an identical 6.39px flex gap on
   both sides, and still looked nearer to Add: `.bar-links a:not(.btn)` carries
