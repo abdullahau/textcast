@@ -181,9 +181,7 @@ def shared_model(repo_id: str = "hexgrad/Kokoro-82M"):
     with _models_lock:
         model = _models.get(repo_id)
         if model is None:
-            # No setting: a CPU-only wheel has nothing to find here, and a
-            # CUDA wheel on a box with no device answers False. Which wheel
-            # is installed is decided when the image is built.
+            # No setting: the wheel decides what there is to find.
             device = "cuda" if torch.cuda.is_available() else "cpu"
             log.info("kokoro on %s", device)
             # KPipeline does these two calls when it builds its own model. We

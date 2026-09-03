@@ -69,9 +69,8 @@ def drain_jobs(settings: Settings, kinds: tuple[str, ...]) -> None:
     It drains rather than doing one job, so a queue of nine pays the start-up
     once instead of nine times.
 
-    ``skipped`` holds the jobs it has put back, which is how a build process
-    bound to one engine passes over the jobs for the other one instead of
-    claiming and releasing the same job for ever.
+    ``skipped`` holds the jobs it has put back, so a process bound to one
+    engine passes over the other engine's instead of re-claiming them.
     """
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(levelname)-7s %(name)s  %(message)s"
@@ -194,14 +193,11 @@ class Worker:
         The pipelines are not safe to share, so parallelism means one instance
         per worker rather than one instance driven by several threads.
 
-        One engine per process, and this is where that is enforced. A second
-        engine loaded beside the first holds two models at once, and
-        ``tts._shared`` is a strong dict, so the first pool's first instance
-        is never collected — it pins its session for the life of the process.
-        Measured on one queue that switched engine mid-drain: the child sat at
-        1.8 GB on ONNX, reached 3.5 GB the moment the kokoro pool finished
-        loading, and peaked at 7.5 GB. ``step`` puts the other engine's jobs
-        back before it gets here, so this only ever fires on a bug.
+        One engine per process. ``step`` puts the other engine's jobs back
+        before it reaches here, so the guard below only fires on a bug — but
+        the bug is expensive: ``tts._shared`` is a strong dict, so a second
+        pool's arrival pins the first one's session for the life of the
+        process. Measured at 1.8 GB before the switch and 7.5 GB after.
         """
         if self._engines:
             if name != self._engine_name:
@@ -266,10 +262,9 @@ class Worker:
     def step(self, kinds: tuple[str, ...] | None = None, skip: set[int] | None = None) -> bool:
         """Run one job of these kinds. Returns False when there is none.
 
-        A build job for an engine this process is not loaded with is put back
-        untouched and recorded in ``skip``, so the next claim passes over it
-        and the next process picks it up. Returning True there is deliberate:
-        there is still work in this lane, just not this process's work.
+        A build job for the engine this process is not loaded with goes back
+        on the queue and into ``skip``, for the next process. It returns True
+        anyway: there is work in this lane, just not this process's.
         """
         conn = db.connect(self.settings.db_path)
         job = db.claim_job(conn, kinds, skip)
@@ -369,11 +364,10 @@ class Worker:
         return {**stored, **json.loads(job["options"] or "{}")}
 
     def _engine_for(self, conn, job) -> str:
-        """Which engine this build job needs, resolved the same way twice.
+        """Which engine this build job needs.
 
-        ``step`` asks before it commits the process to a job, and ``_build``
-        asks again when it runs it. One function, so the answer that decided
-        the process is the answer that loads the model.
+        ``step`` asks before committing the process to a job and ``_build``
+        asks again when it runs it, so it has to be one function.
         """
         options = self._options_for(conn, job)
         name = options.get("engine") or voice_defaults(conn, self.settings).engine

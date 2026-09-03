@@ -759,14 +759,10 @@ def search(query: str, conn: sqlite3.Connection | None = None, limit: int = 40) 
 # --------------------------------------------------------------------------
 
 
-#: How close to the end of an article counts as the end.
-#:
-#: The player's clock runs on the decoded audio; the library's total comes
-#: from the build manifest. They are not the same number. Opus files sit on a
-#: ~1.02 s page grid, so each section decodes a little longer than the
-#: manifest says it is, and a finished three-section article saved a position
-#: a few seconds *past* its own duration. "Continue listening" then showed it
-#: as "-1:59:57 left" — `duration()` given minus three seconds.
+#: How close to the end of an article counts as the end. The player's clock
+#: runs on the decoded audio and the total comes from the build manifest, and
+#: Opus files sit on a ~1.02 s page grid — so a played-out article saves a
+#: position a few seconds past its own duration.
 END_MS = 5000
 
 
@@ -788,11 +784,10 @@ def save_position(
 ) -> None:
     """Remember where playback is, and notice when that is the end.
 
-    The flag is carried by the player, which is the only thing that knows the
-    last section ended rather than the user having skipped there. But a missed
-    flag left a fully played article sitting in "Continue listening" for ever,
-    so a position at the end counts as the end here as well. Scrubbing back
-    clears it again on the next save.
+    Only the player knows the last section ended rather than the user having
+    skipped there, so it carries the flag. But a lost flag left a played-out
+    article in "Continue listening" for ever, so a position at the end counts
+    too. Scrubbing back clears it on the next save.
     """
     conn = conn or connect()
     row = conn.execute("SELECT audio_ms FROM article WHERE id = ?", (article_id,)).fetchone()
@@ -839,9 +834,8 @@ def continue_listening(conn: sqlite3.Connection | None = None, limit: int = 6) -
           JOIN article a ON a.id = p.article_id
          WHERE p.finished = 0
            AND p.ms > 5000
-           -- Belt as well as braces. A row written before `save_position`
-           -- read the total, or by a player that never sent the flag, still
-           -- drops off the list once there is nothing left to hear.
+           -- Belt as well as braces: a row written before save_position read
+           -- the total still drops off once there is nothing left to hear.
            AND (a.audio_ms = 0 OR p.ms < a.audio_ms - MIN(?, a.audio_ms / 10))
            AND a.archived = 0
            AND a.status = 'ready'
@@ -896,10 +890,9 @@ def claim_job(
     machines entirely, one the network and one the CPU, and there is no reason
     for either to wait.
 
-    `exclude` passes over jobs this caller has already put back. A build
-    process is bound to one engine, and a job for the other one is left for
-    the next process rather than loading a second model beside the first.
-    Without the skip the same job would be claimed and released for ever.
+    `exclude` passes over jobs this caller has already put back. Without it a
+    build process bound to one engine would claim, release and re-claim the
+    same job for the other engine for ever.
 
     Only a build sets the article to `building`. A summary pass does not
     change the state of the audio, so it does not pretend to.
@@ -940,9 +933,8 @@ def claim_job(
 def release_job(job_id: int, conn: sqlite3.Connection | None = None) -> None:
     """Put a claimed job back on the queue, exactly as it was found.
 
-    Used when a build process is handed a job for the engine it is not the
-    one for. Nothing has been done to the article, so its status goes back to
-    `queued` too — `claim_job` set it to `building` a moment ago.
+    The article's status goes back too: `claim_job` set it to `building` a
+    moment ago and nothing has touched the audio.
     """
     conn = conn or connect()
     with transaction(conn):

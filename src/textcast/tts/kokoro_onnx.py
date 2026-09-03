@@ -140,13 +140,11 @@ _sessions_lock = threading.Lock()
 
 
 def providers() -> list[str]:
-    """Where to run, best first, out of what this build can actually reach.
+    """Where to run, best first, out of what this build can reach.
 
-    There is no setting for this and there should not be one. The CPU wheel
-    and the GPU wheel are two different distributions with the same import
-    name, chosen when the image is built; asking the installed one what it
-    offers is the same answer, without a way to get it wrong. CPU is always
-    the last entry, so a machine with the GPU wheel and no device still runs.
+    No setting: the CPU and GPU wheels are different distributions with the
+    same import name, so asking the installed one is the whole answer. CPU is
+    always last, so the GPU wheel with no device still runs.
     """
     import onnxruntime
 
@@ -165,9 +163,8 @@ def shared_session(model: Path, threads: int | None = None):
         if session is None:
             options = onnxruntime.SessionOptions()
             if threads:
-                # One core each; the pool provides the parallelism. This is
-                # about CPU cores, so it says nothing on a GPU device: the
-                # provider list decides where the graph runs.
+                # One core each; the pool provides the parallelism. Says
+                # nothing about a GPU — the provider list decides that.
                 options.intra_op_num_threads = threads
                 options.inter_op_num_threads = threads
             chosen = providers()
