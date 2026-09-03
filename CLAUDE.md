@@ -1204,16 +1204,23 @@ while they run, so anything landing on `main` unwatched is landing unread.
     The service worker does not cache them either: it caches what the page
     asks for, and a lazy-loaded picture below the fold is never asked for
     while the article is being saved.
-13. **Only the audio's own cue says a chart is there.** The build speaks
+13. **Re-parsing an article loses your place in it.** The `position` row goes
+    with the article by foreign key, and `reparse` carries the tags and the
+    build options across but not that. It is defensible as it stands, because
+    a re-parse that changes nothing no longer replaces the row at all, and one
+    that does change something has moved the block ids and invalidated the
+    audio the position pointed into. It is still a thing that happens without
+    being said.
+14. **Only the audio's own cue says a chart is there.** The build speaks
     "Table: Ker-CHING", and the player can stop on the block if **Pause at a
     chart or table** is ticked in the sheet. Nothing tells you *before* you
     start that an article has visuals in it, and the library shows no mark.
-14. **Newsletters get no visuals.** `newsletter.py` walks with
+15. **Newsletters get no visuals.** `newsletter.py` walks with
     `NO_VISUALS`, because it reads leaf table cells and a layout table is not
     distinguishable from a small data table there. A Substack issue arriving
     by email is fine — `SubstackAdapter` sits before it in the registry — but
     anything else loses its charts.
-15. **A hand-written summary is not protected.** Nothing marks a summary block
+16. **A hand-written summary is not protected.** Nothing marks a summary block
     as yours, so "Summarise again" replaces it with the model's, and "Delete
     summaries" removes it with the rest. The reader now says which model wrote
     the summaries and stays silent where it does not know, which makes the
