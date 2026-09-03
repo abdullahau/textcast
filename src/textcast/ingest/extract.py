@@ -24,9 +24,15 @@ _BAD = re.compile(
     re.I,
 )
 
+#: `figure`, `figcaption` and `iframe` used to be here. They are what a
+#: picture, its caption and a live chart are made of, so stripping them meant
+#: the catch-all adapter could never see one however its rules were set.
+#: `visuals.py` refuses the furniture instead, which is what it is for — and
+#: an advert frame that survives this list is refused again by the embed
+#: allowlist, which knows the fifteen hosts that draw a chart.
 STRIP = [
-    "script", "style", "noscript", "template", "svg", "form", "iframe",
-    "nav", "aside", "footer", "header", "figure", "figcaption", "button",
+    "script", "style", "noscript", "template", "svg", "form",
+    "nav", "aside", "footer", "header", "button",
     "[role=navigation]", "[role=banner]", "[role=complementary]",
     "[role=search]", "[aria-hidden=true]", "[hidden]",
 ]

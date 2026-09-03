@@ -512,6 +512,13 @@ def _restore_summaries(article: Article, carried: dict[str, list[str]]) -> tuple
     return kept, sum(len(texts) for texts in remaining.values())
 
 
+def _content(media: dict | None) -> dict | None:
+    """A visual's payload without the bookkeeping the store adds to it."""
+    if not media:
+        return None
+    return {k: v for k, v in media.items() if k != "file"}
+
+
 def _same_article(stored: Article | None, fresh: Article) -> bool:
     """Would replacing one with the other change anything the reader shows?
 
@@ -524,7 +531,13 @@ def _same_article(stored: Article | None, fresh: Article) -> bool:
     if [s.title for s in stored.sections] != [s.title for s in fresh.sections]:
         return False
     def rows(article: Article):
-        return [(b.kind, b.text, b.media, b.footnote_ref) for _s, b in article.blocks()]
+        # `media["file"]` is written after the article is stored, by the
+        # picture fetch, so the stored copy always carries one and a fresh
+        # parse never does. Comparing it would mean no article with a picture
+        # in it could ever be found unchanged.
+        return [
+            (b.kind, b.text, _content(b.media), b.footnote_ref) for _s, b in article.blocks()
+        ]
     if rows(stored) != rows(fresh):
         return False
     return (stored.title, stored.subtitle, stored.author, stored.source, stored.published_at) == (

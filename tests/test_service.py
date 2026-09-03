@@ -440,3 +440,29 @@ def test_a_re_parse_that_changes_nothing_leaves_the_article_alone(settings, conn
     row = db.get_article(stored.article_id, conn)
     assert row["status"] == "ready"
     assert row["audio_ms"] == 12345
+
+
+def test_a_stored_picture_does_not_make_an_article_look_changed(settings, conn, monkeypatch):
+    """`media["file"]` is written after the store, by the picture fetch.
+
+    So the stored copy always carries one and a fresh parse never does.
+    Compared, no article with a picture in it could ever be left alone, and
+    re-parsing the library would replace them for ever.
+    """
+    from textcast import pictures, service
+
+    monkeypatch.setattr(pictures, "_download", lambda url: (b"\x89PNG\r\n\x1a\n" + b"0" * 32, ".png"))
+    html = (
+        "<html><head><title>A charted note</title></head><body><article>"
+        "<h1>A charted note</h1>"
+        f"<p>{'Sentence about the market. ' * 14}</p>"
+        '<figure><img src="https://images.test/chart.png" width="900">'
+        "<figcaption>Inflation, year on year</figcaption></figure>"
+        f"<p>{'Another sentence entirely. ' * 14}</p>"
+        "</article></body></html>"
+    )
+    stored = service.ingest(html=html, url="https://x.test/r", build=False, settings=settings)
+    figure = [b for _s, b in db.load_article(stored.article_id, conn).blocks() if b.media][0]
+    assert figure.media["file"], "the picture was not stored"
+
+    assert service.reparse(stored.article_id, settings=settings).unchanged
