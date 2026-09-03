@@ -109,7 +109,8 @@ src/textcast/
 │   ├── documents.py text, Markdown, PDF, DOCX
 │   ├── visuals.py  what a picture, a table and a chart are, and what is
 │   │               furniture wearing one. Asked once, per publication.
-│   └── bloomberg.py / ft.py / substack.py / newsletter.py / generic.py
+│   └── bloomberg.py / ft.py / economist.py / substack.py / newsletter.py
+│                    / generic.py
 ├── tts/            engine registry and kokoro.py; shared_engine is the one
 │                   instance a process ever loads
 ├── audio.py        synthesis, Opus encoding, WebVTT emission

@@ -41,6 +41,26 @@ section you are about to touch**, and add to it when something bites you.
 - **`extract.STRIP` removed the visuals before the walk saw them.** `figure`,
   `figcaption` and `iframe` were on it, so giving the catch-all adapter a
   `VisualRules` did nothing, silently. `visuals.py` refuses the furniture.
+- **A publication's recirculation is real headings with real text under it.**
+  The Economist ends every leader with "Explore more", "From the <date>
+  edition" and the week's other headlines; the FT ends with "FT alerts".
+  Nothing about them looks like junk except where they sit, so the Economist
+  walk *stops* there rather than pruning afterwards, and `JUNK_SECTIONS` knows
+  the headings by name for everyone else.
+- **Small capitals split the word they are inside.** The Economist sets them
+  with `<small>`, mid-word: `Chat<small>GPT’</small>s` came out "Chat GPT’ s"
+  and a drop cap `<span data-caps>N</span><small>VIDIA</small>` came out
+  "N VIDIA" — read aloud that way. Unwrapping is not enough on its own: it
+  leaves two text nodes side by side, and the separator goes between text
+  *nodes* rather than between elements. `merge_text_nodes()` is what rejoins
+  the word.
+- **A dek can be a heading in the markup.** The Economist's is an `<h2>`
+  straight after the `<h1>`, so a density walk reads it as the first section's
+  title and the article's own title is never used for one. Read it into
+  `subtitle` and drop the element before walking.
+- **Not every publication prints a byline.** The Economist does not sign its
+  leaders. `test_every_page_in_the_corpus_has_a_byline` exempts it and asserts
+  the opposite, because a name found there came from somewhere it should not.
 - **A publication puts its byline in the head, not the body.** Bloomberg names
   the writer in `parsely-author`, `sailthru.author` and `author`, and again in
   a byline whose class carries a build hash. The meta tags are the stable read.
@@ -70,6 +90,11 @@ section you are about to touch**, and add to it when something bites you.
   carries the `file` the last parse stored, so without a check against the
   directory re-parsing the library re-downloads every picture to write bytes
   already there. `already_stored` globs for the address's hash.
+- **`replace_blocks` must rewrite the sections too.** It rewrote the blocks
+  and left the `section` rows alone, and `load_article` seeds sections from
+  that table without asking whether any block points at one — so editing the
+  last block out of a section left its heading standing over nothing.
+  "Explore more" and "FT alerts" survived that way on two articles.
 - **Editing text is cheap; removing a block is not.** Text edits leave the ids
   alone, so the audio and the timing map stay valid. Removing one moves every
   id after it, so the audio goes. The block cache is deliberately kept: keyed
@@ -373,6 +398,14 @@ Each cost an afternoon once; the incident is in git, the rule is here.
   only placeholder there has ever been, so `str.replace` does it.
 - **`.../v1` and `.../v1/` are one endpoint.** `endpoint_id` lower-cases and
   drops the trailing slash.
+- **`immutable` is a promise that the bytes at a URL never change.** The
+  avatar was served from a bare `/avatar` with a year's `max-age`, and that
+  promise broke the moment a second photograph was uploaded: one cache went on
+  serving the old picture while another had the new one, and the mark appeared
+  to change as you walked between pages. The URL carries the picture's name,
+  which is a hash of its bytes. Measured while chasing it: five navigations
+  made five requests and none reached the server — the caching was right, the
+  URL was wrong.
 - **The page carries the tail of a key, never a key.** Four characters: enough
   to tell two apart, not enough to use one.
 - **A summary block carries no origin.** One written by hand is the same row as
@@ -559,6 +592,10 @@ Each cost an afternoon once; the incident is in git, the rule is here.
   `browser` fixture; a test needing isolation takes a context from it. A second
   `sync_playwright()` does not fail loudly — it raises inside the `chromium
   unavailable` guard and the test silently skips.
+- **`test_seeking_to_a_block_highlights_that_block` is the flaky one.** It
+  shares the module's page, so a slow frame in a test before it leaves the
+  playhead somewhere else. It passes on its own and on a re-run; check that
+  before believing it found something.
 - **Playwright's page routes do not intercept the service worker script.** A
   delay on `/sw.js` did nothing, so a test meant to reproduce a stale-worker
   race passed with and without the fix. Reproduce that one against a real
