@@ -389,3 +389,31 @@ def test_the_onnx_engine_splices_a_rule_into_its_own_phonemes():
     parts = _RULE_IPA.split("The [LIBOR](/lˈaɪbɔːɹ/) rate rose.")
 
     assert parts == ["The ", "LIBOR", "lˈaɪbɔːɹ", " rate rose."]
+
+
+def test_the_cache_holds_int16_and_reads_back_as_floats(tmp_path):
+    """Half the bytes, for an error under the encoder's own.
+
+    2.2 GB of raw floats sat behind 76 MB of Opus. The quantisation error
+    peaks at -90 dBFS, against the codec's -45 dBFS.
+    """
+    import numpy as np
+
+    from textcast.audio import CACHE_SUFFIX, from_int16, to_int16
+
+    original = np.array([0.0, 0.5, -0.5, 0.999, -0.999], dtype=np.float32)
+
+    back = from_int16(to_int16(original))
+
+    assert np.max(np.abs(back - original)) < 1e-4
+    assert to_int16(original).dtype == np.int16
+    assert CACHE_SUFFIX == ".i16"
+
+
+def test_a_sample_over_full_scale_clips_rather_than_wraps():
+    """Wrapping puts a peak at the far negative end, which reads as a click."""
+    import numpy as np
+
+    from textcast.audio import to_int16
+
+    assert to_int16(np.array([1.5, -1.5], dtype=np.float32)).tolist() == [32767, -32768]

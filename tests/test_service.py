@@ -188,3 +188,115 @@ def test_an_article_nobody_summarised_records_nothing(conn, settings):
     stored = add_note()
 
     assert db.last_summary(stored.article_id, conn) == {}
+
+
+def test_a_swept_cache_keeps_only_what_a_block_can_still_reach(conn, settings):
+    """Nothing collected these before.
+
+    A rule change, a text edit, a re-parse or a deleted article each left
+    their renders behind, and the key is a hash so nothing overwrote them.
+    Measured on the real library before this existed: 363 of 691 files,
+    0.96 GB, 43% of the cache, unreachable.
+    """
+    from textcast.audio import CACHE_SUFFIX
+    from textcast.service import cache_keys, sweep_cache
+
+    result = ingest(text="# A note\n\nA paragraph to render.", title="Sweepable")
+    keys = cache_keys(result.article_id, conn, settings)
+    assert keys, "the article has blocks, so it wants renders"
+
+    settings.cache_dir.mkdir(parents=True, exist_ok=True)
+    for key in keys:
+        (settings.cache_dir / f"{key}{CACHE_SUFFIX}").write_bytes(b"\x00\x01")
+    orphan = settings.cache_dir / f"{'f' * 64}{CACHE_SUFFIX}"
+    orphan.write_bytes(b"\x00" * 100)
+    stale_format = settings.cache_dir / f"{next(iter(keys))}.f32"
+    stale_format.write_bytes(b"\x00" * 50)
+
+    removed, freed = sweep_cache(settings, conn)
+
+    assert not orphan.exists(), "a render no block can reach must go"
+    assert not stale_format.exists(), "a file in the old format is unreachable too"
+    assert removed == 2 and freed == 150
+    for key in keys:
+        assert (settings.cache_dir / f"{key}{CACHE_SUFFIX}").exists()
+
+
+def test_deleting_an_article_takes_its_renders_with_it(conn, settings):
+    """They used to stay on disk for ever, unreachable and uncounted."""
+    from textcast.audio import CACHE_SUFFIX
+    from textcast.service import cache_keys
+    from textcast.service import delete as delete_article
+
+    result = ingest(text="# Going\n\nA paragraph that will not survive.", title="Going")
+    settings.cache_dir.mkdir(parents=True, exist_ok=True)
+    paths = [
+        settings.cache_dir / f"{key}{CACHE_SUFFIX}"
+        for key in cache_keys(result.article_id, conn, settings)
+    ]
+    for path in paths:
+        path.write_bytes(b"\x00" * 10)
+
+    delete_article(result.article_id, settings)
+
+    assert paths and not any(p.exists() for p in paths)
+
+
+def test_a_render_two_articles_share_survives_one_of_them(conn, settings):
+    """The key is a hash of the text, so a quoted paragraph is one file."""
+    from textcast.audio import CACHE_SUFFIX
+    from textcast.service import cache_keys
+    from textcast.service import delete as delete_article
+
+    body = "# Shared\n\nThe very same paragraph, in two pieces."
+    first = ingest(text=body, title="First copy")
+    second = ingest(text=body, title="Second copy")
+    shared = cache_keys(first.article_id, conn, settings) & cache_keys(
+        second.article_id, conn, settings
+    )
+    assert shared, "the same text under the same settings is the same key"
+
+    settings.cache_dir.mkdir(parents=True, exist_ok=True)
+    for key in shared:
+        (settings.cache_dir / f"{key}{CACHE_SUFFIX}").write_bytes(b"\x00" * 10)
+
+    delete_article(first.article_id, settings)
+
+    for key in shared:
+        assert (settings.cache_dir / f"{key}{CACHE_SUFFIX}").exists(), (
+            "the other article still wants it"
+        )
+
+
+def test_the_keys_follow_the_article_engine_not_a_hardcoded_one(conn, settings):
+    """It said "kokoro", which was right when there was one engine.
+
+    Thirteen of fourteen articles here are kokoro-onnx, so the keys named
+    files that did not exist. Worse, for an article built under kokoro once
+    and rebuilt under ONNX they named the *old* files, so "Delete audio"
+    removed those and left the ones in use.
+    """
+    from textcast.service import cache_keys
+
+    result = ingest(text="# Engines\n\nOne paragraph, two engines.", title="Engines")
+
+    db.set_build_options(result.article_id, {"engine": "kokoro"}, conn)
+    as_kokoro = cache_keys(result.article_id, conn, settings)
+    db.set_build_options(result.article_id, {"engine": "kokoro-onnx"}, conn)
+    as_onnx = cache_keys(result.article_id, conn, settings)
+
+    assert as_kokoro and as_onnx
+    assert as_kokoro.isdisjoint(as_onnx), "one engine's render is not the other's"
+
+
+def test_dropping_audio_spares_a_render_another_article_wants(conn, settings):
+    """cached_renders is what "Delete audio" deletes, and a file can be shared."""
+    from textcast.service import cache_keys, cached_renders
+
+    body = "# Twice\n\nA paragraph that appears in two articles."
+    first = ingest(text=body, title="Once")
+    second = ingest(text=body, title="Twice")
+
+    mine = {p.stem for p in cached_renders(first.article_id, conn, settings)}
+
+    assert mine.isdisjoint(cache_keys(second.article_id, conn, settings))

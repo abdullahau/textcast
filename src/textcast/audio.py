@@ -101,6 +101,33 @@ def _cache_key(text: str, engine: str, voice: str, speed: float = 1.0) -> str:
     return h.hexdigest()
 
 
+#: The cache holds int16, not the float32 the model returns.
+#:
+#: The quantisation error peaks at -90 dBFS, which is under the Opus encoder's
+#: own -45 dBFS loss and far under Kokoro's noise floor: it was measured when
+#: opusenc was being considered, and the encoded result differed from the
+#: float32 path by less than the codec's own error. Half the bytes for
+#: something no one can hear is the trade this cache exists to make -- it was
+#: 2.2 GB of raw floats behind 76 MB of Opus.
+#:
+#: The suffix is part of the format. A ``.f32`` beside a ``.i16`` is a file
+#: from before this change, and `service.sweep_cache` takes it away.
+CACHE_SUFFIX = ".i16"
+
+
+def to_int16(samples: np.ndarray) -> np.ndarray:
+    """Float in -1..1 to int16, clipped rather than wrapped.
+
+    A sample slightly over 1.0 would otherwise land at the far negative end of
+    the range and read as a click.
+    """
+    return np.clip(np.asarray(samples, dtype=np.float32) * 32767.0, -32768, 32767).astype(np.int16)
+
+
+def from_int16(samples: np.ndarray) -> np.ndarray:
+    return np.asarray(samples, dtype=np.int16).astype(np.float32) / 32767.0
+
+
 def _speak(
     engine: TTSEngine,
     text: str,
@@ -118,17 +145,19 @@ def _speak(
         return engine.synthesize(text, voice=voice, speed=speed, lang=lang).samples
 
     cache_dir.mkdir(parents=True, exist_ok=True)
-    path = cache_dir / f"{_cache_key(text, engine.name, voice, speed)}.f32"
+    path = cache_dir / f"{_cache_key(text, engine.name, voice, speed)}{CACHE_SUFFIX}"
     if path.exists():
         try:
-            return np.fromfile(path, dtype=np.float32)
+            return from_int16(np.fromfile(path, dtype=np.int16))
         except OSError:
             pass
 
     samples = engine.synthesize(text, voice=voice, speed=speed, lang=lang).samples
     tmp = path.with_suffix(".part")
-    samples.astype(np.float32).tofile(tmp)
+    to_int16(samples).tofile(tmp)
     tmp.replace(path)
+    # The caller gets the model's own floats, not the round trip. Only a later
+    # build reads the quantised copy, and that is where the trade was measured.
     return samples
 
 

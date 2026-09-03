@@ -161,12 +161,18 @@ without rewriting anything.
 (the same timings, for reading outside the app). Safe to delete an article's
 directory; the next build writes it again.
 
-**`cache/`** is one `.f32` per rendered block — raw float32 PCM, keyed by a
-hash of the text, engine, voice and pace. It is *uncompressed*, so it dwarfs
-the audio it produced: 260 MB of cache behind 9.7 MB of Opus. That is the
-trade it exists to make. A rebuild after a pronunciation edit, a re-parse or a
-silence-trim change costs seconds instead of minutes, because nothing goes
-back to the model. Deleting it costs only time.
+**`cache/`** is one `.i16` per rendered block — int16 PCM, keyed by a hash of
+the *spoken* text, the engine, the voice and the pace. Still uncompressed, so
+it is large next to the audio it produced: 658 MB behind 76 MB of Opus. That
+is the trade it exists to make. Measured on a 33-minute article whose blocks
+were all cached: the rebuild took **32 seconds**, wrote the same `audio_ms` to
+the millisecond, and added no cache file — an encode, with nothing going back
+to the model. Deleting it costs only time.
+
+It was float32 and 2.23 GB. int16 halves every file and the quantisation
+error peaks at −90 dBFS, under the encoder's own −45 dBFS. `service.
+compact_cache` converted 338 files in place and swept the rest: **2.23 GB to
+658 MB**, no engine loaded, nothing re-rendered.
 
 **`sources/`** keeps the bytes each article arrived as, so Re-parse can replay
 a parser fix without re-fetching. Delete it and Re-parse stops working.
@@ -188,10 +194,10 @@ should be measured before it is not.
 
 Deleting an article from the reader takes the row and, by foreign key, its
 sections, blocks, FTS entries, tag links, saved position and jobs; then
-`media/<slug>/` and `sources/<slug>.*` as files. It does **not** touch the tag
-names, which are shared, or `cache/`, which is keyed by content and shared
-too. `service.delete` owns that, not `db.delete_article` — `reparse` calls the
-latter and must keep the source it is about to read.
+`media/<slug>/` and `sources/<slug>.*` as files; then it sweeps the cache. It
+does **not** touch the tag names, which are shared. `service.delete` owns
+that, not `db.delete_article` — `reparse` calls the latter and must keep the
+source it is about to read.
 
 ## Running it in Docker
 
@@ -631,6 +637,34 @@ Things that have already bitten once.
   company and every seek landed a few blocks late. `cache.put` refuses a 206
   as well, so the write silently rejected and nothing ranged was ever stored.
   `sw.js` now stores whole files and slices one into a real 206.
+- **Nothing collected the cache, and 43% of it was unreachable.** A key is a
+  hash, so a rule change, a text edit, a re-parse or a deleted article each
+  left its old render behind and nothing ever overwrote it. Measured before
+  the sweep existed: 363 of 691 files, 0.96 GB. `service.sweep_cache` computes
+  what every article in the library still wants and deletes the rest — over
+  the whole library at once, which is what makes it safe, because a render two
+  articles share is kept while either wants it.
+- **`cached_renders` asked for the wrong engine.** It hashed with the literal
+  `"kokoro"`, right when there was one engine and wrong for every article
+  since. Thirteen of fourteen here are kokoro-onnx, so "Delete audio" named
+  files that did not exist and removed nothing — and for an article built
+  under kokoro once and rebuilt under ONNX, it named the *old* files and
+  deleted those, leaving the ones in use. It reads the engine off the
+  article's build options now, and passes the g2p flags, because a rule
+  written in IPA reaches one phonemiser and the spoken text is not the same
+  string on both.
+- **A cached render can belong to two articles.** Two pieces quoting the same
+  paragraph, under the same engine, voice and pace, are one file.
+  `cached_renders` subtracts every key another article still wants, or
+  dropping one article's audio would silently cost another its cheap rebuild.
+- **Convert before you sweep.** `compact_cache` rewrites the reachable
+  `.f32` files as `.i16` first. Sweeping first would delete all of them as
+  "unreachable in the current format", and the next build would go back to
+  the model for every block.
+- **The cache holds int16; the caller still gets the model's floats.**
+  `_speak` returns the freshly synthesised samples, not the round trip. Only
+  a *later* build reads the quantised copy, which is where the −90 dBFS was
+  measured.
 - **A stored time is UTC and a shown time is not.** `db.now()` writes
   `datetime.now(UTC).isoformat`, which is the only sane thing to store. The
   Builds page printed it raw, so a build that started at 16:41 in Dubai read
