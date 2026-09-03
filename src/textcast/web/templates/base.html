@@ -61,6 +61,7 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M9 13h6"/><path d="M9 17h6"/></svg>
         <span>Summaries</span>
       </a>
+      <span class="theme-row">
       <button type="button" class="theme-switch" id="theme" role="switch" aria-checked="false"
               title="Switch between light and dark">
         <span class="knob" aria-hidden="true"></span>
@@ -73,6 +74,10 @@
           <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>
         </svg>
       </button>
+      {# Only in the folded menu, where every other row is a labelled one.
+         In the bar the toggle stands on its own. #}
+      <span class="theme-label">Theme</span>
+      </span>
     </div>
     <a class="btn sm" href="/add">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
@@ -133,8 +138,13 @@ if ("serviceWorker" in navigator) {
 
   toggle.addEventListener("click", function (event) {
     event.stopPropagation();
-    setOpen(!group.classList.contains("open"));
+    var opening = !group.classList.contains("open");
+    // Two menus open at once overlap each other on a phone, where they are
+    // both pinned to the same corner.
+    if (opening) document.dispatchEvent(new CustomEvent("tc:close-menus"));
+    setOpen(opening);
   });
+  document.addEventListener("tc:close-menus", function () { setOpen(false); });
   document.addEventListener("click", function (event) {
     if (!group.contains(event.target)) setOpen(false);
   });
@@ -157,8 +167,11 @@ if ("serviceWorker" in navigator) {
 
   button.addEventListener("click", function (event) {
     event.stopPropagation();
-    setOpen(menu.hidden);
+    var opening = menu.hidden;
+    if (opening) document.dispatchEvent(new CustomEvent("tc:close-menus"));
+    setOpen(opening);
   });
+  document.addEventListener("tc:close-menus", function () { setOpen(false); });
   document.addEventListener("click", function (event) {
     if (!menu.contains(event.target) && event.target !== button) setOpen(false);
   });

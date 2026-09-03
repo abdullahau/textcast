@@ -219,7 +219,7 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
    the flex gap; the Add button's fill is its edge and reserves nothing. The
    toggle needs that .3rem back on the button side, or it sits visibly nearer
    to Add than to Summaries while every box gap is identical. */
-.bar-links .theme-switch { margin-right: .3rem; }
+.bar-links .theme-switch { margin: 0 .35rem; }
 .theme-switch:hover { opacity: 1; border-color: var(--border-hi); }
 /* The track grew to the bar's height; the knob did not, so it is centred
    rather than pinned. Its horizontal geometry is untouched. */
@@ -310,7 +310,21 @@ button.link:hover { color: var(--fg); }
     border-radius: var(--radius-sm);
   }
   .nav-group a:hover, .nav-group button.link:hover { background: var(--sunk); }
-  .nav-group .theme-switch { align-self: flex-start; margin: .3rem .6rem .2rem; }
+  /* Its own row, the height of the others, with the pill sitting where
+     their icons sit. Left to itself it was 32px in a column of 37px rows,
+     indented by a margin rather than by the padding everything else uses —
+     which is what read as untidy. */
+  .nav-group .theme-row {
+    display: flex;
+    align-items: center;
+    gap: .45rem;
+    padding: .35rem .6rem;
+    margin-top: .15rem;
+    border-top: 1px solid var(--border);
+    color: var(--muted);
+    font-size: .85rem;
+  }
+  .nav-group .theme-switch { margin: 0; }
   .nav-group form { width: 100%; }
   /* The shared button rule centres its content and pins it to the bar's own
      2.1rem. In the menu every other item starts at the left edge and grows to
@@ -1381,7 +1395,7 @@ table.rules form { display: inline; }
   white-space: nowrap;
 }
 .profile-menu form { width: 100%; margin: 0; }
-.profile-menu a, .profile-menu button.link {
+.bar-links .profile-menu a, .profile-menu button.link {
   display: flex;
   align-items: center;
   gap: .45rem;
@@ -1393,7 +1407,7 @@ table.rules form { display: inline; }
   color: var(--muted);
   border-radius: var(--radius-sm);
 }
-.profile-menu a:hover, .profile-menu button.link:hover {
+.bar-links .profile-menu a:hover, .profile-menu button.link:hover {
   background: var(--sunk);
   color: var(--fg);
   text-decoration: none;
@@ -1417,3 +1431,12 @@ table.rules form { display: inline; }
 .profile-edit-forms { flex: 1 1 18rem; }
 .profile-edit-forms form { margin: 0; }
 .profile-edit-forms form + form { margin-top: .6rem; }
+
+/* The label belongs to the folded menu only: in the bar the toggle stands on
+   its own beside Add and the profile mark, and a word there would be a fourth
+   thing to read in a row that is already three. */
+.theme-label { display: none; }
+.theme-row { display: contents; }
+@media (max-width: 44rem) {
+  .nav-group .theme-label { display: inline; }
+}
