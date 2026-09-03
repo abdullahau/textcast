@@ -100,10 +100,7 @@ def test_the_login_page_says_so_when_no_token_is_configured(client, settings):
     assert "No token is set" in client.get("/login").text
 
 
-def test_the_summaries_page_says_when_nothing_is_configured(client, monkeypatch):
-    for name in ("TEXTCAST_SUMMARY_API_KEY", "GEMINI_API_KEY", "OPENAI_API_KEY"):
-        monkeypatch.delenv(name, raising=False)
-
+def test_the_summaries_page_says_when_nothing_is_configured(client):
     body = client.get("/summaries").text
 
     assert "not configured" in body

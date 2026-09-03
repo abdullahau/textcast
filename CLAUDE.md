@@ -17,7 +17,7 @@ docker compose logs -f worker  # builds and mail polling land here
 
 uv sync --extra cpu --extra kokoro --extra kokoro-onnx --extra web \
         --extra documents --extra summaries --group dev
-uv run pytest                  # 353 tests
+uv run pytest                  # 355 tests
 uv run ruff check src tests    # before committing; formatting is not enforced
 ```
 
@@ -577,10 +577,25 @@ Things that have already bitten once.
   so `selectable_endpoints` offers every built-in provider plus every endpoint
   the database knows, keyed or not. `stored_list` is the other question —
   which keys this machine holds — and only that one is about keys.
-- **A model list is a starting point, not a menu.** Model names move faster
-  than `PROVIDERS` does, so the select always carries "Something else…", which
-  swaps in a typed field. A model already saved that is not in the list is
-  prepended rather than dropped.
+- **A key is typed on the page, never exported.** `TEXTCAST_SUMMARY_API_KEY`
+  used to stand behind every endpoint with nothing stored. One variable for a
+  dozen providers meant the page could not say whose key was in use, and the
+  answer changed as you moved the dropdown — the same confusion the scoped
+  keys were introduced to end, one level up. `config()` reads the key under
+  the endpoint and nowhere else. `migrate._adopt_env_summary_key` files an
+  existing environment key under the selected endpoint on the first start
+  after upgrading, so nobody's summaries stop working, and only where nothing
+  is already stored.
+- **A local endpoint needs no key.** Ollama and LM Studio are not behind an
+  account, and `_client` refused to build without one — the OpenAI client
+  insists on a non-empty string, so it is sent "not-needed". `Config.ready`
+  asks for a key only when `needs_key`, which is any host that is not this
+  machine. `summarize.LOCAL_HOSTS` is that list.
+- **The model is typed, not chosen.** It was a select of each provider's
+  models with "Something else…" behind it. Model names move faster than
+  `PROVIDERS` does, so the menu is out of date the week it ships and hides the
+  name you want behind its last option. The provider's first model is the
+  field's placeholder instead: a suggestion, and nothing to maintain.
 - **A key belongs to an endpoint, not to the app.** There was one flat
   `summary_api_key`, so a library held one key however many providers it used.
   Picking DeepSeek changed the endpoint and the model and kept the Gemini key,

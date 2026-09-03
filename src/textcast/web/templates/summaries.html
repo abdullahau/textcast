@@ -60,48 +60,26 @@
   // ---- the model box --------------------------------------------------
   var provider = document.getElementById("provider");
   var endpoint = document.getElementById("base_url");
-  var models = document.getElementById("model-choice");
   var typed = document.getElementById("model");
   var keyNote = document.getElementById("model-key-note");
-  var OTHER = "\u0000other";
 
-  /* A select of what the provider is known to offer, plus a way out: model
-     names move faster than this file does, so a typed name must always be
-     reachable. */
-  function fillModels(row, current) {
-    var names = (row && row.models) || [];
-    if (current && names.indexOf(current) === -1) names = [current].concat(names);
-    models.textContent = "";
-    names.forEach(function (name) {
-      var option = document.createElement("option");
-      option.value = option.textContent = name;
-      if (name === current) option.selected = true;
-      models.appendChild(option);
-    });
-    var other = document.createElement("option");
-    other.value = OTHER;
-    other.textContent = "Something else\u2026";
-    models.appendChild(other);
-    if (!names.length) { other.selected = true; typed.value = ""; }
-    showTyped(models.value === OTHER, false);
-    if (models.value !== OTHER) typed.value = models.value;
-  }
-
-  /* Focus only when the reader asked for the field. Focusing it on load would
-     scroll the page to it before anything had been read. */
-  function showTyped(on, focus) {
-    typed.parentNode.hidden = !on;
-    if (on && focus) typed.focus();
-  }
-
+  /* The model is typed, never chosen from a list. Model names move faster
+     than this file does, and a menu that is out of date is worse than a box:
+     it hides the name you want behind "Something else". The provider's own
+     names are offered as a placeholder — a hint, not a menu. */
   function describeModel() {
     var row = find(endpoint.value);
+    var names = (row && row.models) || [];
+    typed.placeholder = names.length ? names[0] : "the model name";
     if (!keyNote) return;
     if (row && row.hint) {
       keyNote.textContent = "key stored";
       keyNote.className = "pill ok";
+    } else if (row && row.local) {
+      keyNote.textContent = "on this machine \u2014 no key needed";
+      keyNote.className = "pill ok";
     } else {
-      keyNote.textContent = "no key \u2014 fine locally";
+      keyNote.textContent = "no key stored";
       keyNote.className = "pill warn";
     }
   }
@@ -109,17 +87,14 @@
   provider.addEventListener("change", function () {
     var picked = this.options[this.selectedIndex];
     endpoint.value = picked.value;
+    /* The model this endpoint was last used with, if there is one. Switching
+       provider and keeping the old provider's model name is a 404 waiting to
+       happen. */
     var row = find(picked.value);
-    fillModels(row, (row && row.model) || "");
+    typed.value = (row && row.model) || "";
     describeModel();
   });
 
-  models.addEventListener("change", function () {
-    if (this.value === OTHER) { typed.value = ""; showTyped(true, true); }
-    else { typed.value = this.value; showTyped(false, false); }
-  });
-
-  fillModels(find(endpoint.value), typed.value);
   describeModel();
 })();
 </script>
@@ -128,7 +103,9 @@
 {% block content %}
 <div class="section-head">
   <h1>Summaries</h1>
-  <span class="muted">{{ cfg.model if cfg.ready else 'not configured' }}</span>
+  <span class="muted">
+    {%- if cfg.ready %}{{ cfg.provider }} · {{ cfg.model }}{% else %}not configured{% endif -%}
+  </span>
 </div>
 
 {% if error %}<p class="notice error">{{ error }}</p>{% endif %}
@@ -162,8 +139,8 @@
     <span class="tip">
       <button type="button" class="q" aria-label="How keys are stored">?</button>
       <span class="tip-body" role="tooltip">One key per endpoint, kept in the database on this
-      machine. Storing a key does not switch to that provider — choose that below. A local
-      Ollama or LM Studio needs no key at all.</span>
+      machine and typed only here. Storing a key does not switch to that provider — choose
+      that below. A local Ollama or LM Studio needs no key at all.</span>
     </span>
   </div>
   <form method="post" action="/summaries/key">
@@ -198,12 +175,8 @@
     </div>
     <div class="row" style="margin-top:.9rem"><button class="narrow" type="submit">Save key</button></div>
     <p class="hint" style="margin:.6rem 0 0">
-      {% if cfg.key_source == 'environment' %}
-        The endpoint in use has no key stored, so it is using
-        <code>TEXTCAST_SUMMARY_API_KEY</code> from the environment.
-      {% else %}
-        <code>TEXTCAST_SUMMARY_API_KEY</code> supplies a key to any endpoint with none stored.
-      {% endif %}
+      Keys are typed here and nowhere else. They are stored in the database on this machine,
+      one per endpoint, and never sent back to this page.
     </p>
   </form>
 
@@ -245,9 +218,9 @@
     <h2>Model selection</h2>
     <span class="tip">
       <button type="button" class="q" aria-label="Which model is used">?</button>
-      <span class="tip-body" role="tooltip">Which endpoint and model write the summaries. The list
-      is a starting point, not a menu — "Something else…" takes any name the endpoint accepts.
-      A provider needs no stored key if it runs on this machine.</span>
+      <span class="tip-body" role="tooltip">Which endpoint and model write the summaries. The
+      model is typed, so any name the endpoint accepts works; the greyed-out name is only a
+      suggestion. A provider running on this machine needs no key.</span>
     </span>
   </div>
   <form method="post" action="/summaries">
@@ -266,11 +239,7 @@
         <input type="hidden" name="base_url" id="base_url" value="{{ cfg.base_url }}">
       </div>
       <div>
-        <label for="model-choice">Model</label>
-        <select id="model-choice"></select>
-      </div>
-      <div>
-        <label for="model">Model name</label>
+        <label for="model">Model</label>
         <input type="text" name="model" id="model" value="{{ cfg.model }}"
                autocomplete="off" spellcheck="false" placeholder="{{ default_model }}">
       </div>

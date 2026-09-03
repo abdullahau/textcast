@@ -193,10 +193,13 @@ A router such as litellm was measured and not taken: 183 MB across 114
 packages against 21 MB, and the only thing it reaches that this does not is a
 provider with no OpenAI endpoint at all (Bedrock, Vertex, SageMaker).
 
-`TEXTCAST_SUMMARY_MODEL`, `TEXTCAST_SUMMARY_BASE_URL` and
-`TEXTCAST_SUMMARY_API_KEY` supply the defaults — one key variable whichever
-provider you point at. What you save on the page wins over them, so the
-settings always take effect.
+API keys are typed on the Summaries page, one per endpoint, and kept in the
+database on this machine. There is no key variable: one standing behind every
+provider meant the page could not say whose key was in use.
+`TEXTCAST_SUMMARY_MODEL` and `TEXTCAST_SUMMARY_BASE_URL` supply starting
+values, and what you save on the page wins over them.
+
+A provider running on this machine — Ollama, LM Studio — needs no key at all.
 
 Summarising queues a rebuild, because a new block moves every paragraph after
 it. That is also why it is its own job: the model runs once, the audio follows.

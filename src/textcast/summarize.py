@@ -97,6 +97,21 @@ def _scoped(prefix: str, base_url: str) -> str:
     return prefix + endpoint_id(base_url)
 
 
+#: Hosts that are this machine. A model served here is not behind an account,
+#: so the page must not demand a key for one and `ready` must not withhold it.
+LOCAL_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]", "host.docker.internal"}
+
+
+def is_local(base_url: str) -> bool:
+    """Whether this endpoint is served from this machine: Ollama, LM Studio."""
+    from urllib.parse import urlsplit
+
+    try:
+        return (urlsplit(base_url or "").hostname or "") in LOCAL_HOSTS
+    except ValueError:
+        return False
+
+
 def fingerprint(key: str) -> str:
     """The tail of a key, which is enough to tell two of them apart.
 
@@ -139,18 +154,19 @@ class Config:
     base_url: str = DEFAULT_BASE_URL
     api_key: str = ""
     prompt: str = DEFAULT_PROMPT
-    #: Where ``api_key`` came from: "stored", "environment", or "" for nothing.
-    #: The page says which, because a key inherited from the environment is
-    #: the one case where the endpoint on screen did not supply it.
-    key_source: str = ""
+
+    @property
+    def needs_key(self) -> bool:
+        """A model on this machine is not behind an account."""
+        return not is_local(self.base_url)
 
     @property
     def ready(self) -> bool:
-        return bool(self.api_key and self.model)
+        return bool(self.model and (self.api_key or not self.needs_key))
 
     @property
     def provider(self) -> str:
-        return provider_for(self.base_url)
+        return provider_for(self.base_url) or endpoint_id(self.base_url)
 
 
 def _env(key: str) -> str:
@@ -176,21 +192,14 @@ def config(conn=None) -> Config:
 
     base_url = stored(KEY_BASE_URL, _default_base_url())
 
-    # The key is looked up under the endpoint, never under a flat name. There
-    # is deliberately no fall back to another endpoint's key: sending Gemini's
-    # key to DeepSeek is the bug this scoping exists to stop.
-    key = stored(_scoped(PREFIX_API_KEY, base_url), "")
-    source = "stored" if key else ""
-    if not key:
-        key = _env("TEXTCAST_SUMMARY_API_KEY")
-        source = "environment" if key else ""
-
+    # The key is looked up under the endpoint and nowhere else. No fall back
+    # to another endpoint's key, and none to the environment: a key is typed
+    # on the Summaries page, so there is one answer to "which key is this".
     return Config(
         model=stored(KEY_MODEL, _env("TEXTCAST_SUMMARY_MODEL") or DEFAULT_MODEL),
         base_url=base_url,
-        api_key=key,
+        api_key=stored(_scoped(PREFIX_API_KEY, base_url), ""),
         prompt=stored(KEY_PROMPT, DEFAULT_PROMPT),
-        key_source=source,
     )
 
 
@@ -264,6 +273,7 @@ def selectable_endpoints(conn=None) -> list[dict]:
             "models": list(models),
             "hint": known.get(endpoint_id(url), {}).get("hint", ""),
             "model": known.get(endpoint_id(url), {}).get("model", ""),
+            "local": is_local(url),
         }
         for _id, name, url, models in PROVIDERS
     ]
@@ -274,6 +284,7 @@ def selectable_endpoints(conn=None) -> list[dict]:
         rows.append({
             "id": ident, "name": ident, "base_url": ident, "models": [],
             "hint": entry.get("hint", ""), "model": entry.get("model", ""),
+            "local": is_local(ident),
         })
     return rows
 
@@ -345,12 +356,15 @@ def is_installed() -> bool:
 def _client(cfg: Config):
     if not is_installed():
         raise SummaryError("summaries need the openai package: uv sync --extra summaries")
-    if not cfg.api_key:
-        raise SummaryError("no API key is set for summaries")
+    if not cfg.api_key and cfg.needs_key:
+        raise SummaryError(f"no API key is stored for {cfg.base_url}. Add one on the Summaries page")
 
     from openai import OpenAI
 
-    return OpenAI(api_key=cfg.api_key, base_url=cfg.base_url or None, timeout=90.0, max_retries=2)
+    # The client refuses to be built without one, and a local server ignores
+    # whatever it is sent.
+    key = cfg.api_key or "not-needed"
+    return OpenAI(api_key=key, base_url=cfg.base_url or None, timeout=90.0, max_retries=2)
 
 
 def summarize_text(text: str, cfg: Config | None = None, client=None) -> str:

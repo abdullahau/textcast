@@ -162,6 +162,22 @@ def page(live, browser):
 
 
 @pytest.fixture
+def quiet(page):
+    """Silence the module-scoped reader for a test about the saved position.
+
+    It is a second reader of the same article and it saves on a timer, so its
+    `finished: false` landed between a test writing the row and the page under
+    test loading it — after which that page carried `finished: false` for the
+    rest of its life and no amount of waiting recovered it. Pausing stops the
+    timer; the one save the pause itself fires is waited for here rather than
+    in the middle of the test.
+    """
+    page.evaluate("document.getElementById('audio').pause()")
+    time.sleep(0.6)
+    return page
+
+
+@pytest.fixture
 def still_page(live, browser):
     """A reader of its own, for tests that assert nothing moves.
 
@@ -584,7 +600,7 @@ def test_playback_starts_where_it_was_asked_even_deep_into_the_file(still_page, 
     still_page.evaluate("document.getElementById('audio').pause()")
 
 
-def test_stopping_returns_to_the_start_and_forgets_the_position(still_page):
+def test_stopping_returns_to_the_start_and_forgets_the_position(still_page, quiet):
     """The stop button in the sheet. Playback stops, the playhead goes back to
     the top of the article, and the saved position is deleted, so the article
     leaves "Continue listening"."""
@@ -613,7 +629,7 @@ def test_stopping_returns_to_the_start_and_forgets_the_position(still_page):
         raise AssertionError("the position was not cleared")
 
 
-def test_stopping_is_not_undone_by_the_save_that_follows_it(still_page):
+def test_stopping_is_not_undone_by_the_save_that_follows_it(still_page, quiet):
     """Pausing writes the position, and so does hiding the page. Both had to
     learn to stay quiet, or the row came straight back and the article never
     left "Continue listening"."""
@@ -639,7 +655,7 @@ def test_stopping_is_not_undone_by_the_save_that_follows_it(still_page):
     assert db.get_position(1, conn) is None, "a save wrote the position back"
 
 
-def test_opening_a_finished_article_does_not_un_finish_it(still_page):
+def test_opening_a_finished_article_does_not_un_finish_it(still_page, quiet):
     """Every save used to send finished = false, so opening a completed
     article and leaving without playing threw the completed badge away."""
     conn = db.init()
@@ -650,6 +666,13 @@ def test_opening_a_finished_article_does_not_un_finish_it(still_page):
         "Object.defineProperty(document, 'hidden', {value: true, configurable: true});"
         "document.dispatchEvent(new Event('visibilitychange'))"
     )
-    time.sleep(1.5)
 
-    assert db.get_position(1, conn)["finished"] == 1
+    # Polled, not slept. The module-scoped page is a second reader of the same
+    # article and saves on its own timer, so a fixed wait sometimes read its
+    # row rather than this one's.
+    for _ in range(60):
+        if db.get_position(1, conn)["finished"] == 1:
+            break
+        time.sleep(0.25)
+    else:
+        raise AssertionError("the save cleared the completed flag")

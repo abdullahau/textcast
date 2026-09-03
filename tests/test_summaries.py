@@ -81,15 +81,12 @@ def test_the_key_variable_is_not_named_after_a_vendor(conn, monkeypatch):
     was one of those two when any of a dozen will do."""
     monkeypatch.setenv("GEMINI_API_KEY", "from-gemini")
     monkeypatch.setenv("OPENAI_API_KEY", "from-openai")
-    assert summarize.config(conn).api_key == ""
+    monkeypatch.setenv("TEXTCAST_SUMMARY_API_KEY", "and-not-this-one-either")
 
-    monkeypatch.setenv("TEXTCAST_SUMMARY_API_KEY", "the-one-it-reads")
-    assert summarize.config(conn).api_key == "the-one-it-reads"
+    assert summarize.config(conn).api_key == "", "keys are typed on the page, not exported"
 
 
-def test_a_config_without_a_key_is_not_ready(conn, monkeypatch):
-    monkeypatch.delenv("TEXTCAST_SUMMARY_API_KEY", raising=False)
-
+def test_a_config_without_a_key_is_not_ready(conn):
     assert summarize.config(conn).ready is False
 
 
@@ -126,10 +123,9 @@ def test_switching_provider_switches_which_key_is_used(conn):
     assert summarize.config(conn).api_key == "deepseek-key"
 
 
-def test_an_endpoint_with_no_key_does_not_borrow_another_ones(conn, monkeypatch):
+def test_an_endpoint_with_no_key_does_not_borrow_another_ones(conn):
     """The bug this scoping exists to stop: the Gemini key going to DeepSeek,
     which answers 401 and reads like a bad model name."""
-    monkeypatch.delenv("TEXTCAST_SUMMARY_API_KEY", raising=False)
     summarize.save_config(conn, base_url=GEMINI, api_key="gemini-key")
 
     summarize.save_config(conn, base_url=DEEPSEEK)
@@ -185,16 +181,30 @@ def test_the_stored_list_names_the_providers_that_can_be_used_now(conn):
     assert [row["hint"] for row in rows] == ["abcd", "1234"], "the tail, never the key"
 
 
-def test_the_environment_key_says_where_it_came_from(conn, monkeypatch):
-    """A key inherited from the environment is the one case where the endpoint
-    on screen did not supply it, and the page has to be able to say so."""
+def test_the_environment_cannot_supply_a_key(conn, monkeypatch):
+    """One variable standing behind every provider meant the page could not
+    say whose key was in use, and the answer changed with the endpoint."""
     monkeypatch.setenv("TEXTCAST_SUMMARY_API_KEY", "from-the-environment")
 
-    assert summarize.config(conn).key_source == "environment"
+    assert summarize.config(conn).api_key == ""
 
     summarize.save_config(conn, api_key="stored-key")
-    assert summarize.config(conn).key_source == "stored"
     assert summarize.config(conn).api_key == "stored-key"
+
+
+def test_a_model_on_this_machine_needs_no_key(conn):
+    """Ollama and LM Studio are not behind an account."""
+    summarize.save_config(conn, base_url="http://127.0.0.1:11434/v1/", model="qwen3")
+    cfg = summarize.config(conn)
+
+    assert cfg.needs_key is False
+    assert cfg.ready is True, "no key, and still usable"
+
+
+def test_a_hosted_endpoint_without_a_key_is_not_ready(conn):
+    summarize.save_config(conn, base_url="https://api.groq.com/openai/v1/", model="a-model")
+
+    assert summarize.config(conn).ready is False
 
 
 def test_a_flat_key_is_filed_under_the_endpoint_it_was_for(conn):
@@ -338,7 +348,7 @@ def test_an_article_with_a_summary_is_not_offered_again(conn):
 def test_summarising_queues_the_model_pass_not_the_build(conn, settings, monkeypatch):
     from textcast.service import ingest
 
-    monkeypatch.setenv("TEXTCAST_SUMMARY_API_KEY", "k")
+    summarize.save_config(conn, api_key="k")
     stored = ingest(
         text="A note.\n\nWith two paragraphs in it.",
         title="A note",
@@ -353,8 +363,6 @@ def test_summarising_is_refused_when_no_model_is_configured(conn, settings, monk
     from textcast.service import IngestError, ingest
     from textcast.service import summarize as queue_summary
 
-    for name in ("TEXTCAST_SUMMARY_API_KEY", "GEMINI_API_KEY", "OPENAI_API_KEY"):
-        monkeypatch.delenv(name, raising=False)
     stored = ingest(text="A note.\n\nWith two paragraphs.", title="A note", build=False)
 
     with pytest.raises(IngestError, match="API key"):

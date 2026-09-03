@@ -43,6 +43,50 @@ def run(conn: sqlite3.Connection) -> None:
     _fill_builtin_phonemes(conn)
     _seed_pronunciations(conn)
     _scope_summary_key(conn)
+    _adopt_env_summary_key(conn)
+
+
+def _adopt_env_summary_key(conn: sqlite3.Connection) -> None:
+    """Take `TEXTCAST_SUMMARY_API_KEY` into the database, once.
+
+    The environment used to supply a key to any endpoint that had none. That
+    is gone: one variable standing behind every provider meant the page could
+    not say whose key was in use, and the answer changed with the endpoint.
+    Keys are typed on the Summaries page now.
+
+    So a library upgrading with a key only in its environment would stop
+    summarising. This files it under the endpoint that was selected, and only
+    where nothing is stored — it never overwrites a key typed in the app.
+    """
+    import os
+
+    from .summarize import (
+        DEFAULT_BASE_URL,
+        KEY_BASE_URL,
+        PREFIX_API_KEY,
+        endpoint_id,
+    )
+
+    key = os.environ.get("TEXTCAST_SUMMARY_API_KEY", "").strip()
+    if not key or not has_table(conn, "setting"):
+        return
+
+    where = conn.execute("SELECT value FROM setting WHERE key = ?", (KEY_BASE_URL,)).fetchone()
+    endpoint = endpoint_id((where["value"] if where else "") or DEFAULT_BASE_URL)
+    if not endpoint:
+        return
+
+    setting = PREFIX_API_KEY + endpoint
+    held = conn.execute("SELECT value FROM setting WHERE key = ?", (setting,)).fetchone()
+    if held and (held["value"] or "").strip():
+        return
+
+    conn.execute(
+        "INSERT INTO setting (key, value) VALUES (?,?)"
+        " ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+        (setting, key),
+    )
+    log.info("adopted TEXTCAST_SUMMARY_API_KEY for %s; it can go from the environment", endpoint)
 
 
 def _scope_summary_key(conn: sqlite3.Connection) -> None:
