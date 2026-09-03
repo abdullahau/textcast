@@ -17,7 +17,7 @@ docker compose logs -f worker  # builds and mail polling land here
 
 uv sync --extra cpu --extra kokoro --extra kokoro-onnx --extra web \
         --extra documents --extra summaries --group dev
-uv run pytest                  # 333 tests
+uv run pytest                  # 350 tests
 uv run ruff check src tests    # before committing; formatting is not enforced
 ```
 
