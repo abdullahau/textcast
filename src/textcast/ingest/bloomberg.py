@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import re
 
-from ..document import Article, Block, BlockKind
+from ..document import Article, BlockKind
 from .base import blocks_from_dom, finish, inline_footnotes, text_of
 from .dom import Tree, attr, clean, drop, first_text, root, select, select_one
 
@@ -151,11 +151,3 @@ def newsletter_series(tree: Tree) -> str | None:
 
 def _title(slug: str) -> str:
     return slug.replace("-", " ").replace("_", " ").strip().title()
-
-
-def footnote_blocks(footnotes: dict[str, str]) -> list[Block]:
-    """Footnotes as standalone blocks, for the reader's end-of-article list."""
-    return [
-        Block(kind=BlockKind.FOOTNOTE, text=f"Footnote {num}. {body}", footnote_ref=num)
-        for num, body in sorted(footnotes.items(), key=lambda kv: int(kv[0]))
-    ]

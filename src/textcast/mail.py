@@ -10,7 +10,6 @@ issue becomes an article with its audio queued.
 
 from __future__ import annotations
 
-import email.utils
 import imaplib
 import logging
 import re
@@ -143,15 +142,3 @@ def fetch(config: MailConfig | None = None, settings: Settings | None = None, li
                 imap.store(message_id, "+FLAGS", "\\Seen")
 
     return result
-
-
-def subject_of(raw: bytes) -> str:
-    """Small helper for logging and tests."""
-    match = re.search(rb"^Subject:\s*(.+)$", raw, re.I | re.M)
-    if not match:
-        return ""
-    decoded = email.header.decode_header(match.group(1).decode("utf-8", errors="replace"))
-    return "".join(
-        part.decode(enc or "utf-8", errors="replace") if isinstance(part, bytes) else part
-        for part, enc in decoded
-    ).strip()

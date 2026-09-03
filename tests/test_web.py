@@ -871,6 +871,33 @@ def test_each_export_is_named_for_the_article_not_its_slug(client, conn, setting
     ]
 
 
+def test_two_articles_with_one_title_do_not_collide_in_a_zip(client, conn, settings):
+    """A newsletter that names every issue the same is the ordinary case.
+
+    Two entries of one name in a zip hand the reader whichever the archiver
+    picks, and the other is silently lost. The slug is what tells two articles
+    apart, so the second one carries it.
+    """
+    from textcast.document import Article, Block, BlockKind, Section
+
+    _exportable(conn, settings)
+    for body in ("A second issue, same name.", "A third issue, same name."):
+        doc = Article(title="A Drug-Trial Stock Sale", source="Bloomberg",
+                      sections=[Section(title="INMB", blocks=[
+                          Block(kind=BlockKind.PARA, text=body),
+                      ])]).renumber()
+        article_id = db.save_article(doc, conn)
+        slug = db.get_article(article_id, conn)["slug"]
+        (settings.source_dir / f"{slug}.html").write_bytes(b"<html>another</html>")
+
+    for route in ("/api/export/sources.zip", "/api/export/text.zip"):
+        names = _zip_names(client.get(route))
+        assert len(names) == 3, route
+        assert len(set(names)) == 3, f"{route} lost an article to a duplicate name: {names}"
+        assert "A Drug-Trial Stock Sale.html" in names or \
+               "A Drug-Trial Stock Sale.md" in names, "the first one keeps the plain title"
+
+
 def test_the_text_export_carries_the_summaries(client, conn, settings):
     """A summary is a block, so it comes out wherever it sits."""
     import io

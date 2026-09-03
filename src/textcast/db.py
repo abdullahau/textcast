@@ -576,20 +576,6 @@ def delete_tag(name: str, conn: sqlite3.Connection | None = None) -> None:
         conn.execute("DELETE FROM tag WHERE name = ?", (name,))
 
 
-def rename_tag(old: str, new: str, conn: sqlite3.Connection | None = None) -> str:
-    conn = conn or connect()
-    new = clean_tag(new)
-    if not new:
-        raise ValueError("a tag needs a name")
-    with transaction(conn):
-        conn.execute("INSERT OR IGNORE INTO tag (name, added_at) VALUES (?,?)", (new, now()))
-        conn.execute(
-            "UPDATE OR IGNORE article_tag SET tag = ? WHERE tag = ?", (new, old)
-        )
-        conn.execute("DELETE FROM article_tag WHERE tag = ?", (old,))
-        conn.execute("DELETE FROM tag WHERE name = ?", (old,))
-    return new
-
 
 def get_build_options(article_id: int, conn: sqlite3.Connection | None = None) -> dict:
     conn = conn or connect()
@@ -1046,26 +1032,6 @@ def set_setting(key: str, value: str, conn: sqlite3.Connection | None = None) ->
         "INSERT INTO setting (key, value) VALUES (?,?) ON CONFLICT (key) DO UPDATE SET value = excluded.value",
         (key, value),
     )
-
-
-def delete_setting(key: str, conn: sqlite3.Connection | None = None) -> bool:
-    """Remove one setting. True if there was one to remove."""
-    conn = conn or connect()
-    return conn.execute("DELETE FROM setting WHERE key = ?", (key,)).rowcount > 0
-
-
-def settings_matching(prefix: str, conn: sqlite3.Connection | None = None) -> dict[str, str]:
-    """Every setting whose key starts with `prefix`.
-
-    For the settings that are stored one per endpoint, where the key carries
-    the endpoint and the caller cannot know the names in advance.
-    """
-    conn = conn or connect()
-    rows = conn.execute(
-        "SELECT key, value FROM setting WHERE key LIKE ? ESCAPE '\\' ORDER BY key",
-        (prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%",),
-    )
-    return {row["key"]: row["value"] for row in rows}
 
 
 # --------------------------------------------------------------------------

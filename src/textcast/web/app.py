@@ -1171,23 +1171,28 @@ async def _ingest_many(request: Request, files: list[UploadFile], tags: list[str
     """Take a pile of files in one go. One bad file does not stop the rest."""
     added, failed = [], []
     for upload in files:
-        data = await upload.read()
-        name = upload.filename.lower()
-        kwargs: dict = {"tags": tags, "build": False}
-        if name.endswith((".eml", ".mbox", ".msg")):
-            kwargs["eml"] = data
-        elif name.endswith((".html", ".htm")):
-            kwargs["html"] = data.decode("utf-8", errors="replace")
-        else:
-            kwargs["upload"] = (data, upload.filename)
+        # Reading the part is inside the try with everything else. A form part
+        # may carry no filename at all, and `None.lower()` outside it was an
+        # unhandled 500 that cost the whole batch -- the one thing a batch
+        # promises not to do.
         try:
+            data = await upload.read()
+            filename = upload.filename or "upload"
+            name = filename.lower()
+            kwargs: dict = {"tags": tags, "build": False}
+            if name.endswith((".eml", ".mbox", ".msg")):
+                kwargs["eml"] = data
+            elif name.endswith((".html", ".htm")):
+                kwargs["html"] = data.decode("utf-8", errors="replace")
+            else:
+                kwargs["upload"] = (data, filename)
             added.append(ingest(**kwargs))
         except Exception as exc:
             # Deliberately broad. The promise of a batch is that one bad file
             # does not cost you the other nineteen, and a parser can fail in
             # whatever way its library chooses.
             log.warning("batch import failed for %s", upload.filename, exc_info=True)
-            failed.append(f"{upload.filename}: {exc}")
+            failed.append(f"{upload.filename or 'a file with no name'}: {exc}")
 
     if _wants_html(request):
         query = urlencode({"added": len(added), "failed": " · ".join(failed)[:400]})
@@ -1498,9 +1503,23 @@ def _zip_response(files: Iterable[tuple[str, Path | bytes]], name: str) -> Respo
     )
 
 
-def _export_name(row) -> str:
-    """A file name that reads like the library does, not like a slug."""
-    return (row["title"] or row["slug"]).replace("/", "-").strip() or row["slug"]
+def _export_name(row, taken: dict[str, str]) -> str:
+    """A file name that reads like the library does, not like a slug.
+
+    Unique within one zip, which the title alone is not: a newsletter that
+    names every issue the same is the ordinary case, and two entries of one
+    name in a zip hand the reader whichever the archiver picks. The slug is
+    what tells two articles apart, so the second one carries it.
+
+    ``taken`` maps slug to the name already chosen for it, so an article whose
+    files are yielded one at a time keeps the same name for all of them.
+    """
+    if row["slug"] in taken:
+        return taken[row["slug"]]
+    base = (row["title"] or row["slug"]).replace("/", "-").strip() or row["slug"]
+    name = base if base not in taken.values() else f"{base} ({row['slug']})"
+    taken[row["slug"]] = name
+    return name
 
 
 @app.get("/api/export/sources.zip", dependencies=[Auth])
@@ -1514,10 +1533,11 @@ def api_export_sources():
     rows = {row["slug"]: row for row in conn.execute("SELECT slug, title FROM article")}
 
     def files():
+        taken: dict[str, str] = {}
         for path in sorted(settings.source_dir.glob("*")):
             row = rows.get(path.stem)
             if path.is_file() and row is not None:
-                yield f"{_export_name(row)}{path.suffix}", path
+                yield f"{_export_name(row, taken)}{path.suffix}", path
 
     return _zip_response(files(), "textcast-sources.zip")
 
@@ -1532,10 +1552,11 @@ def api_export_text():
     conn = db.connect()
 
     def files():
+        taken: dict[str, str] = {}
         for row in conn.execute("SELECT id, slug, title FROM article ORDER BY id"):
             article = db.load_article(row["id"], conn)
             if article is not None:
-                yield f"{_export_name(row)}.md", to_markdown(article).encode()
+                yield f"{_export_name(row, taken)}.md", to_markdown(article).encode()
 
     return _zip_response(files(), "textcast-text.zip")
 
@@ -1551,11 +1572,12 @@ def api_export_audio():
     conn = db.connect()
 
     def files():
+        taken: dict[str, str] = {}
         for row in conn.execute("SELECT slug, title FROM article ORDER BY id"):
             directory = settings.media_dir / row["slug"]
             for path in sorted(directory.glob("*")):
                 if path.is_file():
-                    yield f"{_export_name(row)}/{path.name}", path
+                    yield f"{_export_name(row, taken)}/{path.name}", path
 
     return _zip_response(files(), "textcast-audio.zip")
 

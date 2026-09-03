@@ -113,6 +113,9 @@ src/textcast/
 ├── tts/            engine registry and kokoro.py; shared_engine is the
 │                   one instance a process ever loads
 ├── audio.py        synthesis, Opus encoding, WebVTT emission
+├── cache.py        what the block cache holds and what it may forget.
+│                   Its own module because the worker's *parent* calls
+│                   the sweep, and must not import service to do it.
 ├── db.py           SQLite: articles, blocks, tags, jobs, positions, rules
 ├── migrate.py      runs on every start; seeding only, the schema repairs
 │                   have all run and were removed
@@ -276,6 +279,7 @@ Re-measure before overturning any of these. The numbers are from this box:
 | **kokoro-onnx renders faster on less memory, and phonemises differently** | The same v1.0 weights through onnxruntime instead of torch. Measured on this box against the pool the worker actually uses — four instances, one thread each: **RTF 0.456 against 0.557**, 18% faster, and **530 MB resident against 1,512 MB** after a render. Four instances load in 1.5 s against 7 s, and the wheels are ~40 MB against torch's 1.4 GB. What it does *not* share is the G2P: kokoro reaches espeak through misaki, this reaches it through phonemizer. Every pronunciation rule here still lands — checked word by word — except the one written in IPA. See the trap below. |
 | **One onnxruntime session behind the whole pool** | The same trade as `KModel`, and the same size. Four instances each opening the 311 MB model held **1,595 MB** after a render; four sharing one session held **530 MB** and rendered no slower (RTF 0.456 against 0.451). onnxruntime's `Run` is thread-safe, so the session is the thing to share and the tokenizer and voice cache are the things to keep per instance. |
 | **Kokoro is the only engine** | A second, ONNX engine was ~2× faster (RTF 0.31 vs 0.65) but its delivery drifted in volume and glitched on long paragraphs. It was never the one worth listening to, so it went, and with it a build option, a second set of weights and a second licence. |
+| **A rule is skipped by a substring test before the regex engine sees it** | `pronounce.apply` ran all 86 rules against every block, and a `sub` that cannot match is a full scan with a regex engine on top. A word or a phrase rule is a literal inside guards, so the literal has to be in the text: `needle in lowered` is the same scan at C speed and skips 96% of the rules. Deciding whether a rule fires, fetching its pattern and building its replacement moved to `_prepared`, an `lru_cache` keyed on the rules themselves — 86 distinct answers were being recomputed 206,400 times. Measured over 2,400 blocks against the seeded rules: **1.014 s to 0.633 s**, and the sweep that derives the same spoken text went 1.074 s to 0.636 s. Byte-identical output over every block of `tests/corpus` on both phonemisers, with and without phonemes. |
 | **selectolax, not BeautifulSoup** | 4.8× faster on the corpus (66 ms vs 314 ms for 6.3 MB), one wheel, no lxml. Its `[class*="Footnotes_base"]` also beats a regex over the class list. |
 | **torch from the CPU index** | The default pulls CUDA: 15 nvidia packages, 5.2 GB venv, 9.3 GB image, on a box with no GPU. Pinned in `[tool.uv.sources]`. Now 1.4 GB and 3.3 GB. |
 | **4 single-threaded engines, not 1 four-threaded** | RTF 0.562 vs 0.629, an 11% gain. 2×2 gives 0.633 (no gain); 6×1 gives 0.593 (worse). The model is bound more by memory bandwidth than cores — do not expect 4× from 4 cores. |
@@ -678,6 +682,34 @@ Things that have already bitten once.
   article's build options now, and passes the g2p flags, because a rule
   written in IPA reaches one phonemiser and the spoken text is not the same
   string on both.
+- **The pre-filter tests the running text, not the text `apply` was given.**
+  A rule may write a word a later rule matches. Testing the original would
+  skip the second rule and leave the first one's output unread, so the
+  lower-cased haystack is refreshed whenever a rule fires — which is rare, so
+  it costs nothing. And the test is lower-cased on both sides whatever the
+  rule says about case: it only has to be a *superset* of what the pattern
+  would match, and a rule that gets past it still meets its own guards.
+- **`_prepared` is keyed on the rules, not on the list.** Keyed on the list, a
+  rule edited on the Voice page would go on speaking with the wording it had
+  when the process started. `Rule` is a frozen dataclass, so the tuple of them
+  is the key and an edit is a different key.
+- **Deleting summaries must not call `delete_audio`.** It did, and
+  `delete_audio` also takes every render only this article wants — so dropping
+  one summary sent every *other* block back to the model on the next build,
+  minutes of synthesis to undo a paragraph the article was keeping. Removing a
+  block is a hand edit by another name, and `edit_blocks` had always kept the
+  cache for exactly this reason. `_drop_media` is now the shared piece: the
+  files go, and keeping the cache is the separate decision it always was.
+- **A title is not a file name.** `_export_name` used the title alone, so two
+  articles sharing one — a newsletter that names every issue the same is the
+  ordinary case — wrote two entries of one name into the zip and the reader
+  kept whichever the archiver picked. The slug is what tells two articles
+  apart, so the second one carries it, and the map is keyed by slug so an
+  article whose files are yielded one at a time keeps one name for all of them.
+- **A form part may carry no filename.** `upload.filename.lower()` sat outside
+  the batch loop's `try`, so `None` was an unhandled 500 that cost the whole
+  batch — the one thing a batch promises not to do. The read and the naming
+  are inside the try with the parse.
 - **A cached render can belong to two articles.** Two pieces quoting the same
   paragraph, under the same engine, voice and pace, are one file.
   `cached_renders` subtracts every key another article still wants, or
@@ -825,7 +857,7 @@ Things that have already bitten once.
   process boundary.
 - **Spawn the child, never fork.** The worker runs a thread per lane,
   and forking a process with threads in it is a way to deadlock in the child's
-  first allocation. `_start_build_process` asks for the `spawn` context.
+  first allocation. `_start_job_process` asks for the `spawn` context.
 - **The parent must stay clean.** The whole benefit is that the worker never
   imports torch, so nothing in `jobs.py`'s import list, or in a lane's path,
   may reach the engine. `audio.py` is safe — it imports numpy, and the engine

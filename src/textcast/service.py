@@ -1,7 +1,8 @@
-"""Ingestion, shared by the CLI and the web app.
+"""Ingestion: everything that turns raw input into a stored, queued article.
 
-Everything that turns raw input into a stored, queued article lives here so the
-two front ends cannot drift apart.
+It named the CLI as its second caller. There is no CLI -- `cli.py` was deleted
+because the app is the interface and a second one drifts -- so the web app is
+the only front end, and the worker reaches ingest through the mail poll.
 """
 
 from __future__ import annotations
@@ -263,8 +264,25 @@ from .cache import (  # noqa: E402,F401
     cache_keys,
     cached_renders,
     compact_cache,
+    library_keys,
     sweep_cache,
 )
+
+
+def _drop_media(slug: str, settings: Settings) -> int:
+    """Empty and remove one article's media directory. Returns files removed.
+
+    Three callers had a copy of this loop. Only the files go: the block cache
+    is a separate decision, and the two callers that keep it are the point.
+    """
+    media = settings.media_dir / slug
+    removed = 0
+    for child in media.glob("*"):
+        child.unlink(missing_ok=True)
+        removed += 1
+    if media.exists():
+        media.rmdir()
+    return removed
 
 
 def edit_blocks(
@@ -320,11 +338,7 @@ def edit_blocks(
     # The ids moved, so the files no longer describe this article. The cache
     # stays: it is keyed by the text, so rebuilding costs an encode, not a
     # trip back to the model.
-    media = settings.media_dir / row["slug"]
-    for child in media.glob("*"):
-        child.unlink(missing_ok=True)
-    if media.exists():
-        media.rmdir()
+    _drop_media(row["slug"], settings)
 
     return {"changed": kept, "removed": len(removed)}
 
@@ -342,13 +356,7 @@ def delete_audio(article_id: int, settings: Settings | None = None) -> int:
     if row is None:
         raise IngestError(f"no article {article_id}")
 
-    removed = 0
-    media = settings.media_dir / row["slug"]
-    for child in media.glob("*"):
-        child.unlink(missing_ok=True)
-        removed += 1
-    if media.exists():
-        media.rmdir()
+    removed = _drop_media(row["slug"], settings)
 
     for path in cached_renders(article_id, conn, settings):
         if path.exists():
@@ -364,6 +372,13 @@ def delete_summaries(article_id: int, settings: Settings | None = None) -> int:
 
     Removing a block moves every id after it, so the audio no longer lines up:
     it goes too, the same as it would if you had never summarised.
+
+    The block cache stays, exactly as it does for a hand edit. This called
+    `delete_audio`, which also deletes every render only this article wants —
+    so dropping a summary sent every *other* block back to the model on the
+    next build, minutes of synthesis to undo a paragraph the article is
+    keeping. The cache is keyed by the spoken text, so the surviving blocks
+    are all still in it and the rebuild is an encode.
     """
     from .document import BlockKind
 
@@ -381,7 +396,9 @@ def delete_summaries(article_id: int, settings: Settings | None = None) -> int:
     if not dropped:
         return 0
 
-    delete_audio(article_id, settings)
+    # `replace_blocks` clears the timings, the counters and the status; the
+    # files on disk are the only part it cannot reach.
+    _drop_media(db.get_article(article_id, conn)["slug"], settings)
     db.replace_blocks(article_id, article, conn)
     return dropped
 
@@ -403,11 +420,7 @@ def delete(article_id: int, settings: Settings | None = None) -> bool:
     if row is None:
         return False
 
-    media = settings.media_dir / row["slug"]
-    for child in media.glob("*"):
-        child.unlink(missing_ok=True)
-    if media.exists():
-        media.rmdir()
+    _drop_media(row["slug"], settings)
 
     for suffix in SOURCE_SUFFIXES:
         (settings.source_dir / f"{row['slug']}{suffix}").unlink(missing_ok=True)

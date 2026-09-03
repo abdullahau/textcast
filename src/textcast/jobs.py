@@ -37,7 +37,6 @@ import logging
 import multiprocessing
 import threading
 import time
-from pathlib import Path
 
 from . import db
 from .audio import render_article
@@ -479,10 +478,6 @@ class Worker:
 def row_has_audio(conn, article_id: int) -> bool:
     row = conn.execute("SELECT audio_ms FROM article WHERE id = ?", (article_id,)).fetchone()
     return bool(row and row["audio_ms"])
-
-
-def media_dir_for(slug: str, settings: Settings | None = None) -> Path:
-    return (settings or get_settings()).media_dir / slug
 
 
 def main() -> int:

@@ -163,6 +163,41 @@ def test_deleting_summaries_keeps_the_article_and_drops_the_audio(conn, settings
     assert delete_summaries(stored.article_id) == 0, "nothing left to remove"
 
 
+def test_deleting_summaries_keeps_the_renders_of_the_blocks_it_keeps(conn, settings):
+    """A rebuild after this is an encode, not a trip back to the model.
+
+    This called `delete_audio`, which also takes every render only this
+    article wants — so dropping one summary cost the article every other
+    block's synthesis too, minutes of it, for text that had not changed.
+    Removing a block is a hand edit by another name, and `edit_blocks` has
+    always kept the cache for exactly this reason.
+    """
+    from textcast.document import Block, BlockKind
+    from textcast.service import cached_renders, delete_summaries
+
+    stored = add_note()
+    article = db.load_article(stored.article_id, conn)
+    article.sections[0].blocks.insert(
+        0, Block(kind=BlockKind.SUMMARY, text="In short, a summary.")
+    )
+    db.replace_blocks(stored.article_id, article, conn)
+
+    settings.cache_dir.mkdir(parents=True, exist_ok=True)
+    renders = cached_renders(stored.article_id, conn, settings)
+    for path in renders:
+        path.write_bytes(b"\0" * 8)
+    media = settings.media_dir / stored.slug
+    media.mkdir(parents=True, exist_ok=True)
+    (media / "section-000.opus").write_bytes(b"audio")
+
+    assert delete_summaries(stored.article_id) == 1
+
+    assert not media.exists(), "the audio no longer lines up, so it goes"
+    kept = [p for p in renders if p.exists()]
+    assert len(kept) >= len(renders) - 1, "only the summary's own render may go"
+    assert kept, "the surviving blocks keep theirs"
+
+
 def test_a_summary_pass_records_the_model_it_asked(conn, settings):
     """The job is the only durable record of how an article was summarised. A
     summary is a block like any other and says nothing about where it came

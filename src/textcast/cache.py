@@ -24,8 +24,12 @@ from .tts import g2p_of
 log = logging.getLogger("textcast.cache")
 
 
-def cache_keys(article_id: int, conn, settings: Settings) -> set[str]:
+def cache_keys(article_id: int, conn, settings: Settings, chosen=None) -> set[str]:
     """The cache keys this article's blocks would read.
+
+    ``chosen`` is the saved voice defaults, for a caller walking the whole
+    library: they are the same for every article and reading them per article
+    is a database round trip per article for one answer.
 
     The engine comes off the article's own build options. It used to be the
     string "kokoro", which was right when there was one engine and wrong for
@@ -38,7 +42,7 @@ def cache_keys(article_id: int, conn, settings: Settings) -> set[str]:
     only the engine it was written for, so the spoken text is not the same
     string on both, and neither is the key.
     """
-    chosen = voice_defaults(conn, settings)
+    chosen = chosen or voice_defaults(conn, settings)
     options = db.get_build_options(article_id, conn)
     engine = options.get("engine") or settings.engine
     voice = options.get("voice") or chosen.voice or "af_heart"
@@ -57,6 +61,20 @@ def cache_keys(article_id: int, conn, settings: Settings) -> set[str]:
     return keys
 
 
+def library_keys(conn, settings: Settings) -> set[str]:
+    """Every key any article in the library still wants, in one pass.
+
+    Reachability is computed over the whole library at once, which is what
+    makes deleting the rest of the cache safe: a render two articles share is
+    kept while either wants it.
+    """
+    chosen = voice_defaults(conn, settings)
+    keys: set[str] = set()
+    for row in conn.execute("SELECT id FROM article"):
+        keys |= cache_keys(row["id"], conn, settings, chosen)
+    return keys
+
+
 def cached_renders(article_id: int, conn, settings: Settings) -> list[Path]:
     """The cache files only this article would read.
 
@@ -66,10 +84,12 @@ def cached_renders(article_id: int, conn, settings: Settings) -> list[Path]:
     back, or dropping one article's audio would silently cost another its
     cheap rebuild.
     """
-    mine = cache_keys(article_id, conn, settings)
+    chosen = voice_defaults(conn, settings)
+    mine = cache_keys(article_id, conn, settings, chosen)
     for row in conn.execute("SELECT id FROM article WHERE id != ?", (article_id,)):
-        mine -= cache_keys(row["id"], conn, settings)
+        mine -= cache_keys(row["id"], conn, settings, chosen)
         if not mine:
+            # Every render this article reads is read by another one too.
             break
     return [settings.cache_dir / f"{key}{CACHE_SUFFIX}" for key in sorted(mine)]
 
@@ -88,9 +108,10 @@ def compact_cache(settings: Settings | None = None, conn=None) -> dict:
     settings = settings or get_settings()
     conn = conn or db.connect(settings.db_path)
 
-    wanted: set[str] = set()
-    for row in conn.execute("SELECT id FROM article"):
-        wanted |= cache_keys(row["id"], conn, settings)
+    # Derived once and handed to the sweep. Both steps ask the same question,
+    # and answering it means re-deriving the spoken text of every block in the
+    # library -- 1.0 s over 2,400 blocks here, and it was paid twice.
+    wanted = library_keys(conn, settings)
 
     converted = 0
     for path in settings.cache_dir.glob("*.f32"):
@@ -108,11 +129,13 @@ def compact_cache(settings: Settings | None = None, conn=None) -> dict:
         tmp.replace(target)
         converted += 1
 
-    removed, freed = sweep_cache(settings, conn)
+    removed, freed = sweep_cache(settings, conn, wanted)
     return {"converted": converted, "removed": removed, "freed": freed}
 
 
-def sweep_cache(settings: Settings | None = None, conn=None) -> tuple[int, int]:
+def sweep_cache(
+    settings: Settings | None = None, conn=None, wanted: set[str] | None = None
+) -> tuple[int, int]:
     """Delete every render no block in the library can reach any more.
 
     Nothing collected these before. A rule change, a text edit, a re-parse or
@@ -122,14 +145,14 @@ def sweep_cache(settings: Settings | None = None, conn=None) -> tuple[int, int]:
 
     Reachability is computed over the whole library at once, which is what
     makes it safe -- a file two articles share is kept while either wants it.
+    ``wanted`` lets a caller that has already worked it out say so.
     Returns the count and the bytes freed.
     """
     settings = settings or get_settings()
     conn = conn or db.connect(settings.db_path)
 
-    wanted: set[str] = set()
-    for row in conn.execute("SELECT id FROM article"):
-        wanted |= cache_keys(row["id"], conn, settings)
+    if wanted is None:
+        wanted = library_keys(conn, settings)
 
     removed = freed = 0
     for path in settings.cache_dir.glob("*"):

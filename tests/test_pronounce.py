@@ -531,3 +531,74 @@ def test_a_phoneme_hint_may_name_one_phonemiser(conn):
     assert hints["homogeneous"].espeak
     assert hints["homogeneous"].misaki == ""
     assert hints["homogeneous"].replacement == ""
+
+
+# --------------------------------------------------------------------------
+# the literal pre-filter
+# --------------------------------------------------------------------------
+
+
+def _apply_every_rule(text: str, rules, g2p: str, phonemes: bool) -> str:
+    """What `apply` did before it learned to skip: every rule, every time."""
+    for rule in rules:
+        if not rule.fires_for(g2p, phonemes):
+            continue
+        pattern = rule.compile()
+        if pattern is not None:
+            text = pattern.sub(rule.substitution(g2p, phonemes), text)
+    return text
+
+
+@pytest.mark.parametrize("g2p", ["misaki", "espeak"])
+@pytest.mark.parametrize("phonemes", [True, False])
+def test_skipping_a_rule_by_its_literal_changes_nothing(g2p, phonemes):
+    """`apply` asks `needle in text` before it asks the regex engine.
+
+    A word or a phrase rule is a literal inside guards, so the literal has to
+    be there for the pattern to match, and a substring test is a C-level scan
+    against a regex scan that cannot succeed. Of 86 rules over a 2,400-block
+    library it skips 96% of them, and normalising went from 1.014 s to 0.633 s.
+
+    A shortcut that changes an answer is not a shortcut, so this compares it
+    against the exhaustive version rather than asserting on the output.
+    """
+    rules = builtin_rules()
+    cases = [
+        "",
+        "The LIBOR rate rose 12% to $5bn in Q3 2024, versus a 401(k) at 8:00am.",
+        "IT it It vs. vs REIT NASDAQ SPAC NAV GAAP ETH ROE",
+        "The refund refunds refunded refundable reefund",
+        "who’ll who'll — – … “quoted” ‘single’ INmune INMune's SHEIN Shein's",
+        "Nothing in this sentence is a rule at all.",
+    ]
+    for text in cases:
+        assert apply(text, rules, g2p, phonemes) == _apply_every_rule(
+            text, rules, g2p, phonemes
+        ), text
+
+
+def test_a_rule_sees_what_an_earlier_rule_wrote():
+    """The pre-filter tests the running text, not the original.
+
+    A rule may write a word a later rule matches. Testing the text `apply` was
+    handed would skip the second rule and leave the first rule's output
+    unread — so the haystack is refreshed whenever a rule fires.
+    """
+    rules = [
+        Rule(kind="word", pattern="alpha", replacement="beta"),
+        Rule(kind="word", pattern="beta", replacement="gamma"),
+    ]
+    assert apply("alpha", rules, "misaki", True) == "gamma"
+
+
+def test_editing_a_rule_is_not_answered_from_the_prepared_cache():
+    """`_prepared` is keyed on the rules themselves, not on the list.
+
+    Keyed on the list, a rule edited on the Voice page would go on speaking
+    with the wording it had when the process started.
+    """
+    before = [Rule(kind="word", pattern="ROE", replacement="roe")]
+    after = [Rule(kind="word", pattern="ROE", replacement="R O E")]
+
+    assert apply("ROE fell", before, "misaki", True) == "roe fell"
+    assert apply("ROE fell", after, "misaki", True) == "R O E fell"
