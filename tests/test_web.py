@@ -1264,8 +1264,9 @@ def test_the_reader_shows_a_table_and_a_picture_where_the_prose_cites_them(clien
                      "foot": "FTAV"}),
         Block(kind=BlockKind.FIGURE, text="Figure: Colossus I",
               media={"src": "https://images.test/c.png", "alt": "Colossus I"}),
-        Block(kind=BlockKind.EMBED, text="Chart: Contract length",
-              media={"src": "https://datawrapper.dwcdn.net/aB3/2/"}),
+        Block(kind=BlockKind.FIGURE, text="Chart: Contract length",
+              media={"src": "https://public.flourish.studio/visualisation/30134862/thumbnail",
+                     "frame": "https://flo.uri.sh/visualisation/30134862/embed"}),
     ])]).renumber()
     db.save_article(doc, conn)
 
@@ -1276,9 +1277,10 @@ def test_the_reader_shows_a_table_and_a_picture_where_the_prose_cites_them(clien
     assert '<th scope="col">Life</th>' in body
     assert '<img src="https://images.test/c.png"' in body
     assert 'referrerpolicy="no-referrer"' in body
-    # The frame is not fetched until the reader asks for it.
+    # A chart is a picture now, and no third party is contacted to draw one.
     assert "<iframe" not in body
-    assert 'data-embed="https://datawrapper.dwcdn.net/aB3/2/"' in body
+    assert "Load the chart" not in body
+    assert "flo.uri.sh" not in body
 
 
 def test_skipping_the_figure_captions_is_a_build_option(client):

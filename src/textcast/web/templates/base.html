@@ -162,8 +162,9 @@ if ("serviceWorker" in navigator) {
   function label() {
     var on = dark();
     button.setAttribute("aria-label", on ? "Switch to light" : "Switch to dark");
-    /* aria-checked drives the knob, and it is set here rather than in the
-       markup because dark can come from the system with no attribute set. */
+    /* For the accessibility tree only. The knob's position is decided in CSS
+       from the same three branches as the palette, so it is already right
+       when this runs — setting it here used to be what made it jump. */
     button.setAttribute("aria-checked", on ? "true" : "false");
   }
 
@@ -175,6 +176,8 @@ if ("serviceWorker" in navigator) {
   });
   system.addEventListener("change", label);
   label();
+  /* Everything is where it belongs; movement from here on is a real change. */
+  document.body.classList.add("ready");
 })();
 </script>
 <script>

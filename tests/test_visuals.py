@@ -180,20 +180,34 @@ def test_a_footer_spanning_a_thousand_columns_does_not_become_a_thousand_cells()
 # ----------------------------------------------------------- live charts
 
 
-def test_a_datawrapper_frame_is_a_chart():
+def test_a_charting_frame_becomes_the_picture_that_provider_publishes():
+    """The frame drew nothing: it needs the provider's own script, which the
+    sandbox refuses, so two Flourish charts in an FT piece were empty boxes
+    behind a button. The still is the whole chart at 1020px."""
     block = only(
-        '<iframe title="Contract length by operator" src="https://datawrapper.dwcdn.net/aB3/2/">'
-        "</iframe>",
+        '<iframe title="Top 15 US high yield bond issuers" '
+        'src="https://flo.uri.sh/visualisation/30134862/embed"></iframe>',
         "iframe",
     )
 
-    assert block.kind is BlockKind.EMBED
-    assert block.text == "Chart: Contract length by operator"
+    assert block.kind is BlockKind.FIGURE
+    assert block.text == "Chart: Top 15 US high yield bond issuers"
+    assert block.media["src"] == "https://public.flourish.studio/visualisation/30134862/thumbnail"
+    # Where it came from, for whoever wonders why a chart is a picture.
+    assert block.media["frame"] == "https://flo.uri.sh/visualisation/30134862/embed"
 
 
-def test_a_frame_from_anywhere_else_is_not():
-    """An allowlist, because an iframe is far more often an advert."""
-    assert only('<iframe src="https://www.googletagmanager.com/ns.html?id=G-1"></iframe>', "iframe") is None
+def test_a_frame_from_a_provider_with_no_still_is_dropped():
+    """An allowlist of providers whose still has been fetched and looked at.
+
+    A figure pointing at a still that turns out to 404 is worse than no figure,
+    and an iframe is far more often an advert than a chart either way.
+    """
+    for src in (
+        "https://www.googletagmanager.com/ns.html?id=G-1",
+        "https://datawrapper.dwcdn.net/aB3/2/",
+    ):
+        assert only(f'<iframe src="{src}"></iframe>', "iframe") is None
 
 
 def test_the_page_shows_the_caption_and_the_audio_says_the_label():
@@ -366,7 +380,8 @@ def test_a_substack_post_keeps_its_chart_its_table_and_its_frame():
     article = load("The depreciation problem")
     kinds = [b.kind for _s, b in article.blocks() if b.media]
 
-    assert kinds == [BlockKind.FIGURE, BlockKind.TABLE, BlockKind.EMBED]
+    # The last one is a Flourish chart, kept as the still picture of itself.
+    assert kinds == [BlockKind.FIGURE, BlockKind.TABLE, BlockKind.FIGURE]
     assert article.adapter == "substack"
 
 

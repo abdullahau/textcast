@@ -306,11 +306,6 @@
                 {% endfor %}
               </table></div>
               {% if block.media.foot %}<p class="foot">{{ block.media.foot }}</p>{% endif %}
-            {% else %}
-              {# The frame is not loaded until it is asked for: a live chart is
-                 a third party, and the reader has not agreed to one yet. #}
-              <button type="button" class="ghost narrow embed-open"
-                      data-embed="{{ block.media.src }}">Load the chart</button>
             {% endif %}
             {# The caption alone, not the block's text: "Table." under a table
                tells a reader nothing they cannot see. The label is for the
@@ -412,6 +407,7 @@
   </div>
 </div>
 
+<script src="/static/lightbox.js?v={{ assets }}" defer></script>
 <script id="payload" type="application/json">{{ payload|safe }}</script>
 <script>
   window.TEXTCAST = {

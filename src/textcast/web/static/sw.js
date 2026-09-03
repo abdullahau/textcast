@@ -18,6 +18,7 @@ const SHELL_FILES = [
   "/static/app.css",
   "/static/player.js",
   "/static/progress.js",
+  "/static/lightbox.js",
   "/static/tags.js",
   "/static/icon.svg",
   /* media-chrome owns the transport: the play button, the scrub bar and the

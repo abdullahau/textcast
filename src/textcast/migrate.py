@@ -36,6 +36,7 @@ def has_column(conn: sqlite3.Connection, table: str, name: str) -> bool:
 
 def run(conn: sqlite3.Connection) -> None:
     _add_block_media(conn)
+    _retire_embed_blocks(conn)
     _add_phoneme_columns(conn)
     _drop_is_phonemes(conn)
     # Separate from adding the columns, and run every start: a column may have
@@ -223,6 +224,28 @@ def _add_block_media(conn: sqlite3.Connection) -> None:
         return
     conn.execute("ALTER TABLE block ADD COLUMN media TEXT")
     log.info("added block.media")
+
+
+def _retire_embed_blocks(conn: sqlite3.Connection) -> None:
+    """`embed` is not a kind any more, and `BlockKind` would raise on one.
+
+    A frame is stored as the still picture of the same chart now. Anything
+    written before that is turned into a figure where it has a picture to
+    show and a plain paragraph where it does not — the text reads "Chart: ..."
+    either way, so nothing is lost but the frame. Re-parse restores the still.
+    """
+    if not has_table(conn, "block"):
+        return
+    rows = conn.execute(
+        "SELECT id, media FROM block WHERE kind = 'embed'"
+    ).fetchall()
+    if not rows:
+        return
+    for row in rows:
+        media = row["media"] or ""
+        kind = "figure" if '"file"' in media else "para"
+        conn.execute("UPDATE block SET kind = ? WHERE id = ?", (kind, row["id"]))
+    log.info("retired %d embed block(s); re-parse to get the chart as a picture", len(rows))
 
 
 def _add_phoneme_columns(conn: sqlite3.Connection) -> None:

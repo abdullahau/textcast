@@ -454,18 +454,6 @@
     store("pause-visual", pauseAtVisual ? "1" : "0", true);
   });
 
-  /* A live chart is a third party. Nothing is fetched from it until the
-     reader asks, and then the button becomes the frame. */
-  doc.addEventListener("click", function (event) {
-    var open = event.target.closest("[data-embed]");
-    if (!open) return;
-    var frame = document.createElement("iframe");
-    frame.src = open.dataset.embed;
-    frame.loading = "lazy";
-    frame.referrerPolicy = "no-referrer";
-    frame.setAttribute("sandbox", "allow-scripts allow-same-origin allow-popups");
-    open.replaceWith(frame);
-  });
 
   var offlineBox = $("opt-offline");
   offlineBox.checked = store("offline:" + cfg.slug, "0") === "1";

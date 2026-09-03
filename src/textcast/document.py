@@ -22,17 +22,17 @@ class BlockKind(StrEnum):
     LIST_ITEM = "list_item"
     FOOTNOTE = "footnote"
     SUMMARY = "summary"
-    #: A picture, whether it is a photograph or a chart drawn as one.
+    #: A picture, whether it is a photograph, a chart drawn as one, or the
+    #: still a charting service publishes of a chart it would rather draw
+    #: live. There is no kind for a live one: see `ingest/visuals.py`.
     FIGURE = "figure"
     TABLE = "table"
-    #: A chart the publication draws live, in a frame of its own.
-    EMBED = "embed"
 
 
 #: Blocks you look at rather than listen to. They are ordinary blocks — one
 #: row, one id, one place in the read-along — so the audio can stop on one and
 #: the reader can show the thing itself at exactly the point it is cited.
-VISUAL_KINDS = {BlockKind.FIGURE, BlockKind.TABLE, BlockKind.EMBED}
+VISUAL_KINDS = {BlockKind.FIGURE, BlockKind.TABLE}
 
 #: Kinds the player can hide and the synthesiser can skip, per user setting.
 OPTIONAL_KINDS = {BlockKind.FOOTNOTE, BlockKind.SUMMARY} | VISUAL_KINDS
@@ -218,9 +218,6 @@ def _visual_markdown(block: Block) -> str:
             return "| " + " | ".join(c.replace("|", "\\|") for c in padded) + " |"
         table = [line(head), "| " + " | ".join(["---"] * width) + " |", *(line(r) for r in rest)]
         return f"**{block.text}**\n\n" + "\n".join(table) if block.text else "\n".join(table)
-    if block.kind is BlockKind.EMBED:
-        src = media.get("src") or ""
-        return f"[{block.text}]({src})" if src else block.text
     src = media.get("src") or ""
     return f"![{block.text}]({src})" if src else block.text
 

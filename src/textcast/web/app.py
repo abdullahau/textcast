@@ -80,7 +80,33 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="textcast", lifespan=lifespan, docs_url=None, redoc_url=None)
-app.mount("/static", StaticFiles(directory=STATIC), name="static")
+
+
+class VersionedStatic(StaticFiles):
+    """Say how long a static file may be kept, because something else will.
+
+    `StaticFiles` sends an ETag and no `Cache-Control` at all. A CDN in front
+    then invents one — Cloudflare's Free default is four hours — and applies it
+    to the *browser* as well, so a stylesheet is pinned for four hours on a
+    host that has a CDN and not on one that does not. That is the whole of the
+    difference between the tailnet address and the public one.
+
+    Every page asks for these with `?v=<version>`, so a changed file is a
+    changed URL and the answer can be kept for ever. Without the suffix —
+    someone typing the path, or the service worker precaching it — it must be
+    revalidated, because that URL's content does change between releases.
+    """
+
+    def file_response(self, full_path, stat_result, scope, status_code=200):
+        response = super().file_response(full_path, stat_result, scope, status_code)
+        versioned = b"v=" in scope.get("query_string", b"")
+        response.headers["Cache-Control"] = (
+            "public, max-age=31536000, immutable" if versioned else "no-cache"
+        )
+        return response
+
+
+app.mount("/static", VersionedStatic(directory=STATIC), name="static")
 
 templates = Jinja2Templates(directory=str(TEMPLATES))
 
@@ -1715,7 +1741,19 @@ def service_worker():
     return Response(
         _service_worker_source(),
         media_type="application/javascript",
-        headers={"Cache-Control": "no-cache", "Service-Worker-Allowed": "/"},
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            # Cloudflare reads this one in preference to Cache-Control, and
+            # without it the edge served a four-hour-old worker: the browser
+            # dutifully revalidated and the CDN answered from its own copy.
+            # A stale worker is the worst thing to cache — it keeps serving
+            # the last release's CSS and JS from its own caches, which is why
+            # a figure came up stretched and the Sign out mark did not draw on
+            # the public host and never on the tailnet one.
+            "CDN-Cache-Control": "no-store",
+            "Cloudflare-CDN-Cache-Control": "no-store",
+            "Service-Worker-Allowed": "/",
+        },
     )
 
 

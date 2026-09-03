@@ -51,27 +51,25 @@ CAPTION_SELECTORS: tuple[str, ...] = (
     '[class*="credit"]',
 )
 
-#: Hosts that draw a chart in a frame. An allowlist, not a blocklist: an
-#: `iframe` is far more often an advert, a consent shim or a tracking beacon
-#: than a graphic, and a new advert network appears more often than a new
-#: chart tool does.
-EMBED_HOSTS: tuple[str, ...] = (
-    "datawrapper.dwcdn.net",
-    "datawrapper.de",
-    "flo.uri.sh",
-    "public.flourish.studio",
-    "infogram.com",
-    "e.infogram.com",
-    "public.tableau.com",
-    "observablehq.com",
-    "plotly.com",
-    "chart-studio.plotly.com",
-    "ourworldindata.org",
-    "ig.ft.com",
-    "www.ft.com/__origami",
-    "bloomberg.com/toaster",
-    "bloomberg.com/graphics",
-    "highcharts.com",
+#: A live chart in a frame, and where to get the same chart as a picture.
+#:
+#: Keeping the frame was a mistake. It is a third party the reader never
+#: agreed to, it needs the provider's own script to draw anything — which the
+#: sandbox refuses, so the two Flourish charts in an FT piece rendered as an
+#: empty box behind a button — and an article held offline has no chart at
+#: all. A picture has none of those problems, and every provider worth keeping
+#: publishes one.
+#:
+#: An allowlist of providers whose still image has actually been fetched and
+#: looked at. Flourish's is the full chart at 1020px, title, legend, axis and
+#: source: readable, not a thumbnail. A frame from anywhere else is dropped,
+#: because a figure pointing at a still that turns out to 404 is worse than no
+#: figure at all.
+CHART_STILLS: tuple[tuple[str, str], ...] = (
+    (
+        r"(?:flo\.uri\.sh|public\.flourish\.studio)/visualisation/(\d+)",
+        "https://public.flourish.studio/visualisation/{0}/thumbnail",
+    ),
 )
 
 #: An address that is a beacon, an advert or a consent frame, never a graphic.
@@ -121,7 +119,7 @@ class VisualRules:
     tables: tuple[str, ...] = TABLE_SELECTORS
     embeds: tuple[str, ...] = EMBED_SELECTORS
     captions: tuple[str, ...] = CAPTION_SELECTORS
-    embed_hosts: tuple[str, ...] = EMBED_HOSTS
+    chart_stills: tuple[tuple[str, str], ...] = CHART_STILLS
     #: Removed before anything else is looked at.
     drop: tuple[str, ...] = ()
     #: Kept even when the shared filters would call it furniture. A
@@ -438,17 +436,32 @@ def _table_block(node: Node, rules: VisualRules) -> Block | None:
 
 
 def _embed_block(node: Node, rules: VisualRules, base: str) -> Block | None:
+    """A charting frame, as the picture of that chart the provider publishes.
+
+    Not a frame. See `CHART_STILLS`: the frame drew nothing, needed a third
+    party, and vanished offline.
+    """
     src = attr(node, "src") or attr(node, "data-src")
     if not src:
         return None
     src = urljoin(base, src) if base else src
-    if not any(host in src for host in rules.embed_hosts):
+    still = _still_of(src, rules)
+    if not still:
         return None
     caption = clean(attr(node, "title")) or _caption(node.parent or node, rules)
-    media = {"src": src}
+    media = {"src": still, "alt": caption, "frame": src}
     if caption:
         media["caption"] = caption
-    return Block(kind=BlockKind.EMBED, text=_label("Chart", caption), media=media)
+    return Block(kind=BlockKind.FIGURE, text=_label("Chart", caption), media=media)
+
+
+def _still_of(src: str, rules: VisualRules) -> str:
+    """The same chart as a picture, or nothing if this provider has none."""
+    for pattern, template in rules.chart_stills:
+        match = re.search(pattern, src)
+        if match:
+            return template.format(*match.groups())
+    return ""
 
 
 def _wraps_prose(node: Node) -> bool:
@@ -499,8 +512,8 @@ def visual_block(
 
 __all__ = [
     "CAPTION_SELECTORS",
+    "CHART_STILLS",
     "DEFAULT_RULES",
-    "EMBED_HOSTS",
     "EMBED_SELECTORS",
     "FIGURE_SELECTORS",
     "NO_VISUALS",

@@ -188,8 +188,15 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
 /* The Add button's own mark is heavier, to match its filled ground. */
 .bar-links a.btn svg { width: 14px; height: 14px; stroke-width: 2.4; }
 /* A switch, not a button: it shows which of the two you are in, and slides to
-   the other. aria-checked is set from JavaScript because "dark" can come from
-   the system with no attribute on the page at all. */
+   the other.
+
+   Which half it rests in is decided in CSS, by the same three branches the
+   palette uses, and never by JavaScript. It used to hang off `aria-checked`,
+   which the markup ships as "false" and a script at the foot of the body
+   corrects — so every navigation in dark mode painted the knob on the left
+   and then slid it across, a visible jump on a page whose colours had not
+   moved at all. `aria-checked` is still set, for anything listening to the
+   accessibility tree; it just no longer draws anything. */
 .theme-switch {
   position: relative;
   width: 52px;
@@ -225,10 +232,20 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
   border-radius: 50%;
   background: var(--knob);
   box-shadow: 0 1px 3px rgb(0 0 0 / .35);
+}
+/* Only after the first paint: an animation on arrival is the jump, not the
+   cure for it. `ready` is set on <body> by the theme script. */
+body.ready .theme-switch .knob {
   transition: transform .16s ease, background-color .16s ease;
 }
-/* 12.5px to 37.5px: half-centre to half-centre. */
-.theme-switch[aria-checked="true"] .knob { transform: translateX(25px); }
+/* 12.5px to 37.5px: half-centre to half-centre. Three branches, because
+   "dark" has three ways of being true and the palette above answers each of
+   them separately: the default is light, the system says so with no attribute
+   on the page, or the reader chose it and there is one. */
+:root[data-theme="dark"] .theme-switch .knob { transform: translateX(25px); }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .theme-switch .knob { transform: translateX(25px); }
+}
 .theme-switch svg {
   position: relative;
   z-index: 1;
@@ -240,8 +257,12 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
 /* The icon under the knob is the one you are in, so it leads; the other waits. */
 .theme-switch .sun { color: var(--fg); }
 .theme-switch .moon { color: var(--muted); }
-.theme-switch[aria-checked="true"] .sun { color: var(--muted); }
-.theme-switch[aria-checked="true"] .moon { color: var(--fg); }
+:root[data-theme="dark"] .theme-switch .sun { color: var(--muted); }
+:root[data-theme="dark"] .theme-switch .moon { color: var(--fg); }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .theme-switch .sun { color: var(--muted); }
+  :root:not([data-theme="light"]) .theme-switch .moon { color: var(--fg); }
+}
 
 /* A form is the only honest way to sign out, so its button has to read as a link,
    mark and all: the rule above gives it the same icon the links carry. */
@@ -1001,13 +1022,72 @@ body.hide-summaries .b.summary { display: none; }
 /* ---------- visuals ---------- */
 /* A figure, a table and a live chart are blocks, so they keep the gutter,
    the highlight and the seek handle. Only what sits inside them differs. */
-.b.figure, .b.table, .b.embed { margin: 1.6rem 0; cursor: default; }
+.b.figure, .b.table { margin: 1.6rem 0; cursor: default; }
 .b.figure img {
   display: block;
   max-width: 100%;
   height: auto;
   border-radius: var(--radius-sm);
   background: var(--sunk);
+  /* The column is a reading measure, which is the wrong width for an axis.
+     Rather than break the picture out of it and unsettle the page, it opens
+     over the page. */
+  cursor: zoom-in;
+}
+
+/* ---------- the lightbox ---------- */
+
+body.lb-open { overflow: hidden; }
+.lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  background: rgb(0 0 0 / .88);
+  padding: max(.6rem, env(safe-area-inset-top)) .6rem max(.6rem, env(safe-area-inset-bottom));
+  overscroll-behavior: contain;
+}
+.lb-bar { display: flex; justify-content: flex-end; gap: .4rem; flex: none; }
+.lightbox button {
+  width: 2.4rem;
+  height: 2.4rem;
+  padding: 0;
+  font-size: 1.2rem;
+  line-height: 1;
+  color: #fff;
+  background: rgb(255 255 255 / .12);
+  border: 1px solid rgb(255 255 255 / .18);
+  border-radius: 50%;
+  cursor: pointer;
+}
+.lightbox button:hover:not(:disabled) { background: rgb(255 255 255 / .22); }
+.lightbox button:disabled { opacity: .35; cursor: default; }
+/* The stage clips, so a zoomed picture is moved rather than scrolled. */
+.lb-stage {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.lb-stage img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  transform-origin: center;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+.lb-cap {
+  flex: none;
+  margin: .6rem auto 0;
+  max-width: var(--measure);
+  text-align: center;
+  font-size: .82rem;
+  color: rgb(255 255 255 / .72);
 }
 .b figcaption {
   margin-top: .5rem;
@@ -1037,8 +1117,6 @@ table.data th[scope="row"], table.data tr > :first-child { text-align: left; }
 table.data th { font-weight: 600; color: var(--fg-soft); }
 .b.table .foot { margin: .4rem 0 0; font-size: .76rem; color: var(--muted); }
 
-.b.embed iframe { width: 100%; min-height: 26rem; border: 0; border-radius: var(--radius-sm); }
-.b.embed .embed-open { margin: 0; }
 
 ::selection { background: color-mix(in srgb, var(--accent) 25%, transparent); }
 
