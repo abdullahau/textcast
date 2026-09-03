@@ -41,6 +41,7 @@ from pathlib import Path
 
 from . import db
 from .audio import render_article
+from .cache import sweep_cache
 from .document import BlockKind
 from .prefs import voice_defaults
 from .settings import Settings, get_settings, use_settings
@@ -257,7 +258,32 @@ class Worker:
             # marked running and nobody left to finish it.
             log.error("the %s process exited with %s", lane, child.exitcode)
             self._requeue_orphans()
+        elif lane == "build":
+            self._sweep_cache()
         return True
+
+    def _sweep_cache(self) -> None:
+        """Collect the renders the build just orphaned.
+
+        A build is the only thing that makes them: an edited paragraph, a
+        re-parse, a new pronunciation rule or a changed voice all reach the
+        audio through a rebuild, and the moment it finishes is the moment the
+        old keys become garbage and the new ones are certain.
+
+        So no timer, and nothing to remember. Measured over 609 blocks: about
+        a second, nearly all of it re-deriving the spoken text, against a
+        build that takes minutes. Re-measure past a few thousand blocks.
+
+        In the parent, after the child has gone: it is cheap here and the
+        child has already given its memory back. Never fatal — a sweep that
+        fails must not turn a finished build into a failed one.
+        """
+        try:
+            # It logs what it took; saying so again here was two lines for one
+            # event, in two different units.
+            sweep_cache(self.settings)
+        except Exception:
+            log.warning("could not sweep the block cache", exc_info=True)
 
     def step(self, kinds: tuple[str, ...] | None = None, skip: set[int] | None = None) -> bool:
         """Run one job of these kinds. Returns False when there is none.

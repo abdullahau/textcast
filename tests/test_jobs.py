@@ -383,3 +383,59 @@ def test_a_released_job_does_not_block_the_ones_behind_it(conn, settings, monkey
     ).fetchone()
     assert ran["state"] == "done", "the job behind the skipped one still ran"
     assert other in skip
+
+
+def test_a_finished_build_collects_what_it_orphaned(conn, settings):
+    """A build is the only thing that makes an orphan.
+
+    An edited paragraph, a re-parse, a new rule or a changed voice all reach
+    the audio through a rebuild, so the moment it finishes is the moment the
+    old keys become garbage. No timer, and nothing to remember.
+    """
+    from textcast.audio import CACHE_SUFFIX
+
+    result = ingest(text=LONG_NOTE, title="Sweeps after", build=False)
+    db.enqueue(result.article_id, kind="build", conn=conn)
+    settings.cache_dir.mkdir(parents=True, exist_ok=True)
+    orphan = settings.cache_dir / f"{'a' * 64}{CACHE_SUFFIX}"
+    orphan.write_bytes(b"\x00" * 8)
+
+    worker = Worker(settings)
+    watched(worker, FakeChild(exitcode=0))
+    worker._run_in_child(("build",))
+
+    assert not orphan.exists()
+
+
+def test_a_build_that_died_is_not_followed_by_a_sweep(conn, settings):
+    """Its jobs go back on the queue, so their renders are still wanted."""
+    from textcast.audio import CACHE_SUFFIX
+
+    result = ingest(text=LONG_NOTE, title="Killed mid-build", build=False)
+    db.enqueue(result.article_id, kind="build", conn=conn)
+    settings.cache_dir.mkdir(parents=True, exist_ok=True)
+    orphan = settings.cache_dir / f"{'b' * 64}{CACHE_SUFFIX}"
+    orphan.write_bytes(b"\x00" * 8)
+
+    worker = Worker(settings)
+    watched(worker, FakeChild(exitcode=-9))
+    worker._run_in_child(("build",))
+
+    assert orphan.exists(), "a killed build is a repair, not a collection"
+
+
+def test_a_sweep_that_fails_does_not_fail_the_build(conn, settings, monkeypatch):
+    """The audio is already written. Losing the collection is not losing it."""
+    from textcast import jobs
+
+    result = ingest(text=LONG_NOTE, title="Sweep explodes", build=False)
+    db.enqueue(result.article_id, kind="build", conn=conn)
+
+    def boom(*args, **kwargs):
+        raise OSError("the disk went away")
+
+    monkeypatch.setattr(jobs, "sweep_cache", boom)
+    worker = Worker(settings)
+    watched(worker, FakeChild(exitcode=0))
+
+    assert worker._run_in_child(("build",)) is True

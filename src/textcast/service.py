@@ -256,142 +256,15 @@ def summarize(article_id: int, settings: Settings | None = None, replace: bool =
     return db.enqueue(article_id, kind="summarise", options=options, conn=conn)
 
 
-def cache_keys(article_id: int, conn, settings: Settings) -> set[str]:
-    """The cache keys this article's blocks would read.
-
-    The engine comes off the article's own build options. It used to be the
-    string "kokoro", which was right when there was one engine and wrong for
-    every article since: thirteen of fourteen here are kokoro-onnx, so the keys
-    named files that did not exist -- and for an article built under kokoro
-    once and rebuilt under ONNX, they named the *old* files and deleted those,
-    leaving the ones in use.
-
-    The phonemiser matters for the same reason. A rule written in IPA reaches
-    only the engine it was written for, so the spoken text is not the same
-    string on both, and neither is the key.
-    """
-    from .audio import _cache_key
-    from .document import Block, BlockKind
-    from .prefs import voice_defaults
-    from .tts import g2p_of
-
-    chosen = voice_defaults(conn, settings)
-    options = db.get_build_options(article_id, conn)
-    engine = options.get("engine") or settings.engine
-    voice = options.get("voice") or chosen.voice or "af_heart"
-    quote_voice = options.get("quote_voice") or chosen.quote_voice
-    speed = float(options.get("speed") or chosen.speed or 1.0)
-    g2p, takes_ipa = g2p_of(engine)
-
-    keys: set[str] = set()
-    for row in conn.execute(
-        "SELECT kind, text FROM block WHERE article_id = ?", (article_id,)
-    ):
-        block = Block(kind=BlockKind(row["kind"]), text=row["text"])
-        quoted = block.kind is BlockKind.QUOTE and quote_voice
-        spoken = block.spoken(quote_markers=not quoted, g2p=g2p, phonemes=takes_ipa)
-        keys.add(_cache_key(spoken, engine, quote_voice if quoted else voice, speed))
-    return keys
-
-
-def cached_renders(article_id: int, conn, settings: Settings) -> list[Path]:
-    """The cache files only this article would read.
-
-    A key is a hash of the spoken text, the engine, the voice and the pace, so
-    a file can belong to more than one article — two pieces quoting the same
-    paragraph share one render. Keys any *other* article still wants are held
-    back, or dropping one article's audio would silently cost another its
-    cheap rebuild.
-    """
-    from .audio import CACHE_SUFFIX
-
-    mine = cache_keys(article_id, conn, settings)
-    for row in conn.execute("SELECT id FROM article WHERE id != ?", (article_id,)):
-        mine -= cache_keys(row["id"], conn, settings)
-        if not mine:
-            break
-    return [settings.cache_dir / f"{key}{CACHE_SUFFIX}" for key in sorted(mine)]
-
-
-def compact_cache(settings: Settings | None = None, conn=None) -> dict:
-    """Bring the cache down to what is reachable, in the format it now uses.
-
-    Two jobs, in this order. Convert every float32 render still worth keeping
-    into int16 -- no engine is loaded, because the samples are already on
-    disk. Then sweep, which takes the converted originals away along with
-    everything nothing can reach.
-
-    Converting first matters: sweep alone would delete every ``.f32`` and the
-    next build would go back to the model for all of them.
-    """
-    import numpy as np
-
-    from .audio import CACHE_SUFFIX, to_int16
-
-    settings = settings or get_settings()
-    conn = conn or db.connect(settings.db_path)
-
-    wanted: set[str] = set()
-    for row in conn.execute("SELECT id FROM article"):
-        wanted |= cache_keys(row["id"], conn, settings)
-
-    converted = 0
-    for path in settings.cache_dir.glob("*.f32"):
-        if path.stem not in wanted:
-            continue  # the sweep is about to take it
-        target = path.with_suffix(CACHE_SUFFIX)
-        if target.exists():
-            continue
-        try:
-            samples = np.fromfile(path, dtype=np.float32)
-        except OSError:
-            continue
-        tmp = path.with_suffix(".part")
-        to_int16(samples).tofile(tmp)
-        tmp.replace(target)
-        converted += 1
-
-    removed, freed = sweep_cache(settings, conn)
-    return {"converted": converted, "removed": removed, "freed": freed}
-
-
-def sweep_cache(settings: Settings | None = None, conn=None) -> tuple[int, int]:
-    """Delete every render no block in the library can reach any more.
-
-    Nothing collected these before. A rule change, a text edit, a re-parse or
-    a deleted article each leave their old renders behind, and the key is a
-    hash so nothing ever overwrites them. Measured before this existed: 363 of
-    691 files, 0.96 GB, 43% of the cache, unreachable.
-
-    Reachability is computed over the whole library at once, which is what
-    makes it safe -- a file two articles share is kept while either wants it.
-    Returns the count and the bytes freed.
-    """
-    from .audio import CACHE_SUFFIX
-
-    settings = settings or get_settings()
-    conn = conn or db.connect(settings.db_path)
-
-    wanted: set[str] = set()
-    for row in conn.execute("SELECT id FROM article"):
-        wanted |= cache_keys(row["id"], conn, settings)
-
-    removed = freed = 0
-    for path in settings.cache_dir.glob("*"):
-        if not path.is_file() or path.suffix == ".part":
-            continue
-        # A file from an older format is unreachable whatever its name says.
-        if path.stem in wanted and path.suffix == CACHE_SUFFIX:
-            continue
-        try:
-            freed += path.stat().st_size
-            path.unlink()
-            removed += 1
-        except OSError:
-            continue
-    if removed:
-        log.info("swept %d cache files, freed %.2f GB", removed, freed / 2**30)
-    return removed, freed
+# The cache functions live in `cache.py`: the worker's parent calls the sweep
+# and must not import this module to do it. Re-exported, because the reader
+# and the tests both reach for them here.
+from .cache import (  # noqa: E402,F401
+    cache_keys,
+    cached_renders,
+    compact_cache,
+    sweep_cache,
+)
 
 
 def edit_blocks(

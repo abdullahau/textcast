@@ -637,6 +637,21 @@ Things that have already bitten once.
   company and every seek landed a few blocks late. `cache.put` refuses a 206
   as well, so the write silently rejected and nothing ranged was ever stored.
   `sw.js` now stores whole files and slices one into a real 206.
+- **The build is when the cache is collected, not a timer.** Every orphan is
+  made by a rebuild: an edited paragraph, a re-parse, a new pronunciation rule
+  or a changed voice all reach the audio only through one, so the moment a
+  build finishes is the moment the old keys become garbage and the new ones
+  are certain. `Worker._sweep_cache` runs in the *parent*, after the child has
+  exited and given its memory back. Measured over 609 blocks: about a second,
+  nearly all of it re-deriving the spoken text, against a build that takes
+  minutes. A killed build is not followed by a sweep — its jobs go back on the
+  queue, so their renders are still wanted.
+- **The sweep lives in `cache.py`, not `service.py`, for one measured reason.**
+  The parent must stay small, and importing `service` beside `jobs` took it
+  from **38 MB to 45 MB**: `service` drags in requests and the parsers.
+  `cache.py` imports only what `jobs` already has, and the parent is still
+  38 MB. `service` re-exports the names, because the reader and the tests
+  reach for them there.
 - **Nothing collected the cache, and 43% of it was unreachable.** A key is a
   hash, so a rule change, a text edit, a re-parse or a deleted article each
   left its old render behind and nothing ever overwrote it. Measured before
