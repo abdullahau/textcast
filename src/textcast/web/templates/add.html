@@ -89,24 +89,74 @@
   </p>
   <ol class="hint" style="padding-left:1.1rem;line-height:1.7">
     <li>Open Shortcuts, make a new shortcut, and add <b>Get Contents of URL</b>.</li>
-    <li>Set the URL to <code>{{ request.base_url }}api/ingest</code>.</li>
+    <li>Set the URL to <code>{{ origin }}/api/ingest</code>.</li>
     <li>Set Method to <b>POST</b> and Request Body to <b>Form</b>.</li>
     <li>Add a field <code>kind</code> with the value <code>url</code>.</li>
     <li>Add a field <code>url</code> and set its value to <b>Shortcut Input</b>.</li>
-    <li>If you turned on access control, add a header
-        <code>x-textcast-token</code> holding your token.</li>
+{% if token %}    <li>Add a field <code>token</code> and paste this as its value:
+        <br><code class="copy" data-copy="{{ token }}" tabindex="0"
+           role="button" title="Tap to copy">{{ token }}</code>
+        <br>Paste it. Do not type it: an iPhone turns a hyphen into a dash and
+        the token stops matching.</li>
+{% endif %}    <li>Add <b>Show Result</b> at the end, with <b>Contents of URL</b> as its
+        input. Without it a refusal looks exactly like success.</li>
     <li>In the shortcut details, turn on <b>Show in Share Sheet</b> and accept URLs.</li>
   </ol>
-  <p class="hint">Share any page to it and the article is waiting in your library, parsed.</p>
+  <p class="hint">
+    Share any page to it. Show Result names the article on success, and says what
+    went wrong on failure. A header called <code>x-textcast-token</code> still works,
+    if you already built the shortcut that way.
+  </p>
 </div>
 
 <div class="card">
   <h2>One click from any page</h2>
-  <p class="hint">Drag this to your bookmarks bar. On a paywalled article it sends the page you are logged into, so the server never has to get past the wall.</p>
-  <p><a class="btn ghost" id="bookmarklet" href="#">Send to textcast</a></p>
+  <p class="hint">
+    Drag this to your bookmarks bar. It posts the page <b>your browser</b> has, already
+    rendered and already logged in, so the server never has to get past the wall. That is
+    what the share sheet cannot do: the sheet sends the link, and the server fetches it as
+    a stranger.
+  </p>
+  <p class="hint">
+    It posts to <code>{{ origin }}/api/ingest</code>. A browser refuses to post from an
+    <code>https</code> page to an <code>http</code> one, so on a paywalled site this
+    needs textcast behind TLS. Set <code>TEXTCAST_PUBLIC_URL</code> to the address the
+    outside world uses.
+  </p>
+{% if token %}  <p class="hint">
+    Access control is on, so this bookmarklet carries your token. Treat it as a
+    password. Change the token and you must drag this button again.
+  </p>
+{% endif %}  <p><a class="btn ghost" id="bookmarklet" href="#">Send to textcast</a></p>
 </div>
 
 <script>
+/* The token is long, and typing it on a phone is how it gets mistyped: an
+   iPhone rewrites a hyphen as a dash and the token silently stops matching.
+   One tap puts it on the clipboard instead. */
+(function () {
+  document.querySelectorAll("code.copy").forEach(function (el) {
+    function copy() {
+      var text = el.dataset.copy || el.textContent;
+      var done = function () {
+        var was = el.textContent;
+        el.textContent = "copied";
+        setTimeout(function () { el.textContent = was; }, 1200);
+      };
+      if (navigator.clipboard) { navigator.clipboard.writeText(text).then(done, function () {}); return; }
+      // No clipboard API off a secure origin: select it so one gesture copies.
+      var range = document.createRange();
+      range.selectNodeContents(el);
+      window.getSelection().removeAllRanges();
+      window.getSelection().addRange(range);
+    }
+    el.addEventListener("click", copy);
+    el.addEventListener("keydown", function (e) {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); copy(); }
+    });
+  });
+})();
+
 /* Say how many were picked, so a batch upload is obviously a batch. */
 (function () {
   var input = document.getElementById("file-input");
@@ -118,10 +168,30 @@
   });
 })();
 
+/* The bookmarklet is written once and kept for months, so the address is
+   baked in here rather than read from wherever the page happens to be. It is
+   the server's `public_origin`: behind a reverse proxy the request's own host
+   is the proxy's back end, which no other machine can resolve.
+
+   The mixed-content guard is the whole reason this is not a one-liner. A
+   browser will not post from an https page to an http one — it upgrades the
+   POST to https and the app, which speaks plain HTTP, never answers. That
+   looked like the bookmarklet redirecting to an https address that does not
+   exist. Say so instead of failing silently. */
 (function () {
-  var code = "javascript:(function(){var f=document.createElement('form');f.method='POST';f.action='" + location.origin + "/api/ingest';f.target='_blank';var k=document.createElement('input');k.type='hidden';k.name='kind';k.value='html';var h=document.createElement('input');h.type='hidden';h.name='html';h.value=document.documentElement.outerHTML;var u=document.createElement('input');u.type='hidden';u.name='url';u.value=location.href;f.appendChild(k);f.appendChild(h);f.appendChild(u);document.body.appendChild(f);f.submit();f.remove();})()";
+  var origin = {{ origin | tojson }};
+  /* Cross-site, so the session cookie is not sent: the token rides in the
+     body, as it does in the Shortcut's header. Empty when access control is
+     off, and an empty field is simply ignored. */
+  var token = {{ token | default("", true) | tojson }};
+  var body = "var f=document.createElement('form');f.method='POST';f.action=" + JSON.stringify(origin + "/api/ingest") + ";f.target='_blank';"
+    + "if(location.protocol==='https:'&&f.action.indexOf('http://')===0){alert('textcast is at ' + f.action + '. A browser will not post from a secure page to an insecure one, so this article cannot be sent. Serve textcast over https and set TEXTCAST_PUBLIC_URL to it.');return;}"
+    + "var add=function(n,v){var i=document.createElement('input');i.type='hidden';i.name=n;i.value=v;f.appendChild(i);};"
+    + "add('kind','html');add('html',document.documentElement.outerHTML);add('url',location.href);"
+    + (token ? "add('token'," + JSON.stringify(token) + ");" : "")
+    + "document.body.appendChild(f);f.submit();f.remove();";
   var link = document.getElementById("bookmarklet");
-  link.href = code;
+  link.href = "javascript:(function(){" + body + "})()";
   link.addEventListener("click", function (e) { e.preventDefault(); alert("Drag this button to your bookmarks bar rather than clicking it."); });
 })();
 </script>

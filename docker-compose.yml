@@ -38,6 +38,12 @@ services:
       # A bind mount, not a named volume: the database, audio, sources and
       # block cache stay in ./data, where your backups already point.
       - ${TEXTCAST_DATA_DIR:-./data}:/data
+    # `proxy` is the network Caddy already sits on, so the two containers talk
+    # to each other by name and nothing has to cross the host. `default` stays,
+    # or the published port stops answering on the tailnet.
+    networks:
+      - default
+      - proxy
 
   worker:
     build:
@@ -62,3 +68,10 @@ services:
       disable: true
     # Synthesis is CPU-bound; leave something for the web process.
     cpus: ${TEXTCAST_WORKER_CPUS:-3}
+
+# Caddy's own compose file creates this. Marked external, so `docker compose
+# down` here never takes the reverse proxy's network with it.
+networks:
+  proxy:
+    external: true
+    name: deploy_default

@@ -94,4 +94,9 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD curl -fsS http://127.0.0.1:8000/health || exit 1
 
-CMD ["uvicorn", "textcast.web.app:app", "--host", "0.0.0.0", "--port", "8000"]
+# --proxy-headers, or a request that reached Caddy over TLS looks like plain
+# HTTP here and the session cookie is set without Secure. The trust list is
+# open because the port is not published to the internet: the host firewall
+# rejects 8000, so only the reverse proxy and the tailnet can reach it.
+CMD ["uvicorn", "textcast.web.app:app", "--host", "0.0.0.0", "--port", "8000", \
+     "--proxy-headers", "--forwarded-allow-ips", "*"]

@@ -622,6 +622,58 @@ Things that have already bitten once.
   1.55rem) / 2` is the whole answer. Measured 3px above and 3px below, and the
   "no file chosen" text does not move: it is still placed by the same
   line-height as before.
+- **A refused Shortcut looks exactly like a success.** iOS Shortcuts' "Get
+  Contents of URL" runs, gets a 401, and the shortcut carries on. Nine
+  identical 401s from a phone sat in the app's log while the phone reported
+  success each time. The recipe adds **Show Result** now, and the recipe's
+  credential is a `token` form field rather than an `x-textcast-token` header:
+  the header name is the part you type by hand, and an iPhone rewrites a
+  hyphen as a dash. The header still works, for a shortcut already built.
+- **`uvicorn`'s access log is the first place to look, not the last.** "It said
+  it worked and nothing arrived" was three different bugs until the log showed
+  `POST /api/ingest 401`, which named the one it actually was. `docker compose
+  logs -t app | grep "POST /api/ingest"` gives every attempt with a timestamp.
+  Do not trust `--since`: it returned nothing for a window that plainly held
+  the lines.
+- **A cross-site POST does not carry the session cookie.** It is
+  `SameSite=Lax`, which a browser sends on a top-level GET and never on a POST
+  from another origin. So the bookmarklet — the only way in that is cross-site
+  — carries the token in a hidden `token` field, and `require_auth` reads it.
+  Loosening the cookie to `SameSite=None` was the one-line alternative and is
+  the wrong one: every POST route, `/api/articles/<id>/delete` included, would
+  then accept a request from any page on the internet with your session on it.
+- **Reading the form in the auth dependency is safe, and only just.** Starlette
+  caches the parsed form on the request, so FastAPI's own parse for the
+  endpoint reuses it rather than finding a drained stream. Checked on
+  `multipart/form-data` as well as urlencoded, because a file upload is the
+  case that would have failed. The check is skipped unless the request is a
+  POST with a form content type: nothing else has a body worth reading.
+- **A token in the body must hand back a cookie.** `/api/ingest` answers with a
+  303 to the new article, and that GET carries no credential of its own.
+  Without `set_session_cookie` the bookmarklet ingested the article and then
+  showed you a login page.
+- **`--proxy-headers` or the cookie loses `Secure`.** Behind Caddy the app sees
+  plain HTTP, and `request.url.scheme` is what decides the flag. Measured: with
+  the flag the live host sets `Secure`, without it does not. The trust list is
+  open because the port is not reachable from the internet.
+- **The bookmarklet cannot post from https to http.** A browser upgrades a
+  form POST from a secure page to an insecure one, so a paywalled article sent
+  to a plain-HTTP textcast went to an https address that answers nothing —
+  which read as the bookmarklet redirecting somewhere wrong. The bookmarklet
+  now says so instead of failing silently, and the real fix is TLS in front of
+  the app. See "Still open".
+- **The bookmarklet's address is baked in, and must be the public one.** It is
+  dragged to a bookmarks bar once and kept for months, so `location.origin` of
+  whichever request drew the Add page is the wrong source: behind a reverse
+  proxy that is the proxy's back end. `web.public_origin` prefers
+  `TEXTCAST_PUBLIC_URL` and falls back to the request. The iPhone Shortcut
+  reads the same value.
+- **What the bookmarklet sends is not what the share sheet sends.** The
+  bookmarklet posts `kind=html` with `document.documentElement.outerHTML` —
+  the page *your* browser rendered, with your session applied — so the server
+  parses HTML it never had to fetch. The share sheet and the Shortcut post
+  `kind=url`, and the server fetches that link as a stranger. Only the first
+  gets past a paywall.
 - **Equal box gaps are not equal ink gaps.** The theme toggle sat between a
   run of text links and the Add button with an identical 6.39px flex gap on
   both sides, and still looked nearer to Add: `.bar-links a:not(.btn)` carries
@@ -781,6 +833,11 @@ the owner asked for no feature branches unless they say so.
   synthesis, not seconds.
 - **The read-along is correct.** The two bugs that made it wrong — the cue at
   a boundary, and the missing highlight on load — are fixed and tested.
+- **It is on the public internet**, at `https://textcast.abdullah.run`, behind
+  the Caddy container in `~/Developer/home/deploy`. textcast's compose file
+  joins that stack's network as `proxy`, so Caddy reaches the app by container
+  name and nothing crosses the host — whose firewall rejects 8000 from
+  everywhere but the tailnet. Access control is on.
 - **Access control, offline caching, the iOS Shortcut, batched rebuilds after
   a rule change, and import/export of the rules** all exist.
 
@@ -826,7 +883,12 @@ the owner asked for no feature branches unless they say so.
 10. **Article hits and block hits are ranked separately.** `search` puts
    metadata matches first and FTS matches after, rather than in one order.
    Right at this size; revisit past a few thousand articles.
-10. **A hand-written summary is not protected.** Nothing marks a summary block
+11. **The bookmarklet's token is the session token.** It is baked into the
+    bookmarklet in clear, it sits in the bookmarks bar, and it can delete the
+    whole library. A scoped ingest-only token would cap what a stolen one is
+    worth. Nor does anything rate-limit `/api/ingest`, which is the one route
+    that takes a credential in a body from anywhere on the internet.
+12. **A hand-written summary is not protected.** Nothing marks a summary block
     as yours, so "Summarise again" replaces it with the model's, and "Delete
     summaries" removes it with the rest. The reader now says which model wrote
     the summaries and stays silent where it does not know, which makes the

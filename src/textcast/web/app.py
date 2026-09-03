@@ -97,13 +97,44 @@ def signed_in(request: Request) -> bool:
     return bool(settings.auth_token) and token == settings.auth_token
 
 
-def require_auth(request: Request) -> None:
+async def _token_in_form(request: Request) -> bool:
+    """The bookmarklet's way in, and only the bookmarklet's.
+
+    Its POST comes from whatever site you are reading, so it is cross-site,
+    and the session cookie is SameSite=Lax: a browser sends that on a
+    top-level GET and never on a POST. The cookie stays Lax — loosening it
+    would let any page on the internet post to /a/<slug>/delete with your
+    session attached — so the bookmarklet carries the token in the body
+    instead, exactly as the iPhone Shortcut carries it in a header.
+
+    Only a form-encoded POST is looked at. Reading the body here is safe:
+    Starlette caches the parsed form on the request, so FastAPI's own parse
+    for the endpoint reuses it rather than finding a drained stream.
+    """
+    if request.method != "POST":
+        return False
+    if not request.headers.get("content-type", "").startswith(
+        ("application/x-www-form-urlencoded", "multipart/form-data")
+    ):
+        return False
+    form = await request.form()
+    return form.get("token") == settings.auth_token
+
+
+async def require_auth(request: Request) -> None:
     """Off by default, which suits a private network.
 
     Set TEXTCAST_REQUIRE_AUTH=1 and a token for anything internet-facing.
     A browser is sent to the sign-in page; anything else gets a plain 401.
     """
-    if not settings.require_auth or signed_in(request):
+    if not settings.require_auth:
+        return
+    if signed_in(request):
+        return
+    if settings.auth_token and await _token_in_form(request):
+        # Say so downstream, so the response can hand back a cookie and the
+        # redirect to the new article is not bounced to /login.
+        request.state.token_auth = True
         return
     if _wants_html(request):
         target = request.url.path
@@ -116,6 +147,24 @@ def require_auth(request: Request) -> None:
 
 
 Auth = Depends(require_auth)
+
+
+def set_session_cookie(request: Request, response: Response) -> Response:
+    """Give a browser that arrived on a token a session, so it can read on.
+
+    The bookmarklet's POST is answered with a redirect to the article, and
+    that GET carries no cookie unless one is set here.
+    """
+    if getattr(request.state, "token_auth", False):
+        response.set_cookie(
+            COOKIE,
+            settings.auth_token,
+            max_age=31536000,
+            httponly=True,
+            samesite="lax",
+            secure=request.url.scheme == "https",
+        )
+    return response
 
 
 @app.get("/login", response_class=HTMLResponse, include_in_schema=False)
@@ -163,6 +212,18 @@ def _safe_next(target: str) -> str:
     return target
 
 
+def public_origin(request: Request) -> str:
+    """Where the outside world reaches this app, without a trailing slash.
+
+    The bookmarklet and the Shortcut both need it, and both are written once
+    and kept for months. A page served straight from the container would bake
+    in a host no phone can resolve, so a configured ``TEXTCAST_PUBLIC_URL``
+    wins over the request. Blank means trust the request, which is right only
+    where nothing sits in front of the app.
+    """
+    return settings.public_url or str(request.base_url).rstrip("/")
+
+
 def duration(ms: int | None) -> str:
     # Negative is not a length. divmod renders minus three seconds as
     # "-1:59:57", which is how a played-out article looked in the library.
@@ -193,6 +254,7 @@ templates.env.globals["auth_on"] = settings.require_auth
 
 def render(request: Request, name: str, **context) -> HTMLResponse:
     context.setdefault("q", "")
+    context.setdefault("origin", public_origin(request))
     return templates.TemplateResponse(request, name, context)
 
 
@@ -426,7 +488,17 @@ def search_page(request: Request, q: str = ""):
 @app.get("/add", response_class=HTMLResponse, dependencies=[Auth])
 def add_page(request: Request, url: str = "", title: str = "", text: str = ""):
     # The share target lands here on a GET from some clients.
-    return render(request, "add.html", url=url or text, shared_title=title)
+    #
+    # The bookmarklet needs the token in its body, so the page has to carry
+    # it. That is not a leak: reaching this page already means holding the
+    # token, and the same token is sitting in the browser's cookie jar.
+    return render(
+        request,
+        "add.html",
+        url=url or text,
+        shared_title=title,
+        token=settings.auth_token if settings.require_auth else "",
+    )
 
 
 @app.get("/jobs", response_class=HTMLResponse, dependencies=[Auth])
@@ -1052,7 +1124,7 @@ async def api_ingest(
         return _ingest_error(request, str(exc))
 
     if _wants_html(request):
-        return RedirectResponse(f"/a/{result.slug}", status_code=303)
+        return set_session_cookie(request, RedirectResponse(f"/a/{result.slug}", status_code=303))
     return JSONResponse(
         {
             "id": result.article_id,
@@ -1091,7 +1163,7 @@ async def _ingest_many(request: Request, files: list[UploadFile], tags: list[str
 
     if _wants_html(request):
         query = urlencode({"added": len(added), "failed": " · ".join(failed)[:400]})
-        return RedirectResponse(f"/?{query}", status_code=303)
+        return set_session_cookie(request, RedirectResponse(f"/?{query}", status_code=303))
     return JSONResponse(
         {"added": [a.slug for a in added], "failed": failed},
         status_code=200 if added else 400,

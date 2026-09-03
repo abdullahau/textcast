@@ -1113,3 +1113,85 @@ def test_the_reader_names_no_model_for_a_summary_it_did_not_make(client, conn):
     page = client.get(f"/a/{slug}").text
 
     assert "Summarised with" not in page
+
+
+def test_the_bookmarklet_posts_to_the_address_the_outside_world_uses(client, settings):
+    """Behind a proxy the request's own host is the proxy's back end.
+
+    The bookmarklet and the Shortcut are written once and kept, so a host
+    taken from whichever request drew the page is the wrong one.
+    """
+    settings.public_url = "https://textcast.example.ts.net"
+
+    body = client.get("/add").text
+
+    assert 'var origin = "https://textcast.example.ts.net"' in body
+    assert "https://textcast.example.ts.net/api/ingest" in body
+
+
+def test_without_a_public_url_the_add_page_trusts_the_request(client, settings):
+    settings.public_url = ""
+
+    body = client.get("/add").text
+
+    assert 'var origin = "http://testserver"' in body
+
+
+def test_the_bookmarklet_gets_in_on_a_token_in_the_body(client, settings):
+    """Its POST is cross-site, so the SameSite=Lax cookie is never sent.
+
+    The token rides in the form instead, as it rides in the Shortcut's header.
+    """
+    sign_in_required(settings)
+
+    response = client.post(
+        "/api/ingest",
+        data={
+            "kind": "text",
+            "title": "From the bookmarklet",
+            "text": "A paragraph the browser had and the server could not fetch.",
+            "token": "open-sesame",
+        },
+        headers={"accept": "text/html"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/a/from-the-bookmarklet"
+
+
+def test_a_token_in_the_body_hands_back_a_session(client, settings):
+    """Otherwise the redirect to the new article bounces straight to /login."""
+    sign_in_required(settings)
+
+    response = client.post(
+        "/api/ingest",
+        data={"kind": "text", "title": "Session please", "text": "A paragraph.", "token": "open-sesame"},
+        headers={"accept": "text/html"},
+        follow_redirects=False,
+    )
+
+    assert response.cookies.get("textcast_token") == "open-sesame"
+
+
+def test_a_wrong_token_in_the_body_is_refused(client, settings):
+    sign_in_required(settings)
+
+    response = client.post(
+        "/api/ingest",
+        data={"kind": "text", "text": "A paragraph.", "token": "not-the-token"},
+        headers={"accept": "text/html"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"].startswith("/login?next=")
+
+
+def test_the_token_never_reaches_a_page_while_access_control_is_off(client, settings):
+    """The bookmarklet needs no token then, and the page must not carry one."""
+    settings.require_auth = False
+    settings.auth_token = "open-sesame"
+
+    assert "open-sesame" not in client.get("/add").text
+

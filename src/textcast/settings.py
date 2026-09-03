@@ -67,6 +67,12 @@ class Settings:
     auth_token: str = field(default_factory=lambda: _env("AUTH_TOKEN", ""))
     host: str = field(default_factory=lambda: _env("HOST", "127.0.0.1"))
     port: int = field(default_factory=lambda: _env_int("PORT", 8000))
+    #: The address the outside world reaches this app on, when that is not the
+    #: address the browser happens to be using. Behind a reverse proxy the
+    #: request's own host is the proxy's back end, and the bookmarklet built
+    #: from it posts to a name only the proxy can resolve. Blank means trust
+    #: the request, which is right when nothing sits in front.
+    public_url: str = field(default_factory=lambda: _env("PUBLIC_URL", "").rstrip("/"))
 
     @property
     def db_path(self) -> Path:

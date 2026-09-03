@@ -764,6 +764,21 @@ input[type=file]::file-selector-button {
 input[type=file]::-webkit-file-upload-button:hover,
 input[type=file]::file-selector-button:hover { background: var(--raised); color: var(--fg); }
 
+/* A value meant to be copied, not read: it wraps rather than overflowing a
+   phone, and it says it is a control by looking like one. */
+code.copy {
+  display: inline-block;
+  max-width: 100%;
+  margin-top: .2rem;
+  padding: .2rem .4rem;
+  background: var(--sunk);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+code.copy:hover, code.copy:focus { border-color: var(--border-hi); color: var(--fg); }
+
 .row { display: flex; gap: .55rem; flex-wrap: wrap; align-items: flex-end; }
 .row + .row { margin-top: .7rem; }
 .row > * { flex: 1 1 9rem; min-width: 0; }
