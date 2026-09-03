@@ -1,16 +1,13 @@
 /* The read-along player.
  *
- * Deliberately thin. Two things it does NOT do itself:
+ * Deliberately thin. media-chrome (MIT, vendored) owns the transport: play,
+ * pause, the seek bar, the time display, the rate, the keys and the ARIA.
  *
- *   - Transport UI. media-chrome (MIT, vendored) owns play/pause, the seek
- *     bar, time display, playback rate, keyboard handling and ARIA.
- *   - Text-to-audio sync. Each section ships a WebVTT metadata track whose
- *     cue ids are block ids, so the browser fires `cuechange` as each block
- *     starts. No timing map to search, no drift to debug.
+ * What is left is the part no library provides: highlight the block being
+ * read, seek when one is tapped, roll on to the next section, and keep the
+ * lock screen and the saved position up to date.
  *
- * What is left is the part no library provides: highlight the current block,
- * seek when one is tapped, roll on to the next section, and keep the lock
- * screen and the saved position up to date.
+ * The highlight follows the clock, not the WebVTT cues. See followClock.
  */
 (function () {
   "use strict";
@@ -89,14 +86,10 @@
     if (id) highlight(id);
   }
 
-  /* Read the clock every frame while it is playing, rather than waiting to be
-     told. `cuechange` only fires when the active cue *set* changes, and how
-     promptly is the browser's business — Chromium is within about 10 ms,
-     others are far looser, which shows up as a word or two of the next block
-     being read before the highlight moves. Worse, a seek made by anything
-     other than this file — the skip buttons and the scrub bar are
-     media-chrome's, and they set currentTime themselves — changed no cue set
-     at all, so the highlight stayed where it was until the next boundary. */
+  /* Read the clock every frame rather than waiting to be told. `cuechange`
+     fires when the browser gets round to it — 10 ms in Chromium, far looser
+     elsewhere — and a seek made by media-chrome's own scrub bar changes no
+     cue set at all, so the highlight sat still until the next boundary. */
   var frame = null;
 
   function followClock() {
@@ -153,15 +146,11 @@
     updateMediaSession();
   }
 
-  /* Pause, seek, then play again once the seek has landed.
-     Setting currentTime on a playing element lets the already-buffered output
-     finish first, so you hear a fragment of where you just were. Starting
-     playback before a deferred seek has applied does the same from the top of
-     the section.
-
-     The resume checks where it ended up, because `seeked` is asynchronous: if
-     something else moves the playhead first, that event is not ours and
-     resuming on it would start playback somewhere nobody asked for. */
+  /* Pause, seek, then play once the seek has landed. Setting currentTime on
+     a playing element lets the buffered output finish first, so you hear a
+     fragment of where you just were. The resume checks where it ended up:
+     `seeked` is asynchronous, and an armed listener fires on whatever seek
+     happens next, including one the user made. */
   function seekWithin(ms, autoplay) {
     var CLOSE_ENOUGH_MS = 250;
 
@@ -172,12 +161,10 @@
 
       var landed = function () { return Math.abs(audio.currentTime * 1000 - target) < CLOSE_ENOUGH_MS; };
 
-      /* `seeked` says the playhead moved, not that there is anything decoded
-         to play from there. Start anyway and the clock runs while no sound
-         comes out — on iOS that is the first word or two of the block, gone.
-         HAVE_FUTURE_DATA is the readyState that means it can actually begin.
-         The timeout is a backstop: never refuse to play because an event did
-         not arrive. */
+      /* `seeked` means the playhead moved, not that anything is decoded
+         there: playing on it runs the clock in silence, and on iOS that is
+         the first word or two gone. readyState 3 is HAVE_FUTURE_DATA. The
+         timeout is a backstop — never refuse to play over a missing event. */
       var play = function () {
         var start = function () {
           audio.removeEventListener("canplay", start);
@@ -262,16 +249,14 @@
   // ------------------------------------------------------- saved position
 
   var lastSaved = 0;
-  /* Set by "Stop and forget my place" and cleared the moment playback starts
-     again. Pausing fires a save, and so does the timeupdate that follows, so
-     without this the row is written straight back and the article never
-     leaves "Continue listening". */
+  /* Set by "Stop and forget my place", cleared when playback starts again.
+     That button pauses and seeks, and both write the row, so without this the
+     position comes straight back. */
   var forgotten = false;
 
-  /* Carried, not recomputed on every save. Only the end of the last section
-     sets it and only pressing play clears it: an ordinary save used to send
-     `false`, so opening a finished article and leaving without playing threw
-     the completed badge away. */
+  /* Carried, not recomputed. Only the end of the last section sets it and
+     only play clears it: an ordinary save used to send `false`, so opening a
+     finished article and leaving threw the completed badge away. */
   var finishedNow = !!(cfg.start && cfg.start.finished);
 
   function savePosition(force, finished) {
@@ -286,9 +271,9 @@
     else fetch(url, { method: "POST", body: body, headers: { "Content-Type": "application/json" }, keepalive: true });
   }
 
-  /* Stop, go back to the top of the article, and delete the saved position.
-     The three go together: a position left behind would resume this article
-     the next time it is opened, and would still list it as unfinished. */
+  /* Stop, go back to the top, and delete the saved position. The three go
+     together: a row left behind would resume the article and still list it
+     as unfinished. */
   function stopAndForget() {
     forgotten = true;
     finishedNow = false;
@@ -405,10 +390,6 @@
     if (!sheet.hidden && !sheet.contains(event.target)) closeSheet();
   });
 
-  /* Seeking must never cost you a text selection.
-     The gutter handle is the reliable way in. Clicking the text itself is
-     opt-in, and even then a click that ends a selection is left alone. */
-
   /* A section with no audio is left out of the payload, so its position in
      this array is not the index the page marked the block with. */
   function positionOf(sectionIdx) {
@@ -431,9 +412,8 @@
     }
   }
 
-  /* Only the gutter handle seeks. Tapping the text itself was an option once
-     and it fought with selecting a sentence; every block carries a play
-     button, so there is nothing the tap did that the handle does not. */
+  /* Only the gutter handle seeks. Tapping the text fought with selecting a
+     sentence, and every block already carries a play button. */
   doc.addEventListener("click", function (event) {
     var handle = event.target.closest("[data-seek]");
     if (!handle) return;

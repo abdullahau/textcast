@@ -260,10 +260,9 @@ def render_article(
         included_kinds=sorted(str(k) for k in include),
     )
 
-    # A phoneme rule is written in one phonemiser's notation, so the text
-    # handed to the engine depends on which engine it is. Read once, not per
-    # block. The block cache is keyed on the engine name, so the two never
-    # share a render.
+    # A phoneme rule is written in one phonemiser's notation, so what reaches
+    # the model depends on the engine. Read once, not per block; the cache is
+    # keyed on the engine, so the two never share a render.
     g2p, takes_ipa = g2p_of(engine)
 
     done = 0
@@ -320,10 +319,9 @@ def render_article(
             cursor += speech_ms + pause
 
         # A block begins in the middle of the silence in front of it, not on
-        # its first syllable. Landing exactly on the attack means anything
-        # slow — a decoder still spinning up, a browser a frame behind — starts
-        # you inside the first word. Half a gap of run-up costs nothing to
-        # listen to and absorbs all of it.
+        # its first syllable: landing on the attack puts anything slow — a
+        # decoder spinning up, a browser a frame behind — inside the first
+        # word. Half a gap of run-up absorbs it and costs nothing to hear.
         starts = [
             0 if i == 0 else speech_at[i] - pause_after[i - 1] // 2
             for i in range(len(work_items))

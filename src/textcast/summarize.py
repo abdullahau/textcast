@@ -1,24 +1,17 @@
 """Section summaries from a language model.
 
-The endpoint is OpenAI-compatible, which is the one interface every provider
-now speaks. That buys the whole field with a single dependency: point
-``base_url`` at any entry in ``PROVIDERS`` — or anything else that speaks the
-protocol — name a model, and nothing else changes.
+The endpoint is OpenAI-compatible, which every provider now speaks, so one
+dependency reaches the whole field: point ``base_url`` at any entry in
+``PROVIDERS``, name a model, and nothing else changes. litellm was weighed and
+refused — 183 MB across 114 packages against 21 MB, and all it adds is the
+providers with no OpenAI endpoint at all (Bedrock, Vertex, SageMaker).
 
-A router like litellm was weighed and not taken: 183 MB across 114 packages
-against 21 MB, and the only thing it reaches that this does not is a provider
-with no OpenAI endpoint at all (Bedrock, Vertex, SageMaker), which need a
-signed cloud SDK.
+The model, the endpoint and the key all live in the ``setting`` table, so they
+are edited in the app rather than in a restart. The environment is the default
+and a saved value wins, or the settings page would appear to do nothing.
 
-Three things are configurable and all three live in the ``setting`` table, so
-they are edited in the app rather than in a restart: the model, the endpoint
-and the key. The environment supplies the default for each, which is what a
-container wants; a value saved in the app then wins over it, or the settings
-page would appear to do nothing.
-
-A summary is a *block*, like everything else. It carries a stable id, it is
-searched, it is spoken, and the player can hide it. There is no second place
-where text lives.
+A summary is a *block*, like everything else: a stable id, searched, spoken,
+and hideable in the player. There is no second place where text lives.
 """
 
 from __future__ import annotations
@@ -83,10 +76,9 @@ KEY_API_KEY = "summary_api_key"
 KEY_PROMPT = "summary_prompt"
 
 #: A key and a model belong to an *endpoint*, not to the app. One flat
-#: ``summary_api_key`` meant switching provider sent the old provider's key to
-#: the new one — a 401 that reads like a bad model name, and a page that could
-#: not say otherwise because it knew of only one key. These prefixes scope both
-#: to the endpoint, so picking a provider brings its own key and its own model.
+#: ``summary_api_key`` sent the old provider's key to the new one on every
+#: switch — a 401 that reads like a bad model name. These prefixes scope both,
+#: so picking a provider brings its own key and its own model.
 PREFIX_API_KEY = "summary_api_key:"
 PREFIX_MODEL = "summary_model:"
 
@@ -114,12 +106,9 @@ def fingerprint(key: str) -> str:
     key = (key or "").strip()
     return key[-4:] if len(key) >= 12 else ""
 
-#: Written for the ear, not the eye. Everything here exists because a summary
-#: that reads well on screen reads badly aloud: no markdown, no bullet list, no
-#: heading, and no "this section discusses" preamble. The word limit is there
-#: because a summary is spoken before the section it summarises — 150 words is
-#: about a minute, and past that you are listening to the summary, not the
-#: article.
+#: Written for the ear: no markdown, no bullets, no heading, no "this section
+#: discusses" preamble. 150 words is about a minute, and it is spoken before
+#: the section — past that you are listening to the summary, not the article.
 DEFAULT_PROMPT = """You are summarising one section of an article for someone who will hear it read aloud, before they hear the section itself.
 
 Write two or three sentences of plain prose, under 150 words in total. Say what the section is about and why it matters. Keep the author's tone, including any humour. Explain a financial term the first time it appears rather than assuming it.
@@ -296,10 +285,9 @@ def save_config(
         return
 
     endpoint = base_url if base_url is not None else db.get_setting(KEY_BASE_URL, "", conn)
-    # An unset endpoint means the default one, and it has to mean the same
-    # here as it does in `config()`. Resolved differently, a key saved before
-    # a provider was ever picked would be filed under a name the read side
-    # never asks for, and would look like no key at all.
+    # An unset endpoint means the default one, and it must mean the same as
+    # it does in `config()`: resolved apart, a key saved before a provider was
+    # picked is filed under a name the read side never asks for.
     endpoint = endpoint or _default_base_url()
     if api_key is not None:
         db.set_setting(_scoped(PREFIX_API_KEY, endpoint), api_key.strip(), conn)

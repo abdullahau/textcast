@@ -12,6 +12,8 @@ services:
       context: .
       args:
         ACCEL: cuda
+      secrets:
+        - hf_token
     image: textcast:gpu
 
   worker:
@@ -19,6 +21,8 @@ services:
       context: .
       args:
         ACCEL: cuda
+      secrets:
+        - hf_token
     image: textcast:gpu
     deploy:
       resources:

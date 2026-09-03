@@ -1,42 +1,28 @@
 """User-editable pronunciation rules.
 
-Each rule rewrites text on its way to the engine. Two flavours:
+Each rule rewrites text on its way to the engine. Three kinds of fix:
 
-* **Words.** "Jul" becomes "July", "vs." becomes "versus". The engine then
-  pronounces ordinary English.
-* **Respellings.** "GAAP" becomes "gap", "EBITDA" becomes "ee bitda". This is
-  the first choice for an acronym said as a word: anyone can read and edit it,
-  and it needs no phonetic alphabet.
-* **Phonemes.** A last resort for a word no respelling reaches. The
-  replacement is IPA, wrapped as ``[word](/ipa/)``, which the engine hands to
+* **Words.** "Jul" becomes "July", "vs." becomes "versus".
+* **Respellings.** "GAAP" becomes "gap". The first choice for an acronym said
+  as a word: anyone can read and edit it, and it needs no phonetic alphabet.
+* **Phonemes.** A last resort. IPA, wrapped as ``[word](/ipa/)``, handed to
   the model verbatim.
 
-A rule therefore has up to three replacements, and all three are optional:
+So a rule has up to three replacements, and all three are optional:
 
-======================  =============================================
-``replacement``         plain text. Works on every engine, because it
-                        is only text and the engine never knows a rule
-                        ran.
-``misaki``              IPA for engines whose G2P is misaki: ``kokoro``.
-``espeak``              IPA for engines whose G2P is espeak:
-                        ``kokoro-onnx``.
-======================  =============================================
+``replacement``  plain text; reaches every engine, because the engine never
+                 knows a rule ran.
+``misaki``       IPA for engines phonemised by misaki: ``kokoro``.
+``espeak``       IPA for engines phonemised by espeak: ``kokoro-onnx``.
 
-The phonemisers do not share an alphabet, which is why there are two IPA
-fields rather than one. misaki's notation is not standard IPA — capital ``A``
-is the /eɪ/ of "day", ``I`` the /aɪ/ of "eye" — and espeak writes those out
-and marks length. One spelling handed to the other phonemiser is read as
-letters.
+Two IPA fields, not one, because the notations differ: misaki's capital ``A``
+is the /eɪ/ of "day" and ``I`` the /aɪ/ of "eye", which espeak writes out and
+reads as letters. Each engine takes the IPA for its own phonemiser if there is
+any and the plain replacement otherwise, so one rule can serve everything, one
+phonemiser, or both. A rule with neither does not fire there at all.
 
-For each engine the rule takes the IPA written for its phonemiser if there is
-any, and the plain replacement otherwise. A rule with neither does not fire
-there at all: the word is left as written and spoken however the engine reads
-it, which is wrong in a small way rather than absurd. So a rule can be written
-once for everything, or aimed at one phonemiser, or both — and a respelling
-that already works everywhere needs neither IPA field.
-
-Rules live in the database so they can be edited from the settings page, and
-they are cached in the worker because a build applies them thousands of times.
+Rules live in the database, so they are edited on the settings page, and are
+cached in the worker because a build applies them thousands of times.
 """
 
 from __future__ import annotations
@@ -244,10 +230,8 @@ def month_pattern(abbrev: str) -> str:
     return f"{leading}|{trailing}"
 
 
-#: Acronyms said as words. A respelling is the first choice: readable,
-#: editable by anyone, and it needs no phonetic alphabet. Every entry was
-#: checked against Kokoro rather than guessed — the comment gives what it
-#: says without the rule.
+#: Acronyms said as words. Respellings, not IPA: anyone can edit them. Each
+#: was checked against Kokoro; the comment gives what it says without the rule.
 SAY_AS_WORD = {
     # Broken without a rule.
     "GAAP": "gap",              # G-A-A-P
@@ -275,40 +259,31 @@ SAY_AS_WORD = {
     "HODL": "hoddle",
 }
 
-#: Phonemes, for the rare word a respelling makes worse rather than better.
-#: LIBOR is the one: Kokoro already says LIE-bor, and every plain respelling
-#: ("Libor", "lybor", "lie bore") lands somewhere else.
+#: Phonemes, for the rare word a respelling makes worse. LIBOR is the one:
+#: Kokoro already says LIE-bor and every respelling lands somewhere else.
 #:
-#: Two spellings of one sound, because the two engines read different
-#: notations. misaki's capital ``I`` is the /aɪ/ of "eye"; espeak writes that
-#: out and marks its length, and reads a capital ``I`` as the letter. Both were
-#: measured rather than converted: espeak's own phonemisation of "lie bore" is
-#: ``lˈaɪ bˈɔːɹ``, which is where ``lˈaɪbɔːɹ`` comes from. Left to itself
-#: espeak says ``lˈɪbɚ``, "LIB-er", so the rule is worth as much there.
+#: Two spellings of one sound, because the notations differ — misaki's capital
+#: ``I`` is the /aɪ/ of "eye", which espeak spells out and reads as the letter.
+#: Both measured, not converted: espeak's own "lie bore" is ``lˈaɪ bˈɔːɹ``.
+#: Left alone it says ``lˈɪbɚ``, "LIB-er", so the rule earns its place there too.
 PHONEME_HINTS = {
     "LIBOR": {"misaki": "lˈIbɔɹ", "espeak": "lˈaɪbɔːɹ"},
 }
 
-#: Names and words both phonemisers get wrong, respelled. Each was measured on
-#: both engines before and after, and each respelling had to be right on both:
-#: a respelling is ordinary text, so unlike a phoneme rule it cannot be aimed
-#: at one of them.
+#: Names and words the phonemisers get wrong, respelled. A respelling is
+#: ordinary text, so it reaches both engines and had to be measured on both —
+#: the useful cases are where the engine that was already right does not move.
 #:
-#: * **Kleinman** was "KLAYN-man" on both (klˈAnmən / klˈeɪnmən). "Klineman"
-#:   is klˈInmən and klˈaɪnmən — the same sound, right on both.
-#: * **Stearns** was "STEERNS" (stˈɪɹnz). "Sterns" is stˈɜɹnz / stˈɜːnz.
-#:   Ruled on the surname alone, so Bear Stearns and a bare Stearns both land.
-#: * **Solomon** was already right for misaki (sˈɑləmən) and wrong for espeak,
-#:   which doubled the vowel: sˈɑːlɑːmən, "SOL-ah-mon". "Solamon" leaves
-#:   misaki's answer untouched and fixes espeak's.
-#: * **accretive** was right for misaki (əkɹˈiTɪv) and "uh-KRET-iv" for espeak.
-#:   "accreetive" changes nothing for misaki and gives espeak ɐkɹˈiːɾɪv.
-#: * **acquisition** was "ack-wih-SISH-un" for espeak, with an s where the
-#:   word has a z. "ackwizition" gives both ˌækwɪzˈɪʃən.
-#: * **OpenAI** ran together as one word for misaki (ˌOpᵊnˈAˌI). "Open AI"
-#:   puts the boundary back and both then say "Open A-I".
-#: * **Tokenization** came out "token-ih-ZAY-shun" on both, the vowel of the
-#:   verb it comes from reduced away. "token-eye-zation" restores it.
+#: * **Kleinman** "KLAYN-man" on both → klˈInmən / klˈaɪnmən.
+#: * **Stearns** stˈɪɹnz, "STEERNS" → stˈɜɹnz / stˈɜːnz. The surname alone,
+#:   so Bear Stearns and a bare Stearns both land.
+#: * **Solomon** right for misaki (sˈɑləmən), doubled for espeak (sˈɑːlɑːmən).
+#:   "Solamon" leaves misaki alone and fixes espeak.
+#: * **accretive** right for misaki (əkɹˈiTɪv), "uh-KRET-iv" for espeak.
+#: * **acquisition** an s where the word has a z, on espeak. Both ˌækwɪzˈɪʃən.
+#: * **OpenAI** ran together for misaki (ˌOpᵊnˈAˌI); the space restores it.
+#: * **Tokenization** "token-ih-ZAY-shun" on both, the verb's vowel reduced
+#:   away.
 SAY_AS_WRITTEN = {
     "Kleinman": "Klineman",
     "Stearns": "Sterns",
@@ -323,95 +298,73 @@ SAY_AS_WRITTEN_ANYCASE = {
     "tokenization": "token-eye-zation",
 }
 
-#: Two words the engines read as two, where the name is one thing with one
-#: stress. Measured: "Wall Street" is wˈɔl stɹˈit, a primary stress on each
-#: and a gap between them; "Wallstreet" is wˈɔlstɹit, one word stressed on
-#: "Wall", which is how the name is said. The Journal comes along for the ride.
+#: Names that are one thing with one stress. "Wall Street" is wˈɔl stɹˈit, a
+#: primary stress on each; "Wallstreet" is wˈɔlstɹit, which is how it is said.
 COMPOUND_NAMES = {
     "Wall Street": "Wallstreet",
 }
 
-#: A company suffix is an abbreviation, not the end of a sentence. Both
-#: engines kept the stop in "Goldman Sachs Group Inc. CEO David Solomon" and
-#: paused in the middle of the man's title. Without it the sound is unchanged
-#: — ˈɪŋk either way — and the sentence runs on.
-#:
-#: Only when something follows on the same line. At the end of a block the
-#: stop is doing its ordinary job and is left alone.
+#: A company suffix is an abbreviation, not a sentence end: both engines
+#: paused mid-title in "Goldman Sachs Group Inc. CEO David Solomon". The sound
+#: is ˈɪŋk either way. Only when something follows on the same line — at the
+#: end of a block the stop is doing its ordinary job.
 SUFFIXES = {
     r"\bInc\.(?=\s)": "Inc",
     r"\bCorp\.(?=\s)": "Corp",
     r"\bCos\.(?=\s)": "Cos",
 }
 
-#: The stylistic "-y": crypto-y, meme-y, computer-y, bank-y. Both engines read
-#: the y as the letter and put a w in front of it — kɹˈɪptˌOwˌI, "crypto-why".
-#: Spelled "-ee" they both say what the writer meant. Two letters at least in
-#: front of the hyphen, so a stray "-y" is not caught.
+#: The stylistic "-y": crypto-y, meme-y, bank-y. Both engines read the y as
+#: the letter with a w in front — kɹˈɪptˌOwˌI, "crypto-why". At least two
+#: letters before the hyphen, so a stray "-y" is not caught.
 STYLISTIC_Y = {
     r"(?<=[A-Za-z]{2})-y(?![\w'])": "-ee",
 }
 
-#: Hyphens the engine reads as a pause rather than a join. Measured on Kokoro:
-#: "fund start-ups that" leaves a 182 ms break mid-phrase against 113 ms for
-#: "startups", and the clip runs 80 ms longer. Joined, it is one word and one
-#: breath. Spelled out rather than captured, so the output is the same word
-#: whatever the input's capitals were: a mid-word capital risks being read as
-#: two words again, which is the thing being fixed. The plural pattern is safe
-#: beside the singular — there is no word boundary between "up" and "s".
+#: Hyphens read as a pause rather than a join. Measured on Kokoro: "fund
+#: start-ups that" leaves a 182 ms break against 113 ms for "startups", and
+#: runs 80 ms longer. Spelled out rather than captured, so the capitals of the
+#: input cannot put the two-word reading back.
 JOINED = {
     r"\bstart-ups\b": "startups",
     r"\bstart-up\b": "startup",
 }
 
-#: Contractions the phonemiser gets wrong. Measured: "she'll" is ʃil and
-#: "you'll" is jul, both one syllable and right, but "who'll" comes out hˌuəl —
-#: "hoo-ULL", two syllables. Respelled, it is hˈul, which is the same sound the
-#: IPA would have bought and anyone can read.
+#: Contractions the phonemiser gets wrong. "she'll" is ʃil and "you'll" jul,
+#: one syllable each and right; "who'll" is hˌuəl, "hoo-ULL". Respelled: hˈul.
 CONTRACTIONS = {
     "who'll": "hool",
 }
 
-#: Written forms the phonemiser gets wrong for reasons that are not acronyms.
-#: Measured against Kokoro before each was written, per the rule above.
+#: Written forms the engines get wrong for reasons that are not acronyms.
 #:
 #: "401(k)" is read "four hundred one k"; "four oh one k" is fˈɔɹ ˈO wˈʌn kˈA.
-#: "INmune" is read "I EN-mune", because the leading IN looks like an
-#: initialism — yet the company's own possessive, "INMune's", already comes
-#: out ɪn mjˈunz. "InMune" gives exactly that, ɪn mjˈun, for one changed
-#: capital. Guarded with (?!\w) rather than a word rule so the possessive is
-#: caught too: a word rule's (?![\w']) refuses to match before an apostrophe.
+#: "INmune" is "I EN-mune" — a leading IN looks like an initialism — while the
+#: possessive "INMune's" already came out ɪn mjˈunz. "InMune" gives that for
+#: one changed capital.
+#:
+#: All regexes with (?!\w), not word rules: a word rule's (?![\w']) refuses to
+#: match before an apostrophe, and would miss every possessive.
 RESPELL = {
     r"(?<!\d)401\(k\)": "four oh one k",
     r"(?<!\w)INmune(?!\w)": "InMune",
     # espeak says the s of "acquisition" as an s; the word has a z. A regex
     # rather than two word rules, so the plural comes with it.
     r"(?<!\w)acquisition(s?)(?!\w)": r"ackwizition\1",
-    # Shein is "SHEE-in". Both phonemisers read it as "Shane": ʃˈAn for
-    # misaki, ʃˈeɪn for espeak. "Sheein" gives ʃˈiɪn and ʃˈiːɪn, right on
-    # both, and the possessive comes with it — which is why this is a regex
-    # with (?!\w) and not a word rule, whose (?![\w']) refuses to match
-    # before an apostrophe. Ignoring case matters here: the brand writes
-    # itself SHEIN, and misaki spells an all-capital SHEEIN out letter by
-    # letter.
+    # "Shane" on both: ʃˈAn / ʃˈeɪn. "Sheein" is ʃˈiɪn / ʃˈiːɪn. Case-blind,
+    # because the brand writes itself SHEIN — and misaki spells an all-capital
+    # SHEEIN out letter by letter.
     r"(?<!\w)Shein(?!\w)": "Sheein",
-    # "REE-fund", the noun's stress, on every form of the word. Both engines
-    # already put the verb's stress on the second syllable — ɹəfˈʌnd for
-    # misaki, ɹᵻfˈʌnd for espeak — which is the textbook reading of "to
-    # refund"; this is a house preference for one pronunciation throughout.
-    # "reefund" gives ɹˈifʌnd and ɹˈiːfʌnd. Delete the rule on the Voice page
-    # to go back to the engines' own answer.
-    #
-    # The inflections are named rather than left to a bare prefix, because
-    # "refundable" keeps the verb's stress and "reefundable" wrecks it:
-    # ɹˈifəndəbᵊl, "REE-fund-a-bull".
+    # The noun's stress on every form. Not a correction: ɹəfˈʌnd / ɹᵻfˈʌnd is
+    # the textbook verb, and this is a house preference. Delete it on the
+    # Voice page to go back. The inflections are named rather than left to a
+    # bare prefix, because "reefundable" wrecks ɹˈifəndəbᵊl.
     r"(?<!\w)refund(s|ed|ing)?(?!\w)": r"reefund\1",
 }
 
-#: Written with dots. Measured against Kokoro: "AI" is ˈAˌI — already "ay-eye"
-#: — while "A.I." comes out ˌAˈI with the stress the other way round, and
-#: "A.I.s" becomes ˌAˌIˈɛs, "ay-eye-ESS". Normalising the dotted spelling to
-#: the bare one puts every form through the one path misaki already gets right.
+#: Written with dots. "AI" is ˈAˌI, already right; "A.I." is ˌAˈI with the
+#: stress reversed, and "A.I.s" is ˌAˌIˈɛs, "ay-eye-ESS". Dropping the dots
+#: puts every form through the path misaki gets right.
 DOTTED = ["A.I."]
 
 
@@ -458,18 +411,12 @@ ABBREVIATIONS = {
     "IPO": "I P O",
 }
 
-#: Initialisms the phonemiser reads as a *word* when it should be spelling
-#: them. There used to be forty-five of these. Measured against Kokoro, forty
-#: one of them produced exactly the same sounds with the rule as without —
-#: misaki already spells an acronym out, and it does it better: "CEO" alone is
-#: sˌiˌiˈO, the natural contour with the stress on the last letter, while the
-#: rule's "C E O" is sˈi ˈi ˈO, every letter its own stressed word, 120 ms
-#: longer and evenly spaced. That is what made them sound recited.
-#:
-#: What is left is the handful where misaki says a real word instead:
-#: "ROE" as roe, "ETH" as the letter eth. `ARR` was dropped for the opposite
-#: reason — misaki gives ˌAˌɑɹˈɑɹ, and the rule turned the leading A into the
-#: article. `TAM` went too: people do say "tam".
+#: Initialisms misaki reads as a word when it should spell them out. There
+#: were forty-five; forty-one sounded identical with the rule and without,
+#: because misaki spells acronyms out and does it better — "CEO" is sˌiˌiˈO,
+#: while the rule's "C E O" is sˈi ˈi ˈO, 120 ms longer and evenly spaced.
+#: That is what made them sound recited. Ask `engine.phonemes()` before adding
+#: one. What is left is where misaki says a real word instead.
 SPELL_OUT = [
     "ETH", "ROE",
 ]

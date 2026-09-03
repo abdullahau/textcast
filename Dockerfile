@@ -35,7 +35,13 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 ARG BAKE_MODEL=1
 ENV HF_HOME=/opt/models/huggingface
 COPY docker/bake_model.py /tmp/bake_model.py
-RUN if [ "$BAKE_MODEL" = "1" ]; then \
+# The Kokoro repo is public, so the token is optional. It raises the hub's
+# anonymous rate limit, which is what a repeated or CI build runs into. A
+# secret mount, not an ARG or an ENV: those end up in the image and in
+# `docker history`, and this one does not.
+RUN --mount=type=secret,id=hf_token \
+    if [ "$BAKE_MODEL" = "1" ]; then \
+      HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null || true)" \
       /app/.venv/bin/python /tmp/bake_model.py; \
     fi && rm -f /tmp/bake_model.py
 

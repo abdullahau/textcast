@@ -6,9 +6,19 @@
 # docker-compose.override.yml sits beside this and is picked up
 # automatically. For a server: docker compose -f docker-compose.yml up -d
 
+# Optional, and only used at build time: HF_TOKEN in .env raises the hub's
+# anonymous rate limit while the weights are baked in. Nothing fails without
+# it — the Kokoro repo is public.
+secrets:
+  hf_token:
+    environment: HF_TOKEN
+
 services:
   app:
-    build: .
+    build:
+      context: .
+      secrets:
+        - hf_token
     image: textcast:latest
     container_name: textcast-app
     restart: unless-stopped
@@ -30,7 +40,10 @@ services:
       - ${TEXTCAST_DATA_DIR:-./data}:/data
 
   worker:
-    build: .
+    build:
+      context: .
+      secrets:
+        - hf_token
     image: textcast:latest
     container_name: textcast-worker
     restart: unless-stopped
