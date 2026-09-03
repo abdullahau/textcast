@@ -9,10 +9,16 @@
 # The engines then ask the machine themselves, so the GPU image still runs
 # where no device was passed through.
 #
-# The Kokoro weights are baked in at /opt/models, so a fresh deploy needs no
-# network. Costs ~330 MB. Build with --build-arg BAKE_MODEL=0 to skip it.
+# Both engines' weights are baked in at /opt/models, so a fresh deploy needs
+# no network. Costs 678 MB. --build-arg BAKE_MODEL=0 fetches them at runtime.
 
-FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS build
+# One base image for both stages, with uv copied in rather than uv's own
+# image used as the builder. Those are two different CPython builds — the venv
+# was made against uv's 3.12.12 and run against Debian's 3.12.14 — and it only
+# worked because both put python at /usr/local/bin and the ABI is stable
+# within 3.12. A minor-version drift on either side would break it silently.
+FROM python:3.12-slim-bookworm AS build
+COPY --from=ghcr.io/astral-sh/uv:0.9 /uv /uvx /bin/
 
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \

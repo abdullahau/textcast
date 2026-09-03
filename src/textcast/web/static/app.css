@@ -1096,6 +1096,11 @@ table.plain th {
 table.plain td { padding: .5rem .6rem; border-bottom: 1px solid var(--border); vertical-align: top; }
 table.plain td.right { text-align: right; width: 1%; white-space: nowrap; }
 
+/* A row whose last cell is a control centres on it. `vertical-align: top`
+   suits a table of wrapping text; beside a 2rem button it leaves the words
+   sitting above it. */
+table.plain.keys td { vertical-align: middle; }
+
 /* A square icon button for a row action. A default button is 2.1rem tall with
    .85rem of padding either side of a word, which beside .84rem table text
    reads as the row's main control rather than a way to undo it. */

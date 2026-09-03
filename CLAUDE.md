@@ -605,6 +605,14 @@ Things that have already bitten once.
   live endpoint. Gemini answers 404 on `/models` and 400 on
   `/chat/completions`, the path the app uses, so it is right and so are the
   others.
+- **One base image for both build stages.** The builder was
+  `ghcr.io/astral-sh/uv:python3.12-bookworm-slim` and the runtime
+  `python:3.12-slim-bookworm`. Those are two different CPython builds: the
+  venv recorded `version_info = 3.12.12` and ran on 3.12.14. It worked only
+  because both put python at `/usr/local/bin` and the ABI is stable across a
+  patch release — a minor-version drift on either side would have broken it
+  without a word. The builder is the runtime image now, with the `uv` binary
+  copied in, which is what uv's own Docker guide asks for. No size change.
 - **`hidden` loses to any rule that sets `display`.** The key box's Endpoint
   row is a `.row`, which is `display: flex`, so it went on showing while
   `element.hidden` read true — and a Playwright check of the property passed
