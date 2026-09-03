@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from textcast import db
+from textcast.document import Block
 from textcast.pronounce import Rule
 from textcast.service import IngestError, ingest, rebuild_many, reparse
 
@@ -335,3 +336,107 @@ def test_dropping_audio_spares_a_render_another_article_wants(conn, settings):
     mine = {p.stem for p in cached_renders(first.article_id, conn, settings)}
 
     assert mine.isdisjoint(cache_keys(second.article_id, conn, settings))
+
+
+def test_re_parsing_keeps_the_summaries_a_model_wrote(settings, conn):
+    """A summary is a block, and no stored source ever held one.
+
+    So re-parsing used to delete every summary in the library without saying
+    so — thirty-five of them here, each one a call to a model.
+    """
+    from textcast import service
+    from textcast.document import BlockKind
+
+    html = (
+        "<html><head><title>A charted note</title></head><body><article>"
+        "<h1>A charted note</h1>"
+        "<h2>The first part</h2>"
+        f"<p>{'Sentence about the market. ' * 12}</p>"
+        f"<p>{'Another sentence entirely. ' * 12}</p>"
+        "<h2>The second part</h2>"
+        f"<p>{'A third kind of sentence. ' * 12}</p>"
+        "</article></body></html>"
+    )
+    stored = service.ingest(html=html, url="https://x.test/p", build=False, settings=settings)
+
+    article = db.load_article(stored.article_id, conn)
+    for section in article.sections:
+        section.blocks.insert(0, Block(kind=BlockKind.SUMMARY, text=f"Summary of {section.title}."))
+    db.replace_blocks(stored.article_id, article.renumber(), conn)
+
+    result = service.reparse(stored.article_id, settings=settings)
+
+    assert result.summaries_kept == 2
+    assert result.summaries_lost == 0
+    back = db.load_article(result.article_id, conn)
+    for section in back.sections:
+        assert section.blocks[0].kind is BlockKind.SUMMARY, "not at the head of its section"
+        assert section.blocks[0].text == f"Summary of {section.title}."
+
+
+def test_a_summary_whose_section_is_gone_is_counted_not_hidden(settings, conn):
+    """The section title is the only handle, and a parser fix can move one."""
+    from textcast import service
+    from textcast.document import BlockKind
+
+    html = (
+        "<html><head><title>A note</title></head><body><article><h1>A note</h1>"
+        f"<p>{'Sentence about the market. ' * 14}</p>"
+        f"<p>{'Another sentence entirely. ' * 14}</p>"
+        "</article></body></html>"
+    )
+    stored = service.ingest(html=html, url="https://x.test/q", build=False, settings=settings)
+
+    article = db.load_article(stored.article_id, conn)
+    article.sections[0].blocks.insert(0, Block(kind=BlockKind.SUMMARY, text="Orphaned."))
+    db.replace_blocks(stored.article_id, article.renumber(), conn)
+    # Straight to the row: `replace_blocks` writes blocks, not section titles.
+    conn.execute(
+        "UPDATE section SET title = ? WHERE article_id = ? AND idx = 0",
+        ("A title the parser will not produce again", stored.article_id),
+    )
+    conn.commit()
+
+    result = service.reparse(stored.article_id, settings=settings)
+
+    assert result.summaries_kept == 0
+    assert result.summaries_lost == 1
+
+
+def test_re_parsing_queues_nothing_and_says_so(settings, conn):
+    """Replaying a parser fix over the library queued a build per article.
+
+    That is the CPU for the rest of the day, and nobody asked for it. The
+    audio is invalid either way; when to spend the machine is the owner's call.
+    """
+    from textcast import service
+
+    stored = add_note()
+    before = conn.execute("SELECT COUNT(*) AS n FROM job").fetchone()["n"]
+
+    result = service.reparse(stored.article_id, settings=settings)
+
+    assert result.job_id is None
+    assert conn.execute("SELECT COUNT(*) AS n FROM job").fetchone()["n"] == before
+
+
+def test_a_re_parse_that_changes_nothing_leaves_the_article_alone(settings, conn):
+    """The ids would not have moved, so the audio is still correct.
+
+    Replacing anyway took the article out of `ready` and orphaned audio that
+    was fine — which, over a library, reads as "re-parsing broke everything".
+    """
+    from textcast import service
+
+    stored = add_note()
+    conn.execute("UPDATE article SET status = 'ready', audio_ms = 12345 WHERE id = ?",
+                 (stored.article_id,))
+    conn.commit()
+
+    result = service.reparse(stored.article_id, settings=settings)
+
+    assert result.unchanged
+    assert result.article_id == stored.article_id, "it replaced the row"
+    row = db.get_article(stored.article_id, conn)
+    assert row["status"] == "ready"
+    assert row["audio_ms"] == 12345

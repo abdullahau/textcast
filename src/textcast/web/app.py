@@ -461,7 +461,17 @@ def _last_summary(article_id: int, conn) -> dict:
 
 
 @app.get("/a/{slug}", response_class=HTMLResponse, dependencies=[Auth])
-def reader(request: Request, slug: str, edit: bool = False, edited: int = 0, removed: int = 0):
+def reader(
+    request: Request,
+    slug: str,
+    edit: bool = False,
+    edited: int = 0,
+    removed: int = 0,
+    reparsed: int = 0,
+    unchanged: int = 0,
+    kept: int = 0,
+    lost: int = 0,
+):
     row = article_or_404(slug)
     conn = db.connect()
     article = db.load_article(row["id"], conn)
@@ -516,6 +526,10 @@ def reader(request: Request, slug: str, edit: bool = False, edited: int = 0, rem
         editing=edit,
         edited=edited,
         removed=removed,
+        reparsed=reparsed,
+        reparse_unchanged=bool(unchanged),
+        summaries_kept=kept,
+        summaries_lost=lost,
         kinds=[str(k) for k in BlockKind],
         # What the reader draws rather than prints. Read off the model, so a
         # fourth visual kind does not need finding in a template as well.
@@ -1294,8 +1308,22 @@ def api_reparse(request: Request, article_id: int, adapter: str = Form(default="
     except IngestError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if _wants_html(request):
-        return RedirectResponse(f"/a/{result.slug}", status_code=303)
-    return {"id": result.article_id, "slug": result.slug}
+        query = urlencode(
+            {
+                "reparsed": 1,
+                "unchanged": int(result.unchanged),
+                "kept": result.summaries_kept,
+                "lost": result.summaries_lost,
+            }
+        )
+        return RedirectResponse(f"/a/{result.slug}?{query}", status_code=303)
+    return {
+        "id": result.article_id,
+        "slug": result.slug,
+        "unchanged": result.unchanged,
+        "summaries_kept": result.summaries_kept,
+        "summaries_lost": result.summaries_lost,
+    }
 
 
 @app.post("/api/articles/{article_id}/flag", dependencies=[Auth])

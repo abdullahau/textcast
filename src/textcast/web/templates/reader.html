@@ -207,6 +207,21 @@
     </div>
   {% endif %}
 
+  {% if reparsed %}
+    <p class="notice {{ 'note' if reparse_unchanged else 'ok' }}" data-dismissible>
+      {% if reparse_unchanged %}
+        Re-parsed, and the parser produced exactly what was already stored. Nothing was
+        replaced, so the audio is untouched and still correct.
+      {% else %}
+        Re-parsed from the stored original.
+        {% if summaries_kept %}The {{ summaries_kept }} summar{{ 'y' if summaries_kept == 1 else 'ies' }} came across.{% endif %}
+        {% if summaries_lost %}{{ summaries_lost }} summar{{ 'y' if summaries_lost == 1 else 'ies' }} had no section to return to and {{ 'was' if summaries_lost == 1 else 'were' }} dropped.{% endif %}
+        The block ids moved, so the audio no longer lines up — build it when you are ready.
+        Nothing was queued for you.
+      {% endif %}
+    </p>
+  {% endif %}
+
   {% if edited or removed %}
     <p class="notice ok">
       {% if removed %}

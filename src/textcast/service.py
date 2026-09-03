@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import shutil
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import requests
@@ -48,6 +48,12 @@ class Ingested:
     job_id: int | None
     tags: list[str] = field(default_factory=list)
     duplicate: bool = False
+    #: Summaries carried across a re-parse, and ones with nowhere to land.
+    summaries_kept: int = 0
+    summaries_lost: int = 0
+    #: A re-parse that produced exactly what was already stored, and so
+    #: replaced nothing and left the audio alone.
+    unchanged: bool = False
 
 
 def fetch(url: str, timeout: float = 30.0) -> str:
@@ -464,11 +470,88 @@ def delete(article_id: int, settings: Settings | None = None) -> bool:
     return True
 
 
-def reparse(article_id: int, adapter: str | None = None, settings: Settings | None = None) -> Ingested:
+def _summaries_by_section(article: Article) -> dict[str, list[str]]:
+    """The summaries an article is carrying, filed under their section title."""
+    from .document import BlockKind
+
+    out: dict[str, list[str]] = {}
+    for section in article.sections:
+        kept = [b.text for b in section.blocks if b.kind is BlockKind.SUMMARY]
+        if kept:
+            out.setdefault(section.title, []).extend(kept)
+    return out
+
+
+def _restore_summaries(article: Article, carried: dict[str, list[str]]) -> tuple[int, int]:
+    """Put the summaries back at the head of the sections they belonged to.
+
+    A summary is a block, and the source an article was parsed from never
+    had one — so a re-parse used to delete every summary in the library
+    without saying so. Thirty-five of them, across seven articles, each one
+    a call to a model.
+
+    The section title is the only handle there is. A section that has been
+    renamed or split by the very parser fix being replayed loses its summary,
+    and the count says how many.
+    """
+    from .document import Block, BlockKind
+
+    kept = 0
+    remaining = {title: list(texts) for title, texts in carried.items()}
+    for section in article.sections:
+        texts = remaining.get(section.title)
+        if not texts:
+            continue
+        # At the head, where `summarize` puts them, and in the order they
+        # were stored.
+        for offset, text in enumerate(texts):
+            section.blocks.insert(offset, Block(kind=BlockKind.SUMMARY, text=text))
+        kept += len(texts)
+        remaining.pop(section.title)
+    article.renumber()
+    return kept, sum(len(texts) for texts in remaining.values())
+
+
+def _same_article(stored: Article | None, fresh: Article) -> bool:
+    """Would replacing one with the other change anything the reader shows?
+
+    Section titles and every block, compared as they would be stored. If they
+    match there is nothing to replace, and replacing anyway would take an
+    article out of `ready` and orphan audio that is still correct.
+    """
+    if stored is None:
+        return False
+    if [s.title for s in stored.sections] != [s.title for s in fresh.sections]:
+        return False
+    def rows(article: Article):
+        return [(b.kind, b.text, b.media, b.footnote_ref) for _s, b in article.blocks()]
+    if rows(stored) != rows(fresh):
+        return False
+    return (stored.title, stored.subtitle, stored.author, stored.source, stored.published_at) == (
+        fresh.title, fresh.subtitle, fresh.author, fresh.source, fresh.published_at
+    )
+
+
+def reparse(
+    article_id: int,
+    adapter: str | None = None,
+    settings: Settings | None = None,
+    build: bool = False,
+) -> Ingested:
     """Re-run the parser over the stored source after a parser fix.
 
     The new article is parsed *before* the old one is deleted. An earlier
     version deleted first, so a parse error left neither copy behind.
+
+    Summaries are carried across. They are blocks, and no source ever held
+    one, so re-parsing used to throw away every summary the library had.
+
+    Two things it does *not* do. It does not queue a build: replaying a parser
+    fix over the whole library queued one per article, which is the CPU for
+    the rest of the day and nobody asked for it. And where the new parse is
+    the old one, it replaces nothing at all — the ids would not have moved, so
+    the audio is still correct and taking the article out of `ready` would
+    have been a lie about it.
     """
     settings = settings or get_settings()
     conn = db.connect(settings.db_path)
@@ -492,14 +575,38 @@ def reparse(article_id: int, adapter: str | None = None, settings: Settings | No
 
     tags = db.tags_for(article_id, conn)
     options = db.get_build_options(article_id, conn)
+
+    stored_article = db.load_article(article_id, conn)
+    kept, lost = _restore_summaries(
+        article, _summaries_by_section(stored_article) if stored_article else {}
+    )
+    if lost:
+        log.warning("%s: %d summary block(s) had no section to return to", row["slug"], lost)
+
+    if _same_article(stored_article, article):
+        log.info("%s re-parsed to exactly what was stored; left alone", row["slug"])
+        return Ingested(
+            article_id=article_id,
+            slug=row["slug"],
+            title=row["title"],
+            word_count=row["word_count"],
+            series=row["series"],
+            job_id=None,
+            tags=tags,
+            summaries_kept=kept,
+            unchanged=True,
+        )
+
     db.delete_article(article_id, conn)
-    return store(
+    result = store(
         article,
         original=(raw, suffix),
         tags=tags,
         options=options,
+        build=build,
         settings=settings,
     )
+    return replace(result, summaries_kept=kept, summaries_lost=lost)
 
 
 def _reparse_kwargs(suffix: str, raw: bytes, title: str) -> dict:
