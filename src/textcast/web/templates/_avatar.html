@@ -7,7 +7,10 @@
   {%- if account and account.has_photo -%}
     <img src="/avatar" alt="{{ account.username }}" width="64" height="64">
   {%- else -%}
-    <svg viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+    {# width and height as attributes, not only in CSS: an SVG without them
+       falls back to 300x150, which shoves the whole bar sideways on any load
+       that reaches the page before the stylesheet does. #}
+    <svg viewBox="0 0 64 64" width="64" height="64" aria-hidden="true" focusable="false">
       <circle cx="32" cy="23" r="11"/>
       <path d="M12 57a20 20 0 0 1 40 0z"/>
     </svg>
