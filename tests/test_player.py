@@ -62,7 +62,13 @@ def sample_article() -> Article:
         sections=[
             Section(title="INMB", blocks=[para(1), para(3), para(5),
                                           Block(kind=BlockKind.FOOTNOTE, text="Footnote 1. A note.")]),
-            Section(title="Linqto", blocks=[para(2), para(4)]),
+            # The table goes last, in the second section, so every block id
+            # the other tests name stays where it was.
+            Section(title="Linqto", blocks=[para(2), para(4), Block(
+                kind=BlockKind.TABLE,
+                text="Table: Two by two",
+                media={"rows": [["A", "B"], ["1", "2"]], "header": True},
+            )]),
         ],
     ).renumber()
 
@@ -293,12 +299,18 @@ def test_selecting_text_does_not_seek(still_page, live):
     assert still_page.evaluate("document.getElementById('audio').paused")
 
 
-def test_blocks_are_paragraphs_not_buttons(page):
-    """A <button> wrapper is what broke selection in the first place."""
+def test_blocks_are_never_buttons(page):
+    """A <button> wrapper is what broke selection in the first place.
+
+    Prose is a <p> and a visual is a <figure>, which cannot swallow a click on
+    the text because there is no text in it to select. What must never come
+    back is the block that is itself a control.
+    """
     tags = page.evaluate(
         "Array.from(document.querySelectorAll('#doc .b')).map(e => e.tagName)"
     )
-    assert set(tags) == {"P"}
+    assert set(tags) <= {"P", "FIGURE"}
+    assert "P" in tags
 
 
 def test_moving_to_the_next_section_loads_its_own_track(page):
@@ -764,3 +776,72 @@ def test_opening_a_finished_article_does_not_un_finish_it(still_page, quiet):
         time.sleep(0.25)
     else:
         raise AssertionError("the save cleared the completed flag")
+
+
+def _play_into_the_table(page, base, slug, manifest):
+    """Start the second section playing, just short of the table at its end.
+
+    Seeking *to* the table would not do: the player deliberately does not stop
+    on a block you asked it to jump to. The stop is for reading past one.
+    """
+    page.goto(f"{base}/a/{slug}")
+    page.wait_for_selector("#doc .b")
+    table = manifest.sections[1].blocks[-1]
+    before = manifest.sections[1].blocks[-2]
+
+    page.evaluate(f'document.querySelector(\'[data-seek="{before.id}"]\').click()')
+    page.wait_for_function("() => !document.getElementById('audio').paused", timeout=8000)
+    page.evaluate(
+        "ms => { document.getElementById('audio').currentTime = ms / 1000 - 0.3; }",
+        table.start_ms,
+    )
+    return table
+
+
+def test_the_player_stops_at_a_table_so_it_can_be_looked_at(live, browser):
+    """The whole reason the parsers keep a chart: you can pause and look at it.
+
+    A page of its own, because it pauses the audio and a test that inherited
+    that state has been broken by it before.
+    """
+    base, slug, manifest = live
+    context = browser.new_context()
+    page = context.new_page()
+    page.goto(f"{base}/a/{slug}")
+    page.wait_for_selector("#doc .b")
+    # The toggle lives in the sheet, which is hidden until it is opened. The
+    # setting is what is being tested, not the sheet's own machinery.
+    page.evaluate(
+        "() => { const box = document.getElementById('opt-pause-visual');"
+        " box.checked = true; box.dispatchEvent(new Event('change')); }"
+    )
+
+    table = _play_into_the_table(page, base, slug, manifest)
+    assert page.query_selector(f'#{table.id}[data-visual="1"]'), "the table is not marked"
+
+    page.wait_for_function("() => document.getElementById('audio').paused", timeout=10000)
+    assert page.evaluate("document.querySelector('#doc .b.on').id") == table.id
+
+    # Pressing play again carries on rather than stopping on the same block
+    # for ever.
+    page.evaluate("document.getElementById('audio').play()")
+    page.wait_for_timeout(700)
+    assert page.evaluate("!document.getElementById('audio').paused")
+    context.close()
+
+
+def test_the_player_reads_through_a_table_unless_it_is_asked_not_to(live, browser):
+    """Off by default: nothing stops for a reader who did not ask it to."""
+    base, slug, manifest = live
+    context = browser.new_context()
+    page = context.new_page()
+    page.goto(f"{base}/a/{slug}")
+    page.wait_for_selector("#doc .b")
+
+    assert page.evaluate("document.getElementById('opt-pause-visual').checked") is False
+
+    _play_into_the_table(page, base, slug, manifest)
+    page.wait_for_timeout(1500)
+
+    assert page.evaluate("!document.getElementById('audio').paused"), "it stopped anyway"
+    context.close()

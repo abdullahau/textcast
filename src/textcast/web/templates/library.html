@@ -142,7 +142,7 @@
         them, and they are the one part of the library that cannot be made again.
         <b>Text</b> is one Markdown file per article, as the reader shows it, with any summary in
         place. <b>Audio</b> is one directory per article: the Opus files, the timing map and the
-        manifest, so the read-along survives outside the app.</span>
+        manifest, so the read-along survives outside the app{% if exports.pictures.count %}, and the {{ exports.pictures.count }} stored picture{{ '' if exports.pictures.count == 1 else 's' }} the articles point at{% endif %}.</span>
       </span>
     </span>
     {% if exports.sources.count %}

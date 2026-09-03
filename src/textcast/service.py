@@ -8,12 +8,13 @@ the only front end, and the worker reaches ingest through the mail poll.
 from __future__ import annotations
 
 import logging
+import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import requests
 
-from . import db
+from . import db, pictures
 from .document import Article
 from .ingest import parse_html
 from .ingest.newsletter import article_from_eml
@@ -190,6 +191,14 @@ def store(
     if options:
         db.set_build_options(article_id, options, conn)
 
+    # Before the build is queued, so the reader has the pictures the moment
+    # the article appears. A failure here is not a failure to ingest: the
+    # block keeps the address it was parsed with and the reader hotlinks it.
+    try:
+        pictures.fetch_for(article_id, settings, conn)
+    except Exception:
+        log.exception("could not store the pictures for %s", row["slug"])
+
     job_id = None
     if build:
         # Summarising comes first and queues the build itself, because a new
@@ -268,18 +277,32 @@ from .cache import (  # noqa: E402,F401
 )
 
 
-def _drop_media(slug: str, settings: Settings) -> int:
+def _drop_media(slug: str, settings: Settings, *, pictures_too: bool = False) -> int:
     """Empty and remove one article's media directory. Returns files removed.
 
     Three callers had a copy of this loop. Only the files go: the block cache
     is a separate decision, and the two callers that keep it are the point.
+
+    `images/` sits in the same directory and is not audio. The audio can be
+    built again from the blocks; a picture cannot, because the page it came
+    from may be gone. So the default steps over the directory — `unlink` would
+    raise on it anyway — and only `delete`, which is taking the article too,
+    asks for the lot.
     """
     media = settings.media_dir / slug
+    if pictures_too:
+        removed = sum(1 for path in media.rglob("*") if path.is_file())
+        shutil.rmtree(media, ignore_errors=True)
+        return removed
+
     removed = 0
     for child in media.glob("*"):
-        child.unlink(missing_ok=True)
-        removed += 1
-    if media.exists():
+        if child.is_file():
+            child.unlink(missing_ok=True)
+            removed += 1
+    # `rmdir` refuses a directory with anything left in it, which is the
+    # behaviour wanted: the pictures do not go when the audio does.
+    if media.is_dir() and not any(media.iterdir()):
         media.rmdir()
     return removed
 
@@ -342,6 +365,9 @@ def edit_blocks(
     # stays: it is keyed by the text, so rebuilding costs an encode, not a
     # trip back to the model.
     _drop_media(row["slug"], settings)
+    # A removed figure takes its picture with it. Nothing else collects them:
+    # the name is a hash, so no later parse ever overwrites an old one.
+    pictures.sweep(row["slug"], article, settings)
 
     return {"changed": kept, "removed": len(removed)}
 
@@ -423,7 +449,9 @@ def delete(article_id: int, settings: Settings | None = None) -> bool:
     if row is None:
         return False
 
-    _drop_media(row["slug"], settings)
+    # The whole directory this time, pictures included: nothing is left that
+    # could want them.
+    _drop_media(row["slug"], settings, pictures_too=True)
 
     for suffix in SOURCE_SUFFIXES:
         (settings.source_dir / f"{row['slug']}{suffix}").unlink(missing_ok=True)

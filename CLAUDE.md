@@ -17,7 +17,7 @@ docker compose logs -f worker  # builds and mail polling land here
 
 uv sync --extra cpu --extra kokoro --extra kokoro-onnx --extra web \
         --extra documents --extra summaries --group dev
-uv run pytest                  # 413 tests
+uv run pytest                  # 439 tests
 uv run ruff check src tests    # before committing; formatting is not enforced
 ```
 
@@ -111,6 +111,8 @@ src/textcast/
 ├── pronounce.py    Word-level rules, editable in the UI. Respellings and IPA.
 ├── prefs.py        Default voice, quote voice and pace, stored in `setting`
 │                   so they change without a restart and queue nothing.
+├── pictures.py     Fetches every picture an article cites into
+│                   `media/<slug>/images/`, and sweeps what nothing wants.
 ├── ingest/
 │   ├── dom.py      selectolax helpers (lexbor)
 │   ├── base.py     the shared DOM walker + junk pruning
@@ -172,6 +174,16 @@ without rewriting anything.
 `section-000.vtt` (the timing map, cue ids = block ids), and `manifest.json`
 (the same timings, for reading outside the app). Safe to delete an article's
 directory; the next build writes it again.
+
+**`media/<slug>/images/`** is the exception to that last sentence. Every
+picture the article cites is fetched once at ingest and stored here, named for
+a hash of the address it came from. A build does *not* write it again, and
+neither does anything else: the page it came from may be gone. So the audio
+wipes — **Delete audio**, and the one an edited block triggers — take files
+only and step over this directory, and it goes with the article and with
+nothing less. `block.media["file"]` names the file; `block.media["src"]` keeps
+the address it came from, and the reader falls back to hotlinking it when the
+fetch failed.
 
 **`cache/`** is one `.i16` per rendered block — int16 PCM, keyed by a hash of
 the *spoken* text, the engine, the voice and the pace. Still uncompressed, so
@@ -296,6 +308,7 @@ Re-measure before overturning any of these. The numbers are from this box:
 | **The page shows the caption, the audio says the label** | `block.text` is `Table: Ker-CHING 💰`, which is what the synthesiser reads, what search indexes and what the block editor shows. `media["caption"]` is `Ker-CHING 💰` alone, and is what the page prints — a reader can see it is a table. A picture with no caption gets `Figure.` for the listener and nothing under it on the page. Where the FT lifts the title out of the header row, `caption` is left off entirely: printed again below, it read as a second title. |
 | **Visuals are opt-in per adapter, and the newsletter walk stays text-only** | `blocks_from_dom` takes `visuals=NO_VISUALS` by default, so a walk that has not been told what a publication's furniture looks like behaves exactly as it did before. FT, Bloomberg, Substack and the generic extractor pass rules; `newsletter.py` does not, because a newsletter is built out of layout tables and `_table_block` cannot tell a two-by-two of prose from data. |
 | **An `iframe` is kept by allowlist, never by blocklist** | `EMBED_HOSTS` names fifteen chart tools. Everything else is refused, because an `iframe` is far more often an advert, a consent shim or a beacon — the SpaceX page carries three and not one is a graphic. A new advert network appears more often than a new chart tool does. And the frame is not fetched until the reader presses **Load the chart**: a live chart is a third party the reader has not agreed to. |
+| **A picture is fetched, not hotlinked** | Pointing an `<img>` at the publication's own CDN cost three things at once: an article kept offline showed nothing, a paywalled image answered 403 to a reader not signed in, and the publication learned the reader's address. Storage is the cheapest of the four. The fetch runs inside the ingest request, in a pool of four, because that request already fetches the page for `kind=url` — and it is never fatal: a picture that will not download keeps its remote address and the reader hotlinks that one. Named for a hash of its address, so a re-parse writes nothing, two blocks quoting the same chart share a file, and the response can be cached for ever. |
 | **selectolax, not BeautifulSoup** | 4.8× faster on the corpus (66 ms vs 314 ms for 6.3 MB), one wheel, no lxml. Its `[class*="Footnotes_base"]` also beats a regex over the class list. |
 | **torch from the CPU index** | The default pulls CUDA: 15 nvidia packages, 5.2 GB venv, 9.3 GB image, on a box with no GPU. Pinned in `[tool.uv.sources]`. Now 1.4 GB and 3.3 GB. |
 | **4 single-threaded engines, not 1 four-threaded** | RTF 0.562 vs 0.629, an 11% gain. 2×2 gives 0.633 (no gain); 6×1 gives 0.593 (worse). The model is bound more by memory bandwidth than cores — do not expect 4× from 4 cores. |
@@ -499,6 +512,31 @@ Things that have already bitten once.
   `colspan="1000"`, which is a way of saying "the whole row", not a width.
   Left alone it made a row of a thousand cells. Capped at 12, and `tfoot` is
   read into `media["foot"]` rather than into the rows: it is a credit line.
+- **An audio wipe must ask what it is deleting.** `delete_audio` and the wipe
+  after a block edit both did `for child in media.glob("*"): child.unlink()`,
+  which is fine while everything in there is a file and wrong the moment
+  `images/` is beside them — `unlink` on a directory raises, and the pictures
+  would have gone with audio that can simply be built again. Both take files
+  only now, and `_tidy` removes the directory only when nothing is left in it.
+  `service.delete` is the one that takes the lot, with `shutil.rmtree`.
+- **A re-parse remembers nothing, so the disk has to.** Re-parsing rebuilds
+  every block from scratch, and none of them carries the `file` the last parse
+  stored. Without a check against the directory, re-parsing the library would
+  download every picture in it again to write bytes already there.
+  `already_stored` globs for the address's hash and reuses what it finds.
+- **The player must not stop on a block you asked it to jump to.** Seeking to
+  a figure is already a decision to look at it, and pausing there fights the
+  person who pressed the button. `stopToLook` only fires while the audio is
+  playing, and remembers the block it stopped on so pressing play again
+  carries on past it instead of stopping on the same one for ever.
+- **The player's own toggles are inside the sheet, which is hidden.**
+  Playwright's `check()` waits for a visible element and times out on one that
+  is not. A test about the *setting* sets the property and dispatches
+  `change`; opening the sheet is a different test's business.
+- **A block is a `<p>` or a `<figure>`, and never a `<button>`.** The old test
+  asserted every block was a `P`, which was a proxy for the thing that
+  actually matters — a block that is itself a control swallows the click that
+  would have selected a sentence. A figure has no prose in it to select.
 - **A publication puts its byline in the head, not the body.** Bloomberg names
   the writer in `parsely-author`, `sailthru.author` and `author`, and again in
   a byline whose class carries a build hash. The meta tags are the stable
@@ -1116,14 +1154,17 @@ while they run, so anything landing on `main` unwatched is landing unread.
     whole library. A scoped ingest-only token would cap what a stolen one is
     worth. Nor does anything rate-limit `/api/ingest`, which is the one route
     that takes a credential in a body from anywhere on the internet.
-12. **A visual is hotlinked, not stored.** The reader points an `<img>` at the
-    publication's own CDN, with `referrerpolicy="no-referrer"` and lazy
-    loading. Three costs follow, and none is paid yet: an article kept
-    offline has no picture, a paywalled image may answer 403 to a reader who
-    is not signed in, and the publication learns the reader's address. The
-    fix is to fetch each picture at ingest into `media/<slug>/`, which then
-    needs a sweep in `service.delete`, a place in the audio export and a size
-    budget. Worth doing; it is the next step, not this one.
+12. **A picture that failed to download is never tried again.** The block
+    keeps its remote address and the reader hotlinks it, which is the right
+    fallback and not a repair. Nothing re-runs `pictures.fetch_for` except a
+    re-parse, and nothing in the app says which articles are still pointing
+    outside. The Markdown export has the same gap: `to_markdown` writes the
+    address the picture came from, not the copy on disk, so a text export
+    opened offline shows nothing. The audio export does carry them —
+    `media/<slug>/` goes into the zip whole, `images/` included.
+    The service worker does not cache them either: it caches what the page
+    asks for, and a lazy-loaded picture below the fold is never asked for
+    while the article is being saved.
 13. **Only the audio's own cue says a chart is there.** The build speaks
     "Table: Ker-CHING", and the player can stop on the block if **Pause at a
     chart or table** is ticked in the sheet. Nothing tells you *before* you

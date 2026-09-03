@@ -222,6 +222,23 @@ def edit_blocks(article_id: int, edits: dict[str, dict], conn: sqlite3.Connectio
     return changed
 
 
+def set_block_media(
+    article_id: int, block_id: str, media: dict | None, conn: sqlite3.Connection | None = None
+) -> None:
+    """Rewrite one block's payload, leaving its text and its id alone.
+
+    How a fetched picture reaches the row it belongs to. Nothing else moves,
+    so the audio and the timing map stay valid: only where the picture is
+    read from has changed.
+    """
+    conn = conn or connect()
+    with transaction(conn):
+        conn.execute(
+            "UPDATE block SET media = ? WHERE article_id = ? AND block_id = ?",
+            (dump_media(media), article_id, block_id),
+        )
+
+
 def replace_blocks(article_id: int, article: Article, conn: sqlite3.Connection | None = None) -> None:
     """Swap in a new set of blocks for an article that is already stored.
 

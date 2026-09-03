@@ -277,7 +277,11 @@
           <figure class="b {{ block.kind }}" id="{{ block.id }}" data-b="{{ block.id }}"
                   data-s="{{ section.idx }}" data-visual="1">{{ seek }}
             {% if block.kind == 'figure' %}
-              <img src="{{ block.media.src }}" alt="{{ block.media.alt or block.text }}"
+              {# The stored copy where there is one. `src` stays the address it
+                 came from, so a picture that would not download still shows
+                 and a later attempt knows where to look. #}
+              <img src="{% if block.media.file %}/media/{{ row.slug }}/images/{{ block.media.file }}{% else %}{{ block.media.src }}{% endif %}"
+                   alt="{{ block.media.alt or block.text }}"
                    loading="lazy" decoding="async" referrerpolicy="no-referrer">
             {% elif block.kind == 'table' %}
               <div class="scroller"><table class="data">

@@ -301,12 +301,28 @@ def _export_totals() -> dict:
         slug: [p for p in (settings.media_dir / slug).glob("*") if p.is_file()] for slug in slugs
     }
     played = {slug: files for slug, files in audio.items() if files}
+    # Pictures sit in a subdirectory, so the audio glob above steps over them.
+    pictures = [
+        p
+        for slug in slugs
+        for p in (settings.media_dir / slug / "images").glob("*")
+        if p.is_file()
+    ]
     return {
         "sources": {"count": len(sources), "bytes": sum(p.stat().st_size for p in sources)},
         "text": {"count": len(slugs)},
         "audio": {
             "count": len(played),
-            "bytes": sum(p.stat().st_size for files in played.values() for p in files),
+            # What the zip weighs, which is the whole media directory — the
+            # pictures are in it and the glob above steps over them.
+            "bytes": (
+                sum(p.stat().st_size for files in played.values() for p in files)
+                + sum(p.stat().st_size for p in pictures)
+            ),
+        },
+        "pictures": {
+            "count": len(pictures),
+            "bytes": sum(p.stat().st_size for p in pictures),
         },
     }
 
@@ -1455,6 +1471,36 @@ def api_jobs():
 # media and PWA
 # --------------------------------------------------------------------------
 
+#: What a stored picture is served as. Keyed by the suffix `pictures.py` gave
+#: it, which it read off the Content-Type when it fetched it.
+IMAGE_TYPES = {
+    ".jpg": "image/jpeg",
+    ".png": "image/png",
+    ".webp": "image/webp",
+    ".gif": "image/gif",
+    ".avif": "image/avif",
+    ".svg": "image/svg+xml",
+}
+
+
+@app.get("/media/{slug}/images/{name}", dependencies=[Auth])
+def article_image(slug: str, name: str):
+    """Serve a stored picture. Its own route because the audio's rejects a slash.
+
+    The name is a hash of the address the picture came from, so the response
+    can be cached for ever: a different picture is a different name.
+    """
+    if "/" in name or ".." in name or ".." in slug:
+        raise HTTPException(status_code=400, detail="bad path")
+    path = settings.media_dir / slug / "images" / name
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="no such picture")
+    return FileResponse(
+        path,
+        media_type=IMAGE_TYPES.get(path.suffix, "application/octet-stream"),
+        headers={"Cache-Control": "public, max-age=31536000, immutable"},
+    )
+
 
 @app.get("/media/{slug}/{name}", dependencies=[Auth])
 def media(slug: str, name: str):
@@ -1582,9 +1628,11 @@ def api_export_audio():
         taken: dict[str, str] = {}
         for row in conn.execute("SELECT slug, title FROM article ORDER BY id"):
             directory = settings.media_dir / row["slug"]
-            for path in sorted(directory.glob("*")):
+            for path in sorted(directory.rglob("*")):
                 if path.is_file():
-                    yield f"{_export_name(row, taken)}/{path.name}", path
+                    # rglob, so `images/` comes too. A read-along without the
+                    # chart the writer pointed at is not the article.
+                    yield f"{_export_name(row, taken)}/{path.relative_to(directory)}", path
 
     return _zip_response(files(), "textcast-audio.zip")
 
