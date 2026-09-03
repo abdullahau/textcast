@@ -174,8 +174,8 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
 .bar-links a:not(.btn):hover { color: var(--fg); text-decoration: none; }
 /* A mark beside each label, so the bar is scannable before it is read. The
    icon inherits the link's colour, so hover moves both together. */
-.bar-links a { display: inline-flex; align-items: center; gap: .35rem; }
-.bar-links a svg {
+.bar-links a, .bar-links button.link { display: inline-flex; align-items: center; gap: .35rem; }
+.bar-links a svg, .bar-links button.link svg {
   width: 15px;
   height: 15px;
   flex: none;
@@ -187,7 +187,6 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
 }
 /* The Add button's own mark is heavier, to match its filled ground. */
 .bar-links a.btn svg { width: 14px; height: 14px; stroke-width: 2.4; }
-/* A form is the only honest way to sign out, so its button has to read as a link. */
 /* A switch, not a button: it shows which of the two you are in, and slides to
    the other. aria-checked is set from JavaScript because "dark" can come from
    the system with no attribute on the page at all. */
@@ -244,6 +243,8 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
 .theme-switch[aria-checked="true"] .sun { color: var(--muted); }
 .theme-switch[aria-checked="true"] .moon { color: var(--fg); }
 
+/* A form is the only honest way to sign out, so its button has to read as a link,
+   mark and all: the rule above gives it the same icon the links carry. */
 button.link { background: none; border: 0; padding: 0 .3rem; font: inherit; color: var(--muted); cursor: pointer; }
 button.link:hover { color: var(--fg); }
 
@@ -278,11 +279,23 @@ button.link:hover { color: var(--fg); }
     box-shadow: 0 12px 32px rgb(0 0 0 / .22);
   }
   .nav-group.open { display: flex; }
-  .nav-group a, .nav-group button.link { padding: .5rem .6rem; border-radius: var(--radius-sm); }
+  /* .bar-links a:not(.btn) is more specific than .nav-group a, so this rule
+     never reached the links: they sat 21px tall with no vertical padding at
+     all, while Sign out was the one item getting the tap target meant for
+     every one of them. Naming the ancestor wins it back, and lines the four
+     marks up on one edge. */
+  .bar-links .nav-group a, .bar-links .nav-group button.link {
+    padding: .5rem .6rem;
+    border-radius: var(--radius-sm);
+  }
   .nav-group a:hover, .nav-group button.link:hover { background: var(--sunk); }
   .nav-group .theme-switch { align-self: flex-start; margin: .3rem .6rem .2rem; }
   .nav-group form { width: 100%; }
-  .nav-group button.link { width: 100%; text-align: left; }
+  /* The shared button rule centres its content and pins it to the bar's own
+     2.1rem. In the menu every other item starts at the left edge and grows to
+     its padding, so this one has to be told both. text-align does nothing to a
+     flex box. */
+  .nav-group button.link { width: 100%; height: auto; justify-content: flex-start; }
 }
 
 /* ---------- page ---------- */

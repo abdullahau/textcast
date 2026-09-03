@@ -72,7 +72,7 @@
           <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>
         </svg>
       </button>
-      {% if auth_on %}<form method="post" action="/logout" class="narrow" style="display:inline"><button class="link" type="submit">Sign out</button></form>{% endif %}
+      {% if auth_on %}<form method="post" action="/logout" class="narrow" style="display:inline"><button class="link" type="submit"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg><span>Sign out</span></button></form>{% endif %}
     </div>
     <a class="btn sm" href="/add">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/><path d="M12 5v14"/></svg>

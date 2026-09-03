@@ -373,6 +373,16 @@ Things that have already bitten once.
 - **A centred flex row does not centre the thing in the middle of it.**
   "Previous" is wider than "Next", so the pager's page number sat right of
   centre. `grid-template-columns: 1fr auto 1fr` puts it on the true centre.
+- **The menu's own rule lost to the bar's.** `.bar-links a:not(.btn)` is more
+  specific than `.nav-group a`, so `padding: .5rem .6rem` never reached the
+  links folded into the phone menu: they sat 21px tall with no vertical
+  padding, against the 37px the rule asks for. Sign out was the only item
+  getting it, because `button.link` is less specific still. Invisible until
+  Sign out took an icon and the four marks failed to line up. The selector
+  names the ancestor now. A sign-out button also needs `height: auto` and
+  `justify-content: flex-start`: the shared `button` rule pins it to the
+  bar's 2.1rem and centres its content, which is right in the bar and wrong
+  in the menu.
 - **A nav rule must not repaint a button's label.** `.bar-links a` excluded
   `.cta`, a class nothing carried, so the Add button's text went grey against
   its own dark fill. The exclusion names `.btn` now.
