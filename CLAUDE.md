@@ -173,9 +173,11 @@ the millisecond, and added no cache file — an encode, with nothing going back
 to the model. Deleting it costs only time.
 
 It was float32 and 2.23 GB. int16 halves every file and the quantisation
-error peaks at −90 dBFS, under the encoder's own −45 dBFS. `service.
-compact_cache` converted 338 files in place and swept the rest: **2.23 GB to
-658 MB**, no engine loaded, nothing re-rendered.
+error peaks at −90 dBFS, under the encoder's own −45 dBFS. A one-shot
+`compact_cache` converted 338 files in place and swept the rest: **2.23 GB to
+658 MB**, no engine loaded, nothing re-rendered. It has run, everything is
+`.i16`, and it is deleted — git still has it. A stray `.f32` is now simply
+unreachable and the sweep takes it.
 
 **`sources/`** keeps the bytes each article arrived as, so Re-parse can replay
 a parser fix without re-fetching. Delete it and Re-parse stops working.
@@ -280,6 +282,7 @@ Re-measure before overturning any of these. The numbers are from this box:
 | **One onnxruntime session behind the whole pool** | The same trade as `KModel`, and the same size. Four instances each opening the 311 MB model held **1,595 MB** after a render; four sharing one session held **530 MB** and rendered no slower (RTF 0.456 against 0.451). onnxruntime's `Run` is thread-safe, so the session is the thing to share and the tokenizer and voice cache are the things to keep per instance. |
 | **Kokoro is the only engine** | A second, ONNX engine was ~2× faster (RTF 0.31 vs 0.65) but its delivery drifted in volume and glitched on long paragraphs. It was never the one worth listening to, so it went, and with it a build option, a second set of weights and a second licence. |
 | **A rule is skipped by a substring test before the regex engine sees it** | `pronounce.apply` ran all 86 rules against every block, and a `sub` that cannot match is a full scan with a regex engine on top. A word or a phrase rule is a literal inside guards, so the literal has to be in the text: `needle in lowered` is the same scan at C speed and skips 96% of the rules. Deciding whether a rule fires, fetching its pattern and building its replacement moved to `_prepared`, an `lru_cache` keyed on the rules themselves — 86 distinct answers were being recomputed 206,400 times. Measured over 2,400 blocks against the seeded rules: **1.014 s to 0.633 s**, and the sweep that derives the same spoken text went 1.074 s to 0.636 s. Byte-identical output over every block of `tests/corpus` on both phonemisers, with and without phonemes. |
+| **A rule's literal narrows the rebuild scan in SQL, not in Python** | `articles_matching` read every block of every built article into Python because a rule may be a regular expression. Most are not: a word or a phrase rule is a literal inside guards, so `b.text LIKE ?` is a superset of what the pattern would match and SQLite reads only the rows that pass it. Measured over 12,000 blocks across 200 ready articles: **48 ms to 5 ms**, and it now grows with the hits rather than with the library. Identical answers against the exhaustive scan across case, substrings of longer words, LIKE wildcards and a regex with no literal. A regex rule still reads them all. |
 | **selectolax, not BeautifulSoup** | 4.8× faster on the corpus (66 ms vs 314 ms for 6.3 MB), one wheel, no lxml. Its `[class*="Footnotes_base"]` also beats a regex over the class list. |
 | **torch from the CPU index** | The default pulls CUDA: 15 nvidia packages, 5.2 GB venv, 9.3 GB image, on a box with no GPU. Pinned in `[tool.uv.sources]`. Now 1.4 GB and 3.3 GB. |
 | **4 single-threaded engines, not 1 four-threaded** | RTF 0.562 vs 0.629, an 11% gain. 2×2 gives 0.633 (no gain); 6×1 gives 0.593 (worse). The model is bound more by memory bandwidth than cores — do not expect 4× from 4 cores. |
@@ -710,14 +713,19 @@ Things that have already bitten once.
   the batch loop's `try`, so `None` was an unhandled 500 that cost the whole
   batch — the one thing a batch promises not to do. The read and the naming
   are inside the try with the parse.
+- **A LIKE wildcard in a rule's pattern is not a correctness bug.** `%` and
+  `_` only ever *widen* a LIKE, and the regex has the last word, so the answer
+  stays right. `db._like_literal` escapes them to keep the narrowing worth
+  doing: an unescaped `%` in "100%" matches every block holding "100", and a
+  rule whose pattern is a bare "%" would hand Python the whole library again.
+- **`search_articles` asked for tags a row at a time.** `tags_for_many` was
+  written for the library page and does it in one query; the search loop was
+  calling `tags_for` per hit beside it. Reach for the one that takes a list
+  whenever the rows are already in hand.
 - **A cached render can belong to two articles.** Two pieces quoting the same
   paragraph, under the same engine, voice and pace, are one file.
   `cached_renders` subtracts every key another article still wants, or
   dropping one article's audio would silently cost another its cheap rebuild.
-- **Convert before you sweep.** `compact_cache` rewrites the reachable
-  `.f32` files as `.i16` first. Sweeping first would delete all of them as
-  "unreachable in the current format", and the next build would go back to
-  the model for every block.
 - **The cache holds int16; the caller still gets the model's floats.**
   `_speak` returns the freshly synthesised samples, not the round trip. Only
   a *later* build reads the quantised copy, which is where the −90 dBFS was
@@ -931,8 +939,15 @@ Fixed, so they can no longer bite:
 
 ## Where it stands
 
-Everything below is done, deployed and on `main`. Commit straight to `main`;
-the owner asked for no feature branches unless they say so.
+Everything below is done, deployed and on `main`.
+
+**Work by hand commits straight to `main`.** No feature branches unless the
+owner says so.
+
+**A background job never does.** It works in a branch and stops there: no
+commit to `main`, no merge, no force-push. It reports the branch name and the
+owner merges when they have read it. The owner does not watch background jobs
+while they run, so anything landing on `main` unwatched is landing unread.
 
 - **Kokoro is the only engine.** Supertonic is gone, with its extra, its
   weights and its licence.
@@ -984,10 +999,12 @@ the owner asked for no feature branches unless they say so.
 6. **`/login` is a token box, not accounts.** One shared token, one cookie. It
    is the right size for one person behind a tailnet, and the wrong size for
    anything with more than one reader.
-7. **`db.articles_matching` scans block text in Python.** A rule may be a
-   regular expression, which SQLite cannot match, so every ready article's
-   blocks are read. Fine at a few hundred articles; measure before it is
-   thousands.
+7. **`db.articles_matching` still reads every block for a *regex* rule.** A
+   word or a phrase rule is narrowed by `LIKE` in SQL first, which is most of
+   them. A regular expression has no literal to narrow on and SQLite cannot
+   match one, so those still read every ready article's blocks. Measured over
+   12,000 blocks: 48 ms against 5 ms. Fine at a few hundred articles; measure
+   before it is thousands.
 8. **The offline test covers one article, not eviction.** It caches, drops the
    network and reloads. Nothing exercises the browser evicting a cache under
    storage pressure, or `drop-article`.

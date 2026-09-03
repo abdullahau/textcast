@@ -263,7 +263,6 @@ def summarize(article_id: int, settings: Settings | None = None, replace: bool =
 from .cache import (  # noqa: E402,F401
     cache_keys,
     cached_renders,
-    compact_cache,
     library_keys,
     sweep_cache,
 )

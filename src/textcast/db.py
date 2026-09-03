@@ -675,10 +675,14 @@ def search_articles(query: str, conn: sqlite3.Connection | None = None, limit: i
 
     hits = []
     needle = term.lower()
+    # One query for every hit's tags, not one per hit. `tags_for_many` was
+    # written for the library page and this asked the same question a row at
+    # a time.
+    tags = tags_for_many([row["article_id"] for row in rows], conn)
     for row in rows:
         # Only the fields that actually matched. The title is already the
         # heading of the row, so repeating it says nothing.
-        fields = [row["subtitle"], row["author"], row["source"], *tags_for(row["article_id"], conn)]
+        fields = [row["subtitle"], row["author"], row["source"], *tags[row["article_id"]]]
         parts = [_mark(v, term) for v in fields if v and needle in v.lower()]
         if needle in (row["title"] or "").lower():
             parts.insert(0, _mark(row["title"], term))
@@ -1167,27 +1171,52 @@ def summarisable(conn: sqlite3.Connection | None = None, limit: int = 200) -> li
     ).fetchall()
 
 
+def _like_literal(text: str) -> str:
+    """A literal that means itself inside a LIKE pattern.
+
+    Not for correctness -- a wildcard only widens a LIKE, and the regex has
+    the last word either way. It is what keeps the narrowing worth doing: an
+    unescaped `%` in "100%" matches every block holding "100".
+    """
+    return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 def articles_matching(rule, conn: sqlite3.Connection | None = None, limit: int = 500) -> list[sqlite3.Row]:
     """Built articles whose text the rule would change.
 
     Editing one rule invalidates only the articles that use the word, so the
-    page can offer to rebuild exactly those. The scan runs in Python because a
-    rule may be a regular expression, which SQLite cannot match.
+    page can offer to rebuild exactly those. The match itself runs in Python
+    because a rule may be a regular expression, which SQLite cannot match.
+
+    A word or a phrase rule is a literal inside guards, though, so the literal
+    has to be in the text -- the same bargain `pronounce.apply` makes. `LIKE`
+    is a superset of what the pattern would match, and SQLite reads only the
+    rows that pass it instead of handing every block of every built article to
+    Python. A regex rule has no literal and still reads them all.
     """
     pattern = rule.compile()
     if pattern is None:
         return []
 
     conn = conn or connect()
+    # LIKE is case-insensitive over ASCII whatever the rule says about case,
+    # which is what makes it a superset: the pattern still has the last word.
+    narrow, params = "", []
+    if rule.kind != "regex" and rule.pattern:
+        narrow = "AND b.text LIKE ? ESCAPE '\\'"
+        params = ["%" + _like_literal(rule.pattern) + "%"]
+
     hits: list[int] = []
     seen: set[int] = set()
     for row in conn.execute(
-        """
+        f"""
         SELECT b.article_id, b.text
           FROM block b JOIN article a ON a.id = b.article_id
          WHERE a.status = 'ready' AND a.archived = 0
+           {narrow}
          ORDER BY b.article_id
-        """
+        """,
+        params,
     ):
         article_id = row["article_id"]
         if article_id in seen:

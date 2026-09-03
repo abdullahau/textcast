@@ -12,10 +12,8 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-import numpy as np
-
 from . import db
-from .audio import CACHE_SUFFIX, _cache_key, to_int16
+from .audio import CACHE_SUFFIX, _cache_key
 from .document import Block, BlockKind
 from .prefs import voice_defaults
 from .settings import Settings, get_settings
@@ -92,45 +90,6 @@ def cached_renders(article_id: int, conn, settings: Settings) -> list[Path]:
             # Every render this article reads is read by another one too.
             break
     return [settings.cache_dir / f"{key}{CACHE_SUFFIX}" for key in sorted(mine)]
-
-
-def compact_cache(settings: Settings | None = None, conn=None) -> dict:
-    """Bring the cache down to what is reachable, in the format it now uses.
-
-    Two jobs, in this order. Convert every float32 render still worth keeping
-    into int16 -- no engine is loaded, because the samples are already on
-    disk. Then sweep, which takes the converted originals away along with
-    everything nothing can reach.
-
-    Converting first matters: sweep alone would delete every ``.f32`` and the
-    next build would go back to the model for all of them.
-    """
-    settings = settings or get_settings()
-    conn = conn or db.connect(settings.db_path)
-
-    # Derived once and handed to the sweep. Both steps ask the same question,
-    # and answering it means re-deriving the spoken text of every block in the
-    # library -- 1.0 s over 2,400 blocks here, and it was paid twice.
-    wanted = library_keys(conn, settings)
-
-    converted = 0
-    for path in settings.cache_dir.glob("*.f32"):
-        if path.stem not in wanted:
-            continue  # the sweep is about to take it
-        target = path.with_suffix(CACHE_SUFFIX)
-        if target.exists():
-            continue
-        try:
-            samples = np.fromfile(path, dtype=np.float32)
-        except OSError:
-            continue
-        tmp = path.with_suffix(".part")
-        to_int16(samples).tofile(tmp)
-        tmp.replace(target)
-        converted += 1
-
-    removed, freed = sweep_cache(settings, conn, wanted)
-    return {"converted": converted, "removed": removed, "freed": freed}
 
 
 def sweep_cache(

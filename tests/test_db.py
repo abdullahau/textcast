@@ -464,3 +464,86 @@ def test_the_count_and_the_page_read_the_same_filter(conn):
     assert db.count_articles(conn, tag="Money Stuff") == 2
     assert len(db.list_articles(conn, tag="Money Stuff", limit=25)) == 2
     assert db.count_articles(conn, status="ready") == 0
+
+
+# --------------------------------------------------------------------------
+# which articles a rule would change
+# --------------------------------------------------------------------------
+
+
+def _matching_the_slow_way(rule, conn):
+    """What `articles_matching` did before SQL narrowed it: every block."""
+    pattern = rule.compile()
+    hits, seen = [], set()
+    for row in conn.execute(
+        "SELECT b.article_id, b.text FROM block b JOIN article a ON a.id = b.article_id"
+        " WHERE a.status = 'ready' AND a.archived = 0 ORDER BY b.article_id"
+    ):
+        if row["article_id"] in seen:
+            continue
+        if pattern.search(row["text"]):
+            seen.add(row["article_id"])
+            hits.append(row["article_id"])
+    return hits
+
+
+def _ready(conn, title, *texts):
+    from textcast.document import Article, Block, BlockKind, Section
+
+    doc = Article(title=title, source="Bench", sections=[Section(title="S", blocks=[
+        Block(kind=BlockKind.PARA, text=t) for t in texts
+    ])]).renumber()
+    article_id = db.save_article(doc, conn)
+    conn.execute("UPDATE article SET status = 'ready' WHERE id = ?", (article_id,))
+    return article_id
+
+
+def test_narrowing_a_rule_in_sql_finds_the_same_articles(conn):
+    """A word or a phrase rule is a literal inside guards, so the literal has
+    to be in the text. `LIKE` is a superset of what the pattern would match,
+    so SQLite can drop the rows that cannot match before Python sees them.
+
+    A shortcut that changes an answer is not a shortcut. This compares it
+    against the exhaustive scan rather than asserting on the result, and the
+    cases are the ones where a literal test could go wrong: case, a substring
+    of a longer word, a LIKE wildcard, and a regex with no literal at all.
+    """
+    from textcast.pronounce import Rule
+
+    _ready(conn, "One", "The trade settled at 12x EBITDA today.")
+    _ready(conn, "Two", "ebitda in lower case, and EBITDAX which is a longer word.")
+    _ready(conn, "Three", "A 100% gain and a snake_case name.")
+    _ready(conn, "Four", "Nothing here matches any of it.")
+
+    rules = [
+        Rule(kind="word", pattern="EBITDA", replacement="x"),
+        Rule(kind="word", pattern="EBITDA", replacement="x", ignore_case=True),
+        Rule(kind="word", pattern="ebitda", replacement="x", ignore_case=True),
+        Rule(kind="phrase", pattern="12x EBITDA", replacement="x"),
+        Rule(kind="phrase", pattern="100%", replacement="x"),
+        Rule(kind="phrase", pattern="snake_case", replacement="x"),
+        Rule(kind="regex", pattern=r"EBITDAX?(?!\w)", replacement="x"),
+        Rule(kind="word", pattern="absent", replacement="x"),
+    ]
+    for rule in rules:
+        fast = [row["id"] for row in db.articles_matching(rule, conn)]
+        slow = _matching_the_slow_way(rule, conn)
+        assert sorted(fast) == sorted(slow), f"{rule.kind} {rule.pattern!r}"
+
+
+def test_a_like_wildcard_in_a_pattern_means_itself():
+    """`%` and `_` are LIKE's own syntax, and a pattern may contain either.
+
+    Not a correctness fix: a wildcard only ever *widens* a LIKE, so the answer
+    stays right because the regex has the last word. It is what keeps the
+    narrowing worth doing — an unescaped `%` in "100%" matches every block
+    with "100" anywhere, and a rule whose pattern is a bare "%" would hand
+    Python the whole library again.
+    """
+    from textcast.db import _like_literal
+
+    assert _like_literal("100%") == r"100\%"
+    assert _like_literal("snake_case") == r"snake\_case"
+    assert _like_literal(r"back\slash") == r"back\\slash"
+    assert _like_literal("EBITDA") == "EBITDA"
+
