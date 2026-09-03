@@ -17,7 +17,7 @@ docker compose logs -f worker  # builds and mail polling land here
 
 uv sync --extra cpu --extra kokoro --extra kokoro-onnx --extra web \
         --extra documents --extra summaries --group dev
-uv run pytest                  # 350 tests
+uv run pytest                  # 353 tests
 uv run ruff check src tests    # before committing; formatting is not enforced
 ```
 
@@ -566,6 +566,21 @@ Things that have already bitten once.
   worth reading, and it is how the stray emphasis markers were found.
 - **The summaries key field posts blank when untouched.** The form carries
   `keep_key`, or saving a new model name would wipe the stored key.
+- **Typing a key and choosing a provider are two acts.** They were one form,
+  so saving a model posted the key field too — which is why `keep_key` had to
+  exist, and why a blank box could wipe a key. Two boxes now, two routes:
+  `/summaries/key` files a key under an endpoint and touches nothing else,
+  `/summaries` sets the endpoint, the model and the prompt and cannot reach a
+  key at all. A blank key box is ignored rather than stored, so opening the
+  page and pressing Save is safe.
+- **The model picker must not demand a key.** Ollama and LM Studio need none,
+  so `selectable_endpoints` offers every built-in provider plus every endpoint
+  the database knows, keyed or not. `stored_list` is the other question —
+  which keys this machine holds — and only that one is about keys.
+- **A model list is a starting point, not a menu.** Model names move faster
+  than `PROVIDERS` does, so the select always carries "Something else…", which
+  swaps in a typed field. A model already saved that is not in the list is
+  prepended rather than dropped.
 - **A key belongs to an endpoint, not to the app.** There was one flat
   `summary_api_key`, so a library held one key however many providers it used.
   Picking DeepSeek changed the endpoint and the model and kept the Gemini key,

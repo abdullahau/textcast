@@ -1089,6 +1089,27 @@ table.plain th {
   color: var(--muted); font-weight: 600; padding: .45rem .6rem; border-bottom: 1px solid var(--border-hi);
 }
 table.plain td { padding: .5rem .6rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+table.plain td.right { text-align: right; width: 1%; white-space: nowrap; }
+
+/* A square icon button for a row action. A default button is 2.1rem tall with
+   .85rem of padding either side of a word, which beside .84rem table text
+   reads as the row's main control rather than a way to undo it. */
+button.icon {
+  width: 2rem; height: 2rem; padding: 0; flex: 0 0 auto;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+button.icon svg {
+  width: 1.05rem; height: 1.05rem;
+  fill: none; stroke: currentColor; stroke-width: 1.6;
+  stroke-linecap: round; stroke-linejoin: round;
+}
+
+/* A second heading inside a card, under a form that has its own. */
+h3.sub {
+  font-size: .72rem; text-transform: uppercase; letter-spacing: .09em;
+  color: var(--muted); font-weight: 600; margin: 1.4rem 0 .5rem;
+  padding-top: 1.1rem; border-top: 1px solid var(--border);
+}
 .mono { font-family: var(--mono); font-size: .76rem; }
 
 code {

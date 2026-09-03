@@ -230,10 +230,9 @@ def endpoints(conn=None) -> dict[str, dict]:
 def stored_list(conn=None) -> list[dict]:
     """Every endpoint holding a key, named and ordered for the page.
 
-    Listed providers come first, in the order of ``PROVIDERS``, then anything
-    typed by hand. An endpoint that is only remembering a model is not here:
-    the list answers "which providers can I use right now", and that is the
-    key.
+    Listed providers first, in the order of ``PROVIDERS``, then anything typed
+    by hand. An endpoint only remembering a model is not here: the list
+    answers "which keys does this machine hold".
     """
     known = endpoints(conn)
     urls = {endpoint_id(url): (name, url) for _id, name, url, _models in PROVIDERS}
@@ -247,6 +246,48 @@ def stored_list(conn=None) -> list[dict]:
         if ident not in urls and entry.get("hint") is not None:
             rows.append({"id": ident, "name": ident, "base_url": ident, **entry})
     return rows
+
+
+def selectable_endpoints(conn=None) -> list[dict]:
+    """Every endpoint the model picker can offer.
+
+    The built-in providers, then any endpoint the database already knows —
+    one typed by hand in the key box, or left behind by an older version. A
+    key is not required: Ollama and LM Studio need none.
+    """
+    known = endpoints(conn)
+    rows = [
+        {
+            "id": endpoint_id(url),
+            "name": name,
+            "base_url": url,
+            "models": list(models),
+            "hint": known.get(endpoint_id(url), {}).get("hint", ""),
+            "model": known.get(endpoint_id(url), {}).get("model", ""),
+        }
+        for _id, name, url, models in PROVIDERS
+    ]
+    seen = {row["id"] for row in rows}
+    for ident, entry in known.items():
+        if ident in seen:
+            continue
+        rows.append({
+            "id": ident, "name": ident, "base_url": ident, "models": [],
+            "hint": entry.get("hint", ""), "model": entry.get("model", ""),
+        })
+    return rows
+
+
+def store_key(base_url: str, api_key: str, conn=None) -> None:
+    """File one key under one endpoint, and change nothing else.
+
+    Separate from `save_config` on purpose: typing a key is not the same act
+    as choosing which provider writes the summaries, and the page keeps them
+    in two boxes. Saving a Groq key must not switch the app to Groq.
+    """
+    from . import db
+
+    db.set_setting(_scoped(PREFIX_API_KEY, base_url or _default_base_url()), api_key.strip(), conn)
 
 
 def forget_key(base_url: str, conn=None) -> bool:

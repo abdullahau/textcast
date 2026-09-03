@@ -110,12 +110,13 @@ def test_the_summaries_page_says_when_nothing_is_configured(client, monkeypatch)
     assert "generativelanguage.googleapis.com" in body, "an endpoint is offered, not demanded"
 
 
-def test_saving_the_model_alone_keeps_the_stored_key(client, conn):
+def test_choosing_a_model_cannot_touch_a_key(client, conn):
+    """Two boxes, two routes. Saving a model must not be able to wipe a key."""
     from textcast import summarize
 
     summarize.save_config(conn, api_key="secret")
 
-    client.post("/summaries", data={"model": "a-model", "keep_key": "true", "api_key": ""})
+    client.post("/summaries", data={"model": "a-model"})
 
     assert summarize.config(conn).api_key == "secret"
     assert summarize.config(conn).model == "a-model"
@@ -128,17 +129,50 @@ def test_saving_a_key_for_one_provider_does_not_overwrite_another(client, conn):
     gemini = "https://generativelanguage.googleapis.com/v1beta/openai/"
     deepseek = "https://api.deepseek.com/v1/"
 
-    client.post("/summaries", data={
-        "model": "gemini-2.5-flash", "base_url": gemini,
-        "api_key": "the-gemini-key", "keep_key": "true",
-    })
-    client.post("/summaries", data={
-        "model": "deepseek-chat", "base_url": deepseek,
-        "api_key": "the-deepseek-key", "keep_key": "true",
-    })
+    client.post("/summaries/key", data={"base_url": gemini, "api_key": "the-gemini-key"})
+    client.post("/summaries/key", data={"base_url": deepseek, "api_key": "the-deepseek-key"})
 
     assert summarize.key_for(gemini, conn) == "the-gemini-key"
     assert summarize.key_for(deepseek, conn) == "the-deepseek-key"
+
+
+def test_storing_a_key_does_not_switch_provider(client, conn):
+    """Typing a Groq key is not a decision to summarise with Groq."""
+    from textcast import summarize
+
+    gemini = "https://generativelanguage.googleapis.com/v1beta/openai/"
+    client.post("/summaries", data={"base_url": gemini, "model": "gemini-2.5-flash"})
+
+    client.post("/summaries/key", data={
+        "base_url": "https://api.groq.com/openai/v1/", "api_key": "groq-key",
+    })
+
+    assert summarize.config(conn).base_url == gemini, "still the provider that was chosen"
+    assert summarize.key_for("https://api.groq.com/openai/v1/", conn) == "groq-key"
+
+
+def test_an_empty_key_box_is_ignored_rather_than_stored(client, conn):
+    """Opening the page and pressing Save must not wipe the key it is showing."""
+    from textcast import summarize
+
+    gemini = "https://generativelanguage.googleapis.com/v1beta/openai/"
+    summarize.save_config(conn, base_url=gemini, api_key="keep-me")
+
+    client.post("/summaries/key", data={"base_url": gemini, "api_key": "   "})
+
+    assert summarize.key_for(gemini, conn) == "keep-me"
+
+
+def test_a_provider_with_no_key_is_still_selectable(client, conn):
+    """Ollama and LM Studio need none, so the model box cannot demand one."""
+    from textcast import summarize
+
+    ollama = "http://127.0.0.1:11434/v1/"
+    offered = {row["base_url"] for row in summarize.selectable_endpoints(conn)}
+
+    assert ollama in offered
+    client.post("/summaries", data={"base_url": ollama, "model": "llama3.2"})
+    assert summarize.config(conn).base_url == ollama
 
 
 def test_the_summaries_page_never_carries_a_whole_key(client, conn):

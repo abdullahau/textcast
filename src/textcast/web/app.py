@@ -813,6 +813,7 @@ def _summaries_page(request: Request, **extra):
         default_prompt=summaries.DEFAULT_PROMPT,
         default_model=summaries.DEFAULT_MODEL,
         providers=summaries.PROVIDERS,
+        endpoint_choices=summaries.selectable_endpoints(),
         provider_name=summaries.provider_for(cfg.base_url),
         # Which endpoints hold a key, and the tail of each. Never a key: this
         # goes into the page, where anything sent is readable.
@@ -834,22 +835,35 @@ def summaries_save(
     request: Request,
     model: str = Form(default=""),
     base_url: str = Form(default=""),
-    api_key: str = Form(default=""),
     prompt: str = Form(default=""),
-    keep_key: bool = Form(default=False),
 ):
+    """Which provider and model write the summaries, and what they are asked.
+
+    No key here. Storing one is its own act, in its own box, and its own
+    route: saving a model must never be able to touch a key.
+    """
     from .. import summarize as summaries
 
-    # An untouched password field posts blank. Saving that would wipe the key
-    # every time the model was changed. The key is filed under `base_url` as
-    # submitted, not under the one already stored, or moving to a new provider
-    # and typing its key would overwrite the previous provider's.
-    summaries.save_config(
-        model=model,
-        base_url=base_url,
-        api_key=None if (keep_key and not api_key.strip()) else api_key,
-        prompt=prompt,
-    )
+    summaries.save_config(model=model, base_url=base_url, prompt=prompt)
+    return RedirectResponse("/summaries", status_code=303)
+
+
+@app.post("/summaries/key", dependencies=[Auth])
+def summaries_save_key(
+    request: Request,
+    base_url: str = Form(default=""),
+    api_key: str = Form(default=""),
+):
+    """Store one key under one endpoint. Nothing else moves.
+
+    Not which provider is in use: that is the model box. A blank key is
+    ignored rather than stored, or opening the page and pressing Save would
+    wipe the key of whichever endpoint the box happened to be showing.
+    """
+    from .. import summarize as summaries
+
+    if api_key.strip():
+        summaries.store_key(base_url, api_key)
     return RedirectResponse("/summaries", status_code=303)
 
 
