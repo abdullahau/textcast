@@ -89,6 +89,15 @@ JUNK_CLASS = re.compile(
     re.I,
 )
 
+#: What a publication puts in a frame's `title` when it has nothing to say.
+#: The FT's is "Interactive or visual content" on every graphic it ships, and
+#: the still already carries the chart's real title inside the picture.
+GENERIC_TITLE = re.compile(
+    r"^\s*(interactive( or visual)?( content| chart| graphic)?|visual content"
+    r"|chart|graphic|embedded content|iframe|untitled)\s*$",
+    re.I,
+)
+
 #: A caption that is only a credit line says nothing about what is shown.
 #: The word boundary belongs to the words only: `©\b` never matches, because
 #: neither the symbol nor the space after it is a word character.
@@ -449,6 +458,8 @@ def _embed_block(node: Node, rules: VisualRules, base: str) -> Block | None:
     if not still:
         return None
     caption = clean(attr(node, "title")) or _caption(node.parent or node, rules)
+    if GENERIC_TITLE.match(caption):
+        caption = ""
     media = {"src": still, "alt": caption, "frame": src}
     if caption:
         media["caption"] = caption
