@@ -297,6 +297,7 @@
                  and a later attempt knows where to look. #}
               <img src="{% if block.media.file %}/media/{{ row.slug }}/images/{{ block.media.file }}{% else %}{{ block.media.src }}{% endif %}"
                    alt="{{ block.media.alt or block.text }}"
+                   {% if block.media.w and block.media.h %}width="{{ block.media.w }}" height="{{ block.media.h }}"{% endif %}
                    loading="lazy" decoding="async" referrerpolicy="no-referrer">
             {% elif block.kind == 'table' %}
               <div class="scroller"><table class="data">

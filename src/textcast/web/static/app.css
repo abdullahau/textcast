@@ -985,7 +985,9 @@ button.chip[aria-pressed="true"] .star { fill: var(--warn); stroke: var(--warn);
   .b .seek { position: static; opacity: .45; float: right; margin: 0 0 0 .3rem; }
 }
 
-.b.quote { font-style: italic; color: var(--fg-soft); border-left-color: var(--border-hi); padding-left: 1rem; }
+/* `pre-line` keeps the blank lines a quote was published with and collapses
+   everything else, so a three-paragraph pull quote reads as three. */
+.b.quote { font-style: italic; color: var(--fg-soft); border-left-color: var(--border-hi); padding-left: 1rem; white-space: pre-line; }
 .b.quote.on { border-left-color: var(--accent); }
 .b.list_item { padding-left: 1.6rem; text-indent: -.85rem; }
 .b.footnote { font-size: .9rem; color: var(--muted); }

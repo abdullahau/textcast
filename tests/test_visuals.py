@@ -224,6 +224,103 @@ def test_a_title_lifted_out_of_the_header_row_is_not_printed_twice():
     assert "caption" not in block.media, "the header row already shows it"
 
 
+# --------------------------------------------------- quotes and dimensions
+
+
+def test_a_quote_keeps_the_paragraphs_it_was_published_with():
+    """`text_of` joins every descendant with a space, which read a bolded
+    lead-in straight into the sentence after it."""
+    from textcast.ingest.base import blocks_from_dom
+
+    html = (
+        "<article><blockquote>"
+        "<p><strong>Compute Services Agreements with Third Parties</strong></p>"
+        "<p>We believe our compute infrastructure provides flexibility.</p>"
+        "</blockquote></article>"
+    )
+    section = blocks_from_dom(parse_tree(html).css_first("article"))[0]
+    quote = section.blocks[0]
+
+    assert quote.kind is BlockKind.QUOTE
+    assert quote.text == (
+        "Compute Services Agreements with Third Parties\n\n"
+        "We believe our compute infrastructure provides flexibility."
+    )
+
+
+def test_a_quote_of_one_paragraph_gains_no_break():
+    from textcast.ingest.base import blocks_from_dom
+
+    html = "<article><blockquote><p>Markets are efficient.</p></blockquote></article>"
+    section = blocks_from_dom(parse_tree(html).css_first("article"))[0]
+
+    assert section.blocks[0].text == "Markets are efficient."
+
+
+def test_a_paragraph_break_is_spoken_as_a_sentence_break():
+    """Collapsed to a space, the lead-in ran into the sentence after it."""
+    from textcast.document import Block
+
+    block = Block(kind=BlockKind.PARA, text="Compute Services Agreements\n\nWe believe it.")
+
+    assert block.spoken() == "Compute Services Agreements. We believe it."
+
+
+def test_a_line_that_already_ends_in_a_full_stop_gains_nothing():
+    from textcast.document import Block
+
+    block = Block(kind=BlockKind.PARA, text="It ended here.\n\nAnd began again.")
+
+    assert block.spoken() == "It ended here. And began again."
+
+
+def test_an_emoji_is_not_read_out_by_name():
+    """espeak says "money bag" for the FT's Ker-CHING table heading."""
+    from textcast.document import Block
+
+    assert Block(kind=BlockKind.PARA, text="Ker-CHING \U0001F4B0").spoken() == "Ker-CHING"
+    # A credit means to say these, and they are named correctly.
+    assert "\u00a9" in Block(kind=BlockKind.PARA, text="\u00a9 Reuters").spoken()
+
+
+def test_a_table_speaks_its_caption_and_never_its_cells():
+    from textcast.document import Block
+
+    block = Block(
+        kind=BlockKind.TABLE,
+        text="Table: Ker-CHING",
+        media={"rows": [["Depreciation life", "$7bn"], ["Two years", "160%"]], "header": True,
+               "foot": "FTAV"},
+    )
+    spoken = block.spoken()
+
+    assert spoken == "Table: Ker-CHING"
+    for cell in ("Depreciation life", "$7bn", "Two years", "160%", "FTAV"):
+        assert cell not in spoken
+
+
+def test_a_figure_speaks_its_caption_and_never_its_address():
+    from textcast.document import Block
+
+    block = Block(
+        kind=BlockKind.FIGURE,
+        text="Figure: Colossus I",
+        media={"src": "https://images.ft.com/v3/image/raw/ftcms.webp", "alt": "Colossus I"},
+    )
+
+    assert block.spoken() == "Figure: Colossus I"
+
+
+def test_a_picture_carries_the_ratio_it_was_published_at():
+    """Without it the reader reserves no box and the page jumps when it lands."""
+    block = only(
+        '<figure><img src="https://x.test/a.png" width="3000" height="1687"></figure>',
+        "figure",
+    )
+
+    assert (block.media["w"], block.media["h"]) == (3000, 1687)
+
+
 # ------------------------------------------------------------ the corpus
 
 

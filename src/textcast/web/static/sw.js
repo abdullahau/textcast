@@ -147,16 +147,33 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Static assets are immutable — cache first.
+  /* Static assets are immutable *per version*, and the version is the `?v=`
+     the page puts on them. So the match has to be exact.
+
+     It used to pass `ignoreSearch: true`, which threw that suffix away — the
+     whole point of the suffix — and answered a request for ?v=0.4.0 with
+     whatever copy of app.css was already stored. Worse, the bare
+     `caches.match` searches *every* cache, not this build's, so a previous
+     build's stylesheet could answer too. A page then painted with CSS that
+     predated its own markup: a figure with no rule to constrain it stretched
+     to the picture's natural width, and the Sign out mark, which is drawn by
+     `stroke: currentColor` from a rule that had not shipped yet, drew
+     nothing. A hard refresh "fixed" both because a hard refresh goes round
+     the worker entirely.
+
+     Exact first, then the network — which is what a version that has never
+     been seen before should do, once, and it is cached from then on.
+     `ignoreSearch` survives only as the offline fallback: with no network,
+     any stored copy of the file beats none. */
   if (url.pathname.startsWith("/static/")) {
-    // Ignore ?v= when matching, so a page asking for ?v=4 still hits a stored
-    // ?v=3 entry rather than going to the network on every load.
     event.respondWith(
-      caches.match(request, { ignoreSearch: true }).then((hit) => hit || fetch(request).then((response) => {
-        const copy = response.clone();
-        caches.open(SHELL).then((c) => c.put(request, copy));
-        return response;
-      }))
+      caches.match(request, { cacheName: SHELL }).then((exact) => exact || fetch(request)
+        .then((response) => {
+          const copy = response.clone();
+          caches.open(SHELL).then((c) => c.put(request, copy));
+          return response;
+        })
+        .catch(() => caches.match(request, { ignoreSearch: true, cacheName: SHELL })))
     );
     return;
   }

@@ -109,7 +109,7 @@ def blocks_from_dom(
             continue
 
         if elem.tag == "blockquote":
-            current.blocks.append(Block(kind=BlockKind.QUOTE, text=text))
+            current.blocks.append(Block(kind=BlockKind.QUOTE, text=quoted(elem) or text))
             continue
 
         if elem.tag in ("ol", "ul"):
@@ -127,6 +127,23 @@ def blocks_from_dom(
     if current.blocks:
         sections.append(current)
     return sections
+
+
+def quoted(node: Node) -> str:
+    """A block quote's text, with the breaks the publication put in it.
+
+    `text_of` joins every descendant with a space, which reads a pull quote
+    of three paragraphs as one and runs a bolded lead-in straight into the
+    sentence after it — the SpaceX prospectus quote came out as "...Compute
+    Services Agreements with Third Parties We believe our compute...".
+
+    One block either way: a quote is one thing to highlight and one thing to
+    seek to. The paragraphs live inside its text as blank lines, which is
+    what `to_markdown` already expected and what the reader now renders.
+    """
+    parts = [text_of(child) for child in node.css("p, li")]
+    parts = [part for part in parts if part]
+    return "\n\n".join(parts) if len(parts) > 1 else ""
 
 
 def _within(node: Node, containers: list[Node]) -> bool:

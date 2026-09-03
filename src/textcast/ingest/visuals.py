@@ -319,6 +319,13 @@ def _figure_block(node: Node, rules: VisualRules, base: str) -> Block | None:
     alt = clean(attr(img, "alt"))
     caption = _caption(node, rules) or alt
     media = {"src": src, "alt": alt}
+    # The declared size, so the reader can reserve the right box before the
+    # bytes arrive. Only the ratio survives — the stored copy is whichever
+    # candidate the srcset offered — and the ratio is what stops the page
+    # jumping when the picture lands.
+    height = _int(attr(img, "height"))
+    if width and height:
+        media["w"], media["h"] = width, height
     if caption:
         media["caption"] = caption
     if node.tag != "img":

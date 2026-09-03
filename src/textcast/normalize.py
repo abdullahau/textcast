@@ -147,6 +147,18 @@ def _year_range(match: re.Match) -> str:
     return f"{start} to {end}"
 
 
+#: Pictographs and dingbats, which an engine reads out by name. Deliberately
+#: not the general symbol blocks: ©, ®, ™, °, currency and the arrows all carry
+#: meaning and are all spoken sensibly.
+EMOJI = re.compile(
+    "[\U0001F000-\U0001FAFF\U00002600-\U000027BF\U00002B00-\U00002BFF]"
+    "[\U0000FE0E\U0000FE0F]?|[\U0000FE0F\U0000200D]"
+)
+
+#: A line ending without terminal punctuation, followed by a blank line.
+PARAGRAPH_BREAK = re.compile(r"([^\s.!?:;\"'\u2019\u201d)\]])[ \t]*\n\s*\n\s*")
+
+
 def normalize(
     text: str,
     rules: list[pronounce.Rule] | None = None,
@@ -186,6 +198,13 @@ def normalize(
     text = CLOCK.sub(lambda m: f"{m.group(1)} {m.group(2).lower()}.m.", text)
     text = OCLOCK.sub(r"\1", text)
 
+    # An emoji is read out by its name: espeak says "money bag" for the
+    # 💰 in an FT table headed "Ker-CHING 💰", and "Table: Ker-CHING money
+    # bag" is not what anyone wants to hear. Dropped for speech only — the
+    # page keeps what the publication printed. ©, ® and ™ are left alone: they
+    # are named correctly and a photo credit means to say them.
+    text = EMOJI.sub(" ", text)
+
     # Smart punctuation the engines mispronounce or read aloud. Before the
     # rules, not after: web prose is full of curly apostrophes, and a rule
     # written for who'll would never have matched who’ll.
@@ -207,6 +226,12 @@ def normalize(
 
     # Pauses on both sides keep the aside from running into the sentence.
     text = FOOTNOTE.sub(r"... Footnote \1. \2. ...", text)
+
+    # A paragraph break inside a block is a sentence break. Collapsed to a
+    # space by the rule below, a quote's bolded lead-in ran into the sentence
+    # after it: "Compute Services Agreements with Third Parties We believe".
+    # Only where the line does not already end in something terminal.
+    text = PARAGRAPH_BREAK.sub(r"\1. ", text)
 
     # Replacing an em dash with a comma can leave " , "; tighten it. The full
     # stop is handled separately so the space before an ellipsis survives.
