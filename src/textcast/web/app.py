@@ -11,6 +11,7 @@ import json
 import logging
 import mimetypes
 import re
+import secrets
 from collections.abc import Iterable
 from contextlib import asynccontextmanager
 from functools import lru_cache
@@ -118,20 +119,43 @@ templates = Jinja2Templates(directory=str(TEMPLATES))
 
 COOKIE = "textcast_token"
 
+#: The one route the bookmarklet's key opens. Everything else — deleting an
+#: article, rebuilding, even reading the library — needs a signed-in session.
+#: The key used to be the session token, sitting in clear in a bookmarks bar
+#: with the run of the whole app.
+INGEST_PATH = "/api/ingest"
+
+
+def account():
+    """The one account, or None before anything has been seeded."""
+    from .. import accounts
+
+    return accounts.get(db.connect(settings.db_path))
+
 
 def signed_in(request: Request) -> bool:
-    token = request.cookies.get(COOKIE) or request.headers.get("x-textcast-token")
-    return bool(settings.auth_token) and token == settings.auth_token
+    """The cookie holds a session secret, never the password.
+
+    It used to hold the sign-in token itself, so the credential travelled on
+    every request and changing it could not end a session. Changing the
+    password rotates `account.session`, and every cookie carrying the old one
+    stops working at once.
+    """
+    carried = request.cookies.get(COOKIE) or request.headers.get("x-textcast-token")
+    if not carried:
+        return False
+    current = account()
+    return current is not None and secrets.compare_digest(carried, current.session)
 
 
-async def _token_in_form(request: Request) -> bool:
+async def _ingest_key_in_request(request: Request) -> bool:
     """The bookmarklet's way in, and only the bookmarklet's.
 
     Its POST comes from whatever site you are reading, so it is cross-site,
     and the session cookie is SameSite=Lax: a browser sends that on a
     top-level GET and never on a POST. The cookie stays Lax — loosening it
     would let any page on the internet post to /a/<slug>/delete with your
-    session attached — so the bookmarklet carries the token in the body
+    session attached — so the bookmarklet carries its key in the body
     instead, exactly as the iPhone Shortcut carries it in a header.
 
     Only a form-encoded POST is looked at. Reading the body here is safe:
@@ -140,12 +164,19 @@ async def _token_in_form(request: Request) -> bool:
     """
     if request.method != "POST":
         return False
+    current = account()
+    if current is None:
+        return False
+    header = request.headers.get("x-textcast-token") or ""
+    if header and secrets.compare_digest(header, current.ingest_key):
+        return True
     if not request.headers.get("content-type", "").startswith(
         ("application/x-www-form-urlencoded", "multipart/form-data")
     ):
         return False
     form = await request.form()
-    return form.get("token") == settings.auth_token
+    offered = form.get("token")
+    return isinstance(offered, str) and secrets.compare_digest(offered, current.ingest_key)
 
 
 async def require_auth(request: Request) -> None:
@@ -158,7 +189,9 @@ async def require_auth(request: Request) -> None:
         return
     if signed_in(request):
         return
-    if settings.auth_token and await _token_in_form(request):
+    # Scoped, and the scope is checked here rather than trusted to the caller:
+    # a key that can add an article must not be able to delete one.
+    if request.url.path == INGEST_PATH and await _ingest_key_in_request(request):
         # Say so downstream, so the response can hand back a cookie and the
         # redirect to the new article is not bounced to /login.
         request.state.token_auth = True
@@ -182,15 +215,23 @@ def set_session_cookie(request: Request, response: Response) -> Response:
     The bookmarklet's POST is answered with a redirect to the article, and
     that GET carries no cookie unless one is set here.
     """
-    if getattr(request.state, "token_auth", False):
-        response.set_cookie(
-            COOKIE,
-            settings.auth_token,
-            max_age=31536000,
-            httponly=True,
-            samesite="lax",
-            secure=request.url.scheme == "https",
-        )
+    current = account()
+    if getattr(request.state, "token_auth", False) and current is not None:
+        _write_session(request, response, current.session)
+    return response
+
+
+def _write_session(request: Request, response: Response, session: str) -> Response:
+    response.set_cookie(
+        COOKIE,
+        session,
+        max_age=31536000,
+        httponly=True,
+        samesite="lax",
+        # Only over TLS when the page itself came over TLS, or the cookie is
+        # dropped on a plain-HTTP tailnet address.
+        secure=request.url.scheme == "https",
+    )
     return response
 
 
@@ -202,27 +243,167 @@ def login_page(request: Request, next: str = "/"):
         request,
         "login.html",
         next=_safe_next(next),
-        unconfigured=not settings.auth_token,
+        unconfigured=account() is None,
     )
 
 
 @app.post("/login", include_in_schema=False)
-def login(request: Request, token: str = Form(default=""), next: str = Form(default="/")):
+def login(
+    request: Request,
+    username: str = Form(default=""),
+    password: str = Form(default=""),
+    next: str = Form(default="/"),
+):
+    from .. import accounts
+
     target = _safe_next(next)
-    if not settings.auth_token or token.strip() != settings.auth_token:
-        return render(request, "login.html", next=target, error="That token does not match.")
-    response = RedirectResponse(target, status_code=303)
-    response.set_cookie(
-        COOKIE,
-        settings.auth_token,
-        max_age=31536000,
-        httponly=True,
-        samesite="lax",
-        # Only over TLS when the page itself came over TLS, or the cookie is
-        # dropped on a plain-HTTP tailnet address.
-        secure=request.url.scheme == "https",
+    current = account()
+    # One message for both halves, so a wrong username cannot be told from a
+    # wrong password by trying.
+    wrong = "That username and password do not match."
+    if current is None:
+        return render(request, "login.html", next=target, unconfigured=True)
+    if username.strip() != current.username or not accounts.verify_password(
+        password, current.password_hash
+    ):
+        return render(request, "login.html", next=target, error=wrong)
+    return _write_session(request, RedirectResponse(target, status_code=303), current.session)
+
+
+# --------------------------------------------------------------------------
+# the account
+# --------------------------------------------------------------------------
+
+#: What a profile picture may be. Read off the bytes, not the file name.
+AVATAR_TYPES = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp",
+                "image/gif": ".gif", "image/avif": ".avif"}
+AVATAR_MAX = 4 * 1024 * 1024
+
+
+def _settings_page(request: Request, **extra):
+    current = account()
+    return render(
+        request,
+        "settings.html",
+        account=current,
+        password_min=8,
+        origin=public_origin(request),
+        **extra,
     )
-    return response
+
+
+@app.get("/settings", response_class=HTMLResponse, dependencies=[Auth])
+def settings_page(request: Request):
+    return _settings_page(request)
+
+
+@app.post("/settings/profile", dependencies=[Auth])
+async def save_profile(request: Request, username: str = Form(default="")):
+    from .. import accounts
+
+    conn = db.connect(settings.db_path)
+    try:
+        accounts.set_username(conn, username)
+    except ValueError as exc:
+        return _settings_page(request, error=str(exc))
+    return RedirectResponse("/settings?saved=name", status_code=303)
+
+
+@app.post("/settings/avatar", dependencies=[Auth])
+async def save_avatar(request: Request, photo: UploadFile | None = None):
+    """Store the picture, and take the old one with it.
+
+    Named for a hash of the bytes, so uploading the same photo twice writes
+    one file, and the browser can cache it for ever: a different picture is a
+    different name.
+    """
+    import hashlib
+
+    from .. import accounts
+
+    if photo is None or not photo.filename:
+        return _settings_page(request, error="Choose a picture first.")
+    data = await photo.read()
+    if not data:
+        return _settings_page(request, error="That file was empty.")
+    if len(data) > AVATAR_MAX:
+        return _settings_page(request, error="A picture must be under 4 MB.")
+    suffix = AVATAR_TYPES.get((photo.content_type or "").split(";")[0].strip().lower())
+    if not suffix:
+        return _settings_page(request, error="That is not a picture textcast can show.")
+
+    conn = db.connect(settings.db_path)
+    current = account()
+    settings.avatar_dir.mkdir(parents=True, exist_ok=True)
+    name = hashlib.sha256(data).hexdigest()[:16] + suffix
+    (settings.avatar_dir / name).write_bytes(data)
+    if current and current.avatar and current.avatar != name:
+        (settings.avatar_dir / current.avatar).unlink(missing_ok=True)
+    accounts.set_avatar(conn, name)
+    return RedirectResponse("/settings?saved=photo", status_code=303)
+
+
+@app.post("/settings/avatar/delete", dependencies=[Auth])
+def clear_avatar(request: Request):
+    from .. import accounts
+
+    current = account()
+    if current and current.avatar:
+        (settings.avatar_dir / current.avatar).unlink(missing_ok=True)
+    accounts.set_avatar(db.connect(settings.db_path), "")
+    return RedirectResponse("/settings?saved=photo", status_code=303)
+
+
+@app.post("/settings/password", dependencies=[Auth])
+def save_password(
+    request: Request,
+    current_password: str = Form(default=""),
+    new_password: str = Form(default=""),
+    confirm_password: str = Form(default=""),
+):
+    from .. import accounts
+
+    current = account()
+    if current is None:
+        return _settings_page(request, error="There is no account to change.")
+    # The current password, even though this page is already behind the
+    # session: it stops a borrowed screen from becoming a permanent key.
+    if not accounts.verify_password(current_password, current.password_hash):
+        return _settings_page(request, error="That is not the current password.")
+    if new_password != confirm_password:
+        return _settings_page(request, error="The two new passwords do not match.")
+    try:
+        updated = accounts.set_password(db.connect(settings.db_path), new_password)
+    except ValueError as exc:
+        return _settings_page(request, error=str(exc))
+    # Every other browser is signed out; this one carries on.
+    return _write_session(
+        request, RedirectResponse("/settings?saved=password", status_code=303), updated.session
+    )
+
+
+@app.post("/settings/ingest-key", dependencies=[Auth])
+def new_ingest_key(request: Request):
+    from .. import accounts
+
+    accounts.rotate_ingest_key(db.connect(settings.db_path))
+    return RedirectResponse("/settings?saved=key", status_code=303)
+
+
+@app.get("/avatar", include_in_schema=False, dependencies=[Auth])
+def avatar():
+    """The stored picture, or a 404 so the page falls back to the drawn one."""
+    current = account()
+    if current is None or not current.avatar:
+        raise HTTPException(status_code=404, detail="no picture")
+    path = settings.avatar_dir / current.avatar
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="no picture")
+    return FileResponse(
+        path,
+        media_type=mimetypes.guess_type(path.name)[0] or "application/octet-stream",
+        headers={"Cache-Control": "private, max-age=31536000, immutable"},
+    )
 
 
 @app.post("/logout", include_in_schema=False)
@@ -309,6 +490,8 @@ templates.env.globals["auth_on"] = settings.require_auth
 def render(request: Request, name: str, **context) -> HTMLResponse:
     context.setdefault("q", "")
     context.setdefault("origin", public_origin(request))
+    # The bar draws the profile mark on every page, so every page needs it.
+    context.setdefault("account", account())
     return templates.TemplateResponse(request, name, context)
 
 
@@ -576,15 +759,17 @@ def search_page(request: Request, q: str = ""):
 def add_page(request: Request, url: str = "", title: str = "", text: str = ""):
     # The share target lands here on a GET from some clients.
     #
-    # The bookmarklet needs the token in its body, so the page has to carry
-    # it. That is not a leak: reaching this page already means holding the
-    # token, and the same token is sitting in the browser's cookie jar.
+    # The bookmarklet needs a credential in its body, so the page has to carry
+    # one. It carries the *ingest* key, which reaches `/api/ingest` and
+    # nothing else — so a bookmarklet copied off this page, or lifted out of a
+    # bookmarks bar, can add an article and cannot delete one.
+    current = account()
     return render(
         request,
         "add.html",
         url=url or text,
         shared_title=title,
-        token=settings.auth_token if settings.require_auth else "",
+        token=current.ingest_key if (settings.require_auth and current) else "",
     )
 
 

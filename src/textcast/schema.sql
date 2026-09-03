@@ -45,6 +45,20 @@ CREATE TABLE IF NOT EXISTS section (
     PRIMARY KEY (article_id, idx)
 );
 
+-- One person reads this library, so there is one row and its id is 1.
+-- `session` is what the cookie carries, so a password change can end every
+-- session; `ingest_key` is what the bookmarklet carries, and it reaches one
+-- route. Neither is the password, and the password is only ever a hash.
+CREATE TABLE IF NOT EXISTS account (
+    id            INTEGER PRIMARY KEY CHECK (id = 1),
+    username      TEXT NOT NULL,
+    password_hash TEXT NOT NULL,
+    avatar        TEXT NOT NULL DEFAULT '',
+    session       TEXT NOT NULL,
+    ingest_key    TEXT NOT NULL,
+    updated_at    TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS block (
     id           INTEGER PRIMARY KEY,
     article_id   INTEGER NOT NULL REFERENCES article (id) ON DELETE CASCADE,

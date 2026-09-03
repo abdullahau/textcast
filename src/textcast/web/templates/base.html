@@ -23,6 +23,7 @@
 </head>
 <body>
 
+{% from "_avatar.html" import avatar %}
 <header class="bar">
   <a class="brand" href="/" aria-label="Library">
     <svg width="17" height="17" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
@@ -72,12 +73,33 @@
           <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>
         </svg>
       </button>
-      {% if auth_on %}<form method="post" action="/logout" class="narrow" style="display:inline"><button class="link" type="submit"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg><span>Sign out</span></button></form>{% endif %}
     </div>
     <a class="btn sm" href="/add">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
       <span>Add</span>
     </a>
+    {% if account %}
+    {# Outside .nav-group on purpose: on a phone the group folds into the
+       hamburger and this stays out beside Add, where a thumb already is. #}
+    <div class="profile" id="profile">
+      <button type="button" class="profile-button" id="profile-toggle" aria-haspopup="true"
+              aria-expanded="false" aria-controls="profile-menu"
+              aria-label="{{ account.username }}">{{ avatar(account) }}</button>
+      <div class="profile-menu" id="profile-menu" hidden>
+        <p class="profile-name">{{ account.username }}</p>
+        <a href="/settings">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 9 19.4a1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4.6 9a1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/></svg>
+          <span>Settings</span>
+        </a>
+        <form method="post" action="/logout">
+          <button class="link" type="submit">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg>
+            <span>Sign out</span>
+          </button>
+        </form>
+      </div>
+    </div>
+    {% endif %}
     <button type="button" class="nav-toggle" id="nav-toggle"
             aria-expanded="false" aria-controls="nav-group" aria-label="Menu">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -115,6 +137,30 @@ if ("serviceWorker" in navigator) {
   });
   document.addEventListener("click", function (event) {
     if (!group.contains(event.target)) setOpen(false);
+  });
+  document.addEventListener("keydown", function (event) {
+    if (event.key === "Escape") setOpen(false);
+  });
+})();
+
+/* The profile menu, on the same terms as the nav: a tap outside and Escape
+   both close it, because a menu you can only leave by reloading is a trap. */
+(function () {
+  var button = document.getElementById("profile-toggle");
+  var menu = document.getElementById("profile-menu");
+  if (!button || !menu) return;
+
+  function setOpen(open) {
+    menu.hidden = !open;
+    button.setAttribute("aria-expanded", open ? "true" : "false");
+  }
+
+  button.addEventListener("click", function (event) {
+    event.stopPropagation();
+    setOpen(menu.hidden);
+  });
+  document.addEventListener("click", function (event) {
+    if (!menu.contains(event.target) && event.target !== button) setOpen(false);
   });
   document.addEventListener("keydown", function (event) {
     if (event.key === "Escape") setOpen(false);

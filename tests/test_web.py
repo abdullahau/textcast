@@ -23,9 +23,23 @@ def client(settings, monkeypatch):
         yield running
 
 
-def sign_in_required(settings, token: str = "open-sesame") -> None:
+PASSWORD = "open-sesame"
+
+
+def sign_in_required(settings, password: str = PASSWORD, username: str = "reader"):
+    """Turn access control on and give the library its one account.
+
+    Returns the account, because the tests need the two secrets on it: the
+    session the cookie should end up holding, and the ingest key the
+    bookmarklet carries.
+    """
+    from textcast import accounts
+
     settings.require_auth = True
-    settings.auth_token = token
+    settings.username = username
+    settings.auth_token = password
+    conn = db.connect(settings.db_path)
+    return accounts.get(conn) or accounts.create(conn, username, password)
 
 
 def test_the_service_worker_is_stamped_with_the_package_version(client):
@@ -65,20 +79,67 @@ def test_signing_in_opens_the_library_and_signing_out_closes_it(client, settings
     sign_in_required(settings)
     browser = {"accept": "text/html"}
 
-    client.post("/login", data={"token": "open-sesame", "next": "/"}, follow_redirects=False)
+    client.post(
+        "/login",
+        data={"username": "reader", "password": PASSWORD, "next": "/"},
+        follow_redirects=False,
+    )
     assert client.get("/", headers=browser).status_code == 200
 
     client.post("/logout", follow_redirects=False)
     assert client.get("/", headers=browser, follow_redirects=False).status_code == 303
 
 
-def test_a_wrong_token_is_rejected_without_setting_a_cookie(client, settings):
+def test_a_wrong_password_is_rejected_without_setting_a_cookie(client, settings):
     sign_in_required(settings)
 
-    response = client.post("/login", data={"token": "guess", "next": "/"})
+    response = client.post("/login", data={"username": "reader", "password": "guess", "next": "/"})
 
-    assert "does not match" in response.text
+    assert "do not match" in response.text
     assert web.COOKIE not in client.cookies
+
+
+def test_a_wrong_username_reads_exactly_like_a_wrong_password(client, settings):
+    """Or the two can be told apart by trying, which halves the guessing."""
+    sign_in_required(settings)
+
+    wrong_name = client.post("/login", data={"username": "nobody", "password": PASSWORD})
+    wrong_word = client.post("/login", data={"username": "reader", "password": "guess"})
+
+    assert "do not match" in wrong_name.text
+    assert wrong_name.text == wrong_word.text
+
+
+def test_the_cookie_carries_a_session_and_never_the_password(client, settings):
+    """It used to carry the credential itself, on every request."""
+    account = sign_in_required(settings)
+
+    client.post(
+        "/login",
+        data={"username": "reader", "password": PASSWORD, "next": "/"},
+        follow_redirects=False,
+    )
+
+    assert client.cookies[web.COOKIE] == account.session
+    assert PASSWORD not in client.cookies[web.COOKIE]
+
+
+def test_changing_the_password_signs_every_other_browser_out(client, settings):
+    from textcast import accounts
+
+    sign_in_required(settings)
+    client.post(
+        "/login",
+        data={"username": "reader", "password": PASSWORD, "next": "/"},
+        follow_redirects=False,
+    )
+    assert client.get("/", headers={"accept": "text/html"}).status_code == 200
+
+    accounts.set_password(db.connect(settings.db_path), "a-longer-secret")
+
+    assert client.get(
+        "/", headers={"accept": "text/html"}, follow_redirects=False
+    ).status_code == 303
 
 
 def test_sign_in_never_redirects_off_this_host(client, settings):
@@ -86,18 +147,18 @@ def test_sign_in_never_redirects_off_this_host(client, settings):
 
     response = client.post(
         "/login",
-        data={"token": "open-sesame", "next": "//evil.example.com/"},
+        data={"username": "reader", "password": PASSWORD, "next": "//evil.example.com/"},
         follow_redirects=False,
     )
 
     assert response.headers["location"] == "/"
 
 
-def test_the_login_page_says_so_when_no_token_is_configured(client, settings):
+def test_the_login_page_says_so_when_no_account_has_been_seeded(client, settings):
     settings.require_auth = True
     settings.auth_token = ""
 
-    assert "No token is set" in client.get("/login").text
+    assert "No account has been set up" in client.get("/login").text
 
 
 def test_the_summaries_page_says_when_nothing_is_configured(client):
@@ -1164,12 +1225,12 @@ def test_without_a_public_url_the_add_page_trusts_the_request(client, settings):
     assert 'var origin = "http://testserver"' in body
 
 
-def test_the_bookmarklet_gets_in_on_a_token_in_the_body(client, settings):
+def test_the_bookmarklet_gets_in_on_its_key_in_the_body(client, settings):
     """Its POST is cross-site, so the SameSite=Lax cookie is never sent.
 
-    The token rides in the form instead, as it rides in the Shortcut's header.
+    The key rides in the form instead, as it rides in the Shortcut's header.
     """
-    sign_in_required(settings)
+    account = sign_in_required(settings)
 
     response = client.post(
         "/api/ingest",
@@ -1177,7 +1238,7 @@ def test_the_bookmarklet_gets_in_on_a_token_in_the_body(client, settings):
             "kind": "text",
             "title": "From the bookmarklet",
             "text": "A paragraph the browser had and the server could not fetch.",
-            "token": "open-sesame",
+            "token": account.ingest_key,
         },
         headers={"accept": "text/html"},
         follow_redirects=False,
@@ -1187,21 +1248,61 @@ def test_the_bookmarklet_gets_in_on_a_token_in_the_body(client, settings):
     assert response.headers["location"] == "/a/from-the-bookmarklet"
 
 
-def test_a_token_in_the_body_hands_back_a_session(client, settings):
-    """Otherwise the redirect to the new article bounces straight to /login."""
-    sign_in_required(settings)
+def test_the_ingest_key_reaches_ingest_and_nothing_else(client, settings, conn):
+    """A key sitting in clear in a bookmarks bar must not be able to delete.
 
-    response = client.post(
-        "/api/ingest",
-        data={"kind": "text", "title": "Session please", "text": "A paragraph.", "token": "open-sesame"},
+    It was the session token until now, which is exactly what it could do.
+    """
+    from textcast.document import Article, Block, BlockKind, Section
+
+    account = sign_in_required(settings)
+    doc = Article(title="A note to keep", sections=[Section(title="One", blocks=[
+        Block(kind=BlockKind.PARA, text="The body of it."),
+    ])]).renumber()
+    article_id = db.save_article(doc, conn)
+
+    refused = client.post(
+        f"/api/articles/{article_id}/delete",
+        data={"token": account.ingest_key},
         headers={"accept": "text/html"},
         follow_redirects=False,
     )
 
-    assert response.cookies.get("textcast_token") == "open-sesame"
+    assert refused.status_code == 303
+    assert refused.headers["location"].startswith("/login?next=")
+    assert db.get_article(article_id, conn) is not None, "the key deleted an article"
 
 
-def test_a_wrong_token_in_the_body_is_refused(client, settings):
+def test_the_sign_in_session_is_not_accepted_as_an_ingest_key(client, settings):
+    """Two secrets, two jobs. Neither stands in for the other."""
+    account = sign_in_required(settings)
+
+    response = client.post(
+        "/api/ingest",
+        data={"kind": "text", "text": "A paragraph.", "token": account.session},
+        headers={"accept": "text/html"},
+        follow_redirects=False,
+    )
+
+    assert response.headers["location"].startswith("/login?next=")
+
+
+def test_a_key_in_the_body_hands_back_a_session(client, settings):
+    """Otherwise the redirect to the new article bounces straight to /login."""
+    account = sign_in_required(settings)
+
+    response = client.post(
+        "/api/ingest",
+        data={"kind": "text", "title": "Session please", "text": "A paragraph.",
+              "token": account.ingest_key},
+        headers={"accept": "text/html"},
+        follow_redirects=False,
+    )
+
+    assert response.cookies.get("textcast_token") == account.session
+
+
+def test_a_wrong_key_in_the_body_is_refused(client, settings):
     sign_in_required(settings)
 
     response = client.post(
@@ -1215,12 +1316,26 @@ def test_a_wrong_token_in_the_body_is_refused(client, settings):
     assert response.headers["location"].startswith("/login?next=")
 
 
-def test_the_token_never_reaches_a_page_while_access_control_is_off(client, settings):
-    """The bookmarklet needs no token then, and the page must not carry one."""
+def test_no_key_reaches_a_page_while_access_control_is_off(client, settings):
+    """The bookmarklet needs none then, and the page must not carry one."""
+    account = sign_in_required(settings)
     settings.require_auth = False
-    settings.auth_token = "open-sesame"
 
-    assert "open-sesame" not in client.get("/add").text
+    assert account.ingest_key not in client.get("/add").text
+
+
+def test_the_add_page_carries_the_ingest_key_and_not_the_session(client, settings):
+    account = sign_in_required(settings)
+    client.post(
+        "/login",
+        data={"username": "reader", "password": PASSWORD, "next": "/"},
+        follow_redirects=False,
+    )
+
+    body = client.get("/add").text
+
+    assert account.ingest_key in body
+    assert account.session not in body
 
 
 def test_a_stored_instant_is_handed_to_the_browser_to_format(client, conn):
@@ -1286,3 +1401,146 @@ def test_the_reader_shows_a_table_and_a_picture_where_the_prose_cites_them(clien
 def test_skipping_the_figure_captions_is_a_build_option(client):
     assert web._build_options("", "", False, skip_visuals=True) == {"skip_visuals": True}
     assert "skip_visuals" not in web._build_options("", "", False)
+
+
+# --------------------------------------------------------------- the account
+
+
+def signed_in_client(client, settings):
+    account = sign_in_required(settings)
+    client.post(
+        "/login",
+        data={"username": "reader", "password": PASSWORD, "next": "/"},
+        follow_redirects=False,
+    )
+    return account
+
+
+def test_the_bar_carries_a_profile_mark_with_settings_and_sign_out(client, settings):
+    signed_in_client(client, settings)
+
+    body = client.get("/").text
+
+    assert 'id="profile-toggle"' in body
+    assert 'href="/settings"' in body
+    assert "Sign out" in body
+    # Nobody in particular until a photo is uploaded.
+    assert 'class="avatar ' in body
+    assert '<img src="/avatar"' not in body
+
+
+def test_the_username_can_be_changed_and_is_what_signs_you_in(client, settings):
+    signed_in_client(client, settings)
+
+    client.post("/settings/profile", data={"username": "abdullah"}, follow_redirects=False)
+    client.post("/logout", follow_redirects=False)
+
+    stale = client.post("/login", data={"username": "reader", "password": PASSWORD})
+    assert "do not match" in stale.text
+
+    fresh = client.post(
+        "/login",
+        data={"username": "abdullah", "password": PASSWORD, "next": "/"},
+        follow_redirects=False,
+    )
+    assert fresh.status_code == 303
+
+
+def test_changing_the_password_needs_the_current_one(client, settings):
+    from textcast import accounts
+
+    signed_in_client(client, settings)
+
+    refused = client.post(
+        "/settings/password",
+        data={"current_password": "guess", "new_password": "a-longer-secret",
+              "confirm_password": "a-longer-secret"},
+    )
+
+    assert "not the current password" in refused.text
+    account = accounts.get(db.connect(settings.db_path))
+    assert accounts.verify_password(PASSWORD, account.password_hash)
+
+
+def test_changing_the_password_keeps_this_browser_signed_in(client, settings):
+    """It signs out every *other* one, which is the point of changing it."""
+    signed_in_client(client, settings)
+
+    client.post(
+        "/settings/password",
+        data={"current_password": PASSWORD, "new_password": "a-longer-secret",
+              "confirm_password": "a-longer-secret"},
+        follow_redirects=False,
+    )
+
+    assert client.get("/", headers={"accept": "text/html"}).status_code == 200
+
+
+def test_a_short_password_is_refused(client, settings):
+    signed_in_client(client, settings)
+
+    response = client.post(
+        "/settings/password",
+        data={"current_password": PASSWORD, "new_password": "short", "confirm_password": "short"},
+    )
+
+    assert "at least" in response.text
+
+
+def test_regenerating_the_ingest_key_stops_the_old_one_working(client, settings):
+    old = signed_in_client(client, settings).ingest_key
+
+    client.post("/settings/ingest-key", follow_redirects=False)
+    # Drop the session, or it would let the request through whatever key it
+    # carried — which is the bookmarklet's situation, not a browser's.
+    client.cookies.clear()
+
+    response = client.post(
+        "/api/ingest",
+        data={"kind": "text", "title": "With the old key", "text": "A paragraph.", "token": old},
+        headers={"accept": "text/html"},
+        follow_redirects=False,
+    )
+    assert response.headers["location"].startswith("/login?next=")
+
+
+def test_a_profile_picture_is_stored_and_served(client, settings):
+    from textcast import accounts
+
+    signed_in_client(client, settings)
+    png = b"\x89PNG\r\n\x1a\n" + b"0" * 64
+
+    client.post(
+        "/settings/avatar",
+        files={"photo": ("me.png", png, "image/png")},
+        follow_redirects=False,
+    )
+
+    account = accounts.get(db.connect(settings.db_path))
+    assert account.has_photo
+    served = client.get("/avatar")
+    assert served.status_code == 200
+    assert served.content == png
+    assert '<img src="/avatar"' in client.get("/").text
+
+
+def test_a_file_that_is_not_a_picture_is_refused(client, settings):
+    signed_in_client(client, settings)
+
+    response = client.post(
+        "/settings/avatar",
+        files={"photo": ("notes.pdf", b"%PDF-1.7", "application/pdf")},
+    )
+
+    assert "not a picture" in response.text
+
+
+def test_the_settings_page_shows_the_ingest_key_and_never_the_password(client, settings):
+    account = signed_in_client(client, settings)
+
+    body = client.get("/settings").text
+
+    assert account.ingest_key in body
+    assert PASSWORD not in body
+    assert account.password_hash not in body
+    assert account.session not in body

@@ -35,6 +35,7 @@ def has_column(conn: sqlite3.Connection, table: str, name: str) -> bool:
 
 
 def run(conn: sqlite3.Connection) -> None:
+    _seed_account(conn)
     _add_block_media(conn)
     _retire_embed_blocks(conn)
     _add_phoneme_columns(conn)
@@ -224,6 +225,29 @@ def _add_block_media(conn: sqlite3.Connection) -> None:
         return
     conn.execute("ALTER TABLE block ADD COLUMN media TEXT")
     log.info("added block.media")
+
+
+def _seed_account(conn: sqlite3.Connection) -> None:
+    """Take the username and the password out of the environment, once.
+
+    After this the account lives in the database and `.env` stops being read,
+    which is the whole point: a password you can change from the Settings page
+    cannot also be a value in a file the container was started with.
+
+    With no `TEXTCAST_AUTH_TOKEN` set there is nothing to seed and no row is
+    written. `require_auth` is off by default, so that is the ordinary case for
+    a private network; the login page says what to set when it is not.
+    """
+    from . import accounts
+    from .settings import get_settings
+
+    if not has_table(conn, "account") or accounts.get(conn) is not None:
+        return
+    settings = get_settings()
+    if not settings.auth_token:
+        return
+    accounts.create(conn, settings.username, settings.auth_token)
+    log.info("account %r seeded from the environment", settings.username)
 
 
 def _retire_embed_blocks(conn: sqlite3.Connection) -> None:

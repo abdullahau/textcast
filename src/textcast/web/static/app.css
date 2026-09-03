@@ -1326,3 +1326,94 @@ table.rules tr.off { opacity: .45; }
 table.rules .pattern { max-width: 20rem; word-break: break-all; }
 table.rules .muted-cell { color: var(--muted); font-size: .8rem; }
 table.rules form { display: inline; }
+
+/* ---------- the profile mark ---------- */
+
+/* Round, and the same mark in the bar and on the Settings page. The drawn
+   figure is deliberately nobody: a head and a pair of shoulders, no hair and
+   no features, so it stands for whoever is reading rather than for a person. */
+.avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--bar-control);
+  height: var(--bar-control);
+  flex: none;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--sunk);
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+.avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.avatar svg { width: 74%; height: 74%; fill: currentColor; stroke: none; }
+.avatar.lg { width: 5.5rem; height: 5.5rem; }
+
+.profile { position: relative; display: inline-flex; }
+.profile-button {
+  width: auto;
+  height: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+.profile-button:hover .avatar { border-color: var(--border-hi); color: var(--fg); }
+.profile-menu {
+  position: absolute;
+  top: calc(100% + .4rem);
+  right: 0;
+  z-index: 30;
+  min-width: 11rem;
+  padding: .4rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 12px 32px rgb(0 0 0 / .22);
+}
+.profile-name {
+  margin: .25rem .6rem .4rem;
+  font-size: .78rem;
+  font-weight: 600;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.profile-menu form { width: 100%; margin: 0; }
+.profile-menu a, .profile-menu button.link {
+  display: flex;
+  align-items: center;
+  gap: .45rem;
+  width: 100%;
+  height: auto;
+  padding: .5rem .6rem;
+  justify-content: flex-start;
+  font-size: .85rem;
+  color: var(--muted);
+  border-radius: var(--radius-sm);
+}
+.profile-menu a:hover, .profile-menu button.link:hover {
+  background: var(--sunk);
+  color: var(--fg);
+  text-decoration: none;
+}
+.profile-menu svg {
+  width: 15px; height: 15px; flex: none;
+  fill: none; stroke: currentColor; stroke-width: 2;
+  stroke-linecap: round; stroke-linejoin: round;
+}
+
+/* The bar reads Tags, Voice, Summaries, Add, theme, profile. Add sits in the
+   markup after the group so it survives the group folding into the hamburger
+   on a phone; `order` puts it back in front of the toggle on a wide screen. */
+@media (min-width: 44.001rem) {
+  .nav-group { display: contents; }
+  .bar-links .theme-switch { order: 1; }
+  .profile { order: 2; }
+}
+
+.profile-edit { display: flex; align-items: flex-start; gap: 1.1rem; flex-wrap: wrap; }
+.profile-edit-forms { flex: 1 1 18rem; }
+.profile-edit-forms form { margin: 0; }
+.profile-edit-forms form + form { margin-top: .6rem; }

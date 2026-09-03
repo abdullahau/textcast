@@ -64,6 +64,10 @@ class Settings:
     # Off by default, which suits a private network. Turn it on in .env for
     # anything reachable from the internet.
     require_auth: bool = field(default_factory=lambda: _env_bool("REQUIRE_AUTH", False))
+    #: Both seed the account row on an empty database and are never read
+    #: again: after that the answer lives in `account`, where the Settings
+    #: page can change it. Editing either here later does nothing.
+    username: str = field(default_factory=lambda: _env("USERNAME", "textcast"))
     auth_token: str = field(default_factory=lambda: _env("AUTH_TOKEN", ""))
     host: str = field(default_factory=lambda: _env("HOST", "127.0.0.1"))
     port: int = field(default_factory=lambda: _env_int("PORT", 8000))
@@ -81,6 +85,12 @@ class Settings:
     @property
     def media_dir(self) -> Path:
         return self.data_dir / "media"
+
+    @property
+    def avatar_dir(self) -> Path:
+        """The profile picture. Its own directory, not `media/`, which is per
+        article and swept with one."""
+        return self.data_dir / "avatar"
 
     @property
     def cache_dir(self) -> Path:

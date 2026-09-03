@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% from "_avatar.html" import avatar %}
+{% block title %}Settings — textcast{% endblock %}
+
+{% block content %}
+<div class="section-head"><h1>Settings</h1></div>
+
+{% if error %}<p class="notice error" data-dismissible>{{ error }}</p>{% endif %}
+{% if request.query_params.get('saved') %}
+  <p class="notice ok" data-dismissible>
+    {% set what = request.query_params.get('saved') %}
+    {% if what == 'password' %}Password changed. Every other browser has been signed out.
+    {% elif what == 'key' %}New ingest key. Rebuild your bookmarklet and update the Shortcut.
+    {% elif what == 'photo' %}Picture saved.
+    {% else %}Saved.{% endif %}
+  </p>
+{% endif %}
+
+<div class="card">
+  <h2>Profile</h2>
+  <div class="profile-edit">
+    {{ avatar(account, "lg") }}
+    <div class="profile-edit-forms">
+      <form method="post" action="/settings/avatar" enctype="multipart/form-data">
+        <label for="photo">Profile picture</label>
+        <div class="row">
+          <input type="file" name="photo" id="photo" accept="image/*">
+          <button class="ghost narrow" type="submit">Upload</button>
+        </div>
+        <p class="hint">JPEG, PNG, WebP, GIF or AVIF, under 4 MB. Shown as a circle.</p>
+      </form>
+      {% if account and account.has_photo %}
+        <form method="post" action="/settings/avatar/delete">
+          <button class="ghost sm" type="submit">Remove the picture</button>
+        </form>
+      {% endif %}
+    </div>
+  </div>
+
+  <form method="post" action="/settings/profile" style="margin-top:1.2rem">
+    <label for="username">Username</label>
+    <div class="row">
+      <input type="text" name="username" id="username" value="{{ account.username if account }}"
+             autocapitalize="none" spellcheck="false" required>
+      <button class="ghost narrow" type="submit">Save</button>
+    </div>
+    <p class="hint">What you type at the sign-in page.</p>
+  </form>
+</div>
+
+<div class="card">
+  <h2>Password</h2>
+  <form method="post" action="/settings/password">
+    <label for="current_password">Current password</label>
+    <input type="password" name="current_password" id="current_password"
+           autocomplete="current-password" required>
+    <label for="new_password" style="margin-top:.8rem">New password</label>
+    <input type="password" name="new_password" id="new_password"
+           autocomplete="new-password" minlength="{{ password_min }}" required>
+    <label for="confirm_password" style="margin-top:.8rem">New password again</label>
+    <input type="password" name="confirm_password" id="confirm_password"
+           autocomplete="new-password" minlength="{{ password_min }}" required>
+    <div class="row" style="margin-top:.9rem"><button class="narrow" type="submit">Change it</button></div>
+    <p class="hint">
+      At least {{ password_min }} characters. Changing it signs out every other browser
+      and leaves this one signed in.
+    </p>
+  </form>
+</div>
+
+<div class="card">
+  <h2>Ingest key</h2>
+  <p class="hint">
+    What the bookmarklet and the iPhone Shortcut carry. It can add an article and
+    nothing else — not delete one, not read the library — so a bookmarklet sitting
+    in a bookmarks bar is worth only what it can do.
+  </p>
+  <div class="row" style="align-items:flex-end">
+    <div>
+      <label for="ingest_key">Key</label>
+      <input type="text" id="ingest_key" value="{{ account.ingest_key if account }}" readonly
+             onfocus="this.select()">
+    </div>
+    <form method="post" action="/settings/ingest-key"
+          onsubmit="return confirm('Make a new key? The bookmarklet and the Shortcut stop working until you update them.')">
+      <button class="ghost narrow" type="submit">Regenerate</button>
+    </form>
+  </div>
+  <p class="hint">
+    After regenerating, take the bookmarklet again from <a href="/add">Add</a> and
+    paste the new key into the Shortcut.
+  </p>
+</div>
+{% endblock %}

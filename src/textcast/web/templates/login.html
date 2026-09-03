@@ -8,21 +8,27 @@
 
 {% if unconfigured %}
   <div class="card">
-    <h2>No token is set</h2>
+    <h2>No account has been set up</h2>
     <p class="hint">
-      Access control is on, but <code>TEXTCAST_AUTH_TOKEN</code> is empty, so nothing
-      can sign in. Set it in <code>.env</code> and restart, or set
-      <code>TEXTCAST_REQUIRE_AUTH=0</code> if this server is only reachable over a
-      private network.
+      Access control is on, but there is no account to sign in to. Set
+      <code>TEXTCAST_AUTH_TOKEN</code> in <code>.env</code> — and
+      <code>TEXTCAST_USERNAME</code> if you want something other than
+      <code>textcast</code> — then restart. They seed the account once; after that
+      both are changed on the Settings page and <code>.env</code> stops being read.
+      Or set <code>TEXTCAST_REQUIRE_AUTH=0</code> if this server is only reachable
+      over a private network.
     </p>
   </div>
 {% else %}
   <div class="card">
-    <p class="hint">Paste the token from your <code>.env</code>. It is kept in a cookie on this device.</p>
     <form method="post" action="/login">
       <input type="hidden" name="next" value="{{ next }}">
-      <div class="row">
-        <input type="password" name="token" autocomplete="current-password" placeholder="Token" required autofocus>
+      <label for="username">Username</label>
+      <input type="text" name="username" id="username" autocomplete="username"
+             autocapitalize="none" spellcheck="false" required autofocus>
+      <label for="password" style="margin-top:.8rem">Password</label>
+      <input type="password" name="password" id="password" autocomplete="current-password" required>
+      <div class="row" style="margin-top:.9rem">
         <button class="narrow" type="submit">Sign in</button>
       </div>
     </form>

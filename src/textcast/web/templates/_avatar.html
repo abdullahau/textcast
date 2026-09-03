@@ -1,0 +1,16 @@
+{# The profile mark. A photo once there is one; otherwise a drawn figure that
+   is deliberately nobody — a head and a pair of shoulders, no hair, no
+   features. Round either way, and the same markup in the bar and on the
+   Settings page so the two cannot drift. #}
+{% macro avatar(account, size="") %}
+<span class="avatar {{ size }}">
+  {%- if account and account.has_photo -%}
+    <img src="/avatar" alt="{{ account.username }}" width="64" height="64">
+  {%- else -%}
+    <svg viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+      <circle cx="32" cy="23" r="11"/>
+      <path d="M12 57a20 20 0 0 1 40 0z"/>
+    </svg>
+  {%- endif -%}
+</span>
+{% endmacro %}
