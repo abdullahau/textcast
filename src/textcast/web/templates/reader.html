@@ -42,6 +42,17 @@
         <button class="danger" type="submit">Delete</button>
       </form>
     </div>
+    {# Only ever shown when a pass recorded itself. A summary block carries no
+       origin, so one written by hand looks exactly like a generated one, and
+       naming a model that did not write it would be worse than saying
+       nothing. #}
+    {% if has_summary and last_summary %}
+      <p class="hint" style="margin:.7rem 0 0">
+        Summarised with <b>{{ last_summary.model }}</b>{% if last_summary.provider %}
+        via {{ last_summary.provider }}{% endif %}{% if last_summary.at %},
+        {{ last_summary.at[:10] }}{% endif %}.
+      </p>
+    {% endif %}
   </div>
 {% endmacro %}
 

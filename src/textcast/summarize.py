@@ -82,6 +82,38 @@ KEY_BASE_URL = "summary_base_url"
 KEY_API_KEY = "summary_api_key"
 KEY_PROMPT = "summary_prompt"
 
+#: A key and a model belong to an *endpoint*, not to the app. One flat
+#: ``summary_api_key`` meant switching provider sent the old provider's key to
+#: the new one — a 401 that reads like a bad model name, and a page that could
+#: not say otherwise because it knew of only one key. These prefixes scope both
+#: to the endpoint, so picking a provider brings its own key and its own model.
+PREFIX_API_KEY = "summary_api_key:"
+PREFIX_MODEL = "summary_model:"
+
+
+def endpoint_id(base_url: str) -> str:
+    """The stable name of an endpoint, for use in a setting key.
+
+    Lower-cased and stripped of a trailing slash, because
+    ``https://api.deepseek.com/v1`` and ``https://api.deepseek.com/v1/`` are
+    the same endpoint and must not hold two different keys.
+    """
+    return (base_url or "").strip().rstrip("/").lower()
+
+
+def _scoped(prefix: str, base_url: str) -> str:
+    return prefix + endpoint_id(base_url)
+
+
+def fingerprint(key: str) -> str:
+    """The tail of a key, which is enough to tell two of them apart.
+
+    Shown on the page so a stored key is identifiable without being readable.
+    Short keys show nothing: there is no tail that is not most of the key.
+    """
+    key = (key or "").strip()
+    return key[-4:] if len(key) >= 12 else ""
+
 #: Written for the ear, not the eye. Everything here exists because a summary
 #: that reads well on screen reads badly aloud: no markdown, no bullet list, no
 #: heading, and no "this section discusses" preamble. The word limit is there
@@ -118,14 +150,27 @@ class Config:
     base_url: str = DEFAULT_BASE_URL
     api_key: str = ""
     prompt: str = DEFAULT_PROMPT
+    #: Where ``api_key`` came from: "stored", "environment", or "" for nothing.
+    #: The page says which, because a key inherited from the environment is
+    #: the one case where the endpoint on screen did not supply it.
+    key_source: str = ""
 
     @property
     def ready(self) -> bool:
         return bool(self.api_key and self.model)
 
+    @property
+    def provider(self) -> str:
+        return provider_for(self.base_url)
+
 
 def _env(key: str) -> str:
     return os.environ.get(key, "").strip()
+
+
+def _default_base_url() -> str:
+    """The endpoint when none is stored. Read and write must agree on this."""
+    return _env("TEXTCAST_SUMMARY_BASE_URL") or DEFAULT_BASE_URL
 
 
 def config(conn=None) -> Config:
@@ -140,12 +185,86 @@ def config(conn=None) -> Config:
             log.debug("could not read %s", key, exc_info=True)
             return default
 
+    base_url = stored(KEY_BASE_URL, _default_base_url())
+
+    # The key is looked up under the endpoint, never under a flat name. There
+    # is deliberately no fall back to another endpoint's key: sending Gemini's
+    # key to DeepSeek is the bug this scoping exists to stop.
+    key = stored(_scoped(PREFIX_API_KEY, base_url), "")
+    source = "stored" if key else ""
+    if not key:
+        key = _env("TEXTCAST_SUMMARY_API_KEY")
+        source = "environment" if key else ""
+
     return Config(
         model=stored(KEY_MODEL, _env("TEXTCAST_SUMMARY_MODEL") or DEFAULT_MODEL),
-        base_url=stored(KEY_BASE_URL, _env("TEXTCAST_SUMMARY_BASE_URL") or DEFAULT_BASE_URL),
-        api_key=stored(KEY_API_KEY, _env("TEXTCAST_SUMMARY_API_KEY")),
+        base_url=base_url,
+        api_key=key,
         prompt=stored(KEY_PROMPT, DEFAULT_PROMPT),
+        key_source=source,
     )
+
+
+def key_for(base_url: str, conn=None) -> str:
+    """The stored key for one endpoint, ignoring the environment."""
+    from . import db
+
+    return db.get_setting(_scoped(PREFIX_API_KEY, base_url), "", conn)
+
+
+def model_for(base_url: str, conn=None) -> str:
+    """The model last saved against one endpoint, or an empty string."""
+    from . import db
+
+    return db.get_setting(_scoped(PREFIX_MODEL, base_url), "", conn)
+
+
+def endpoints(conn=None) -> dict[str, dict]:
+    """What is stored per endpoint, for the settings page. Keys never leave.
+
+    Maps ``endpoint_id`` to the last four characters of its key and the model
+    last saved with it — enough for the page to say "DeepSeek: stored" as you
+    change the dropdown, and never enough to read a key back out of the page.
+    """
+    from . import db
+
+    known: dict[str, dict] = {}
+    for key, value in db.settings_matching(PREFIX_API_KEY, conn).items():
+        if value:
+            known.setdefault(key[len(PREFIX_API_KEY):], {})["hint"] = fingerprint(value)
+    for key, value in db.settings_matching(PREFIX_MODEL, conn).items():
+        if value:
+            known.setdefault(key[len(PREFIX_MODEL):], {})["model"] = value
+    return known
+
+
+def stored_list(conn=None) -> list[dict]:
+    """Every endpoint holding a key, named and ordered for the page.
+
+    Listed providers come first, in the order of ``PROVIDERS``, then anything
+    typed by hand. An endpoint that is only remembering a model is not here:
+    the list answers "which providers can I use right now", and that is the
+    key.
+    """
+    known = endpoints(conn)
+    urls = {endpoint_id(url): (name, url) for _id, name, url, _models in PROVIDERS}
+
+    rows: list[dict] = []
+    for ident, (name, url) in urls.items():
+        entry = known.get(ident)
+        if entry and entry.get("hint") is not None:
+            rows.append({"id": ident, "name": name, "base_url": url, **entry})
+    for ident, entry in known.items():
+        if ident not in urls and entry.get("hint") is not None:
+            rows.append({"id": ident, "name": ident, "base_url": ident, **entry})
+    return rows
+
+
+def forget_key(base_url: str, conn=None) -> bool:
+    """Drop one endpoint's key. Its model is left: it is not a secret."""
+    from . import db
+
+    return db.delete_setting(_scoped(PREFIX_API_KEY, base_url), conn)
 
 
 def save_config(
@@ -156,17 +275,36 @@ def save_config(
     api_key: str | None = None,
     prompt: str | None = None,
 ) -> None:
-    """Store whichever fields were given. An empty string clears a field."""
+    """Store whichever fields were given. An empty string clears a field.
+
+    The key and the model are stored against the endpoint being saved — the
+    one in this call if it was given, the one already stored otherwise. Saving
+    a DeepSeek key therefore cannot overwrite the Gemini key, and switching
+    back to Gemini finds both its key and the model it was last used with.
+    """
     from . import db
 
     for key, value in (
         (KEY_MODEL, model),
         (KEY_BASE_URL, base_url),
-        (KEY_API_KEY, api_key),
         (KEY_PROMPT, prompt),
     ):
         if value is not None:
             db.set_setting(key, value.strip(), conn)
+
+    if api_key is None and model is None:
+        return
+
+    endpoint = base_url if base_url is not None else db.get_setting(KEY_BASE_URL, "", conn)
+    # An unset endpoint means the default one, and it has to mean the same
+    # here as it does in `config()`. Resolved differently, a key saved before
+    # a provider was ever picked would be filed under a name the read side
+    # never asks for, and would look like no key at all.
+    endpoint = endpoint or _default_base_url()
+    if api_key is not None:
+        db.set_setting(_scoped(PREFIX_API_KEY, endpoint), api_key.strip(), conn)
+    if model is not None:
+        db.set_setting(_scoped(PREFIX_MODEL, endpoint), model.strip(), conn)
 
 
 def is_installed() -> bool:

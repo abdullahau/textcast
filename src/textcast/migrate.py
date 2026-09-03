@@ -42,6 +42,54 @@ def run(conn: sqlite3.Connection) -> None:
     # only ever writes where nothing is written.
     _fill_builtin_phonemes(conn)
     _seed_pronunciations(conn)
+    _scope_summary_key(conn)
+
+
+def _scope_summary_key(conn: sqlite3.Connection) -> None:
+    """File the one summary key under the endpoint it was for.
+
+    There used to be a single `summary_api_key`, which meant a library could
+    hold one key however many providers it used. Switching provider kept the
+    old key and sent it to the new endpoint. The key now lives under
+    `summary_api_key:<endpoint>`, so this moves the flat one across to
+    whichever endpoint was selected when it was stored, and deletes it. Left
+    in place it would be a second answer to the same question.
+    """
+    from .summarize import (
+        DEFAULT_BASE_URL,
+        KEY_API_KEY,
+        KEY_BASE_URL,
+        KEY_MODEL,
+        PREFIX_API_KEY,
+        PREFIX_MODEL,
+        endpoint_id,
+    )
+
+    if not has_table(conn, "setting"):
+        return
+    row = conn.execute("SELECT value FROM setting WHERE key = ?", (KEY_API_KEY,)).fetchone()
+    if row is None:
+        return
+
+    key = (row["value"] or "").strip()
+    where = conn.execute("SELECT value FROM setting WHERE key = ?", (KEY_BASE_URL,)).fetchone()
+    endpoint = endpoint_id((where["value"] if where else "") or DEFAULT_BASE_URL)
+
+    if key and endpoint:
+        conn.execute(
+            "INSERT INTO setting (key, value) VALUES (?,?) ON CONFLICT (key) DO NOTHING",
+            (PREFIX_API_KEY + endpoint, key),
+        )
+        # The model it was used with belongs to that endpoint too, or picking
+        # the provider again would offer the first name in the built-in list.
+        model = conn.execute("SELECT value FROM setting WHERE key = ?", (KEY_MODEL,)).fetchone()
+        if model and (model["value"] or "").strip():
+            conn.execute(
+                "INSERT INTO setting (key, value) VALUES (?,?) ON CONFLICT (key) DO NOTHING",
+                (PREFIX_MODEL + endpoint, model["value"].strip()),
+            )
+        log.info("summary key filed under %s", endpoint)
+    conn.execute("DELETE FROM setting WHERE key = ?", (KEY_API_KEY,))
 
 
 def _add_phoneme_columns(conn: sqlite3.Connection) -> None:

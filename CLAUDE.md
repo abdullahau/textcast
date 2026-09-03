@@ -566,6 +566,34 @@ Things that have already bitten once.
   worth reading, and it is how the stray emphasis markers were found.
 - **The summaries key field posts blank when untouched.** The form carries
   `keep_key`, or saving a new model name would wipe the stored key.
+- **A key belongs to an endpoint, not to the app.** There was one flat
+  `summary_api_key`, so a library held one key however many providers it used.
+  Picking DeepSeek changed the endpoint and the model and kept the Gemini key,
+  which answers 401 and reads like a bad model name — and the page could not
+  say otherwise, because a password box looks the same either way and its
+  placeholder read "stored" whenever *any* key existed. The key now lives
+  under `summary_api_key:<endpoint>` and the model under
+  `summary_model:<endpoint>`, so switching provider switches both.
+  `migrate._scope_summary_key` files the old flat key under whichever endpoint
+  was selected and deletes it. **There is deliberately no fall back to another
+  endpoint's key**: an endpoint with nothing stored has no key, and says so.
+- **Save and read must resolve an unset endpoint the same way.** `config()`
+  answers `DEFAULT_BASE_URL` when nothing is stored, so `save_config` has to
+  as well — both call `_default_base_url()`. Resolved apart, a key saved
+  before a provider was ever picked would be filed under a name the read side
+  never asks for, and would look like no key at all.
+- **`.../v1` and `.../v1/` are one endpoint.** `endpoint_id` lower-cases and
+  drops the trailing slash before the key is built, or the same provider holds
+  two keys and the page shows whichever was typed last.
+- **The page carries the tail of a key, never a key.** `endpoints()` sends
+  four characters, which is enough to tell two keys apart and not enough to
+  use one. Anything in the page is readable by anyone at the page.
+- **A summary block carries no origin.** One written by hand is the same row
+  as one written by a model, so the model is recorded on the *job* —
+  `service.summarize` puts it in `options` and `db.last_summary` reads back
+  the last one that finished. An article with summaries and no record was
+  either summarised before this existed or written by hand, and the reader
+  says nothing rather than naming a model that did not write it.
 - **Nothing may load a model inside a request.** The voice picker broke this
   rule for months: every article page called `_voices()`, which built an
   engine, so the first page load after a restart waited for the weights. It
@@ -735,6 +763,12 @@ the owner asked for no feature branches unless they say so.
 10. **Article hits and block hits are ranked separately.** `search` puts
    metadata matches first and FTS matches after, rather than in one order.
    Right at this size; revisit past a few thousand articles.
+10. **A hand-written summary is not protected.** Nothing marks a summary block
+    as yours, so "Summarise again" replaces it with the model's, and "Delete
+    summaries" removes it with the rest. The reader now says which model wrote
+    the summaries and stays silent where it does not know, which makes the
+    hazard visible but does not stop it. Marking a summary block that was
+    edited by hand would; it was judged not worth a column yet.
 
 ## Conventions
 

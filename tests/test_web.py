@@ -121,6 +121,54 @@ def test_saving_the_model_alone_keeps_the_stored_key(client, conn):
     assert summarize.config(conn).model == "a-model"
 
 
+def test_saving_a_key_for_one_provider_does_not_overwrite_another(client, conn):
+    """The key is filed under the endpoint as submitted, not the stored one."""
+    from textcast import summarize
+
+    gemini = "https://generativelanguage.googleapis.com/v1beta/openai/"
+    deepseek = "https://api.deepseek.com/v1/"
+
+    client.post("/summaries", data={
+        "model": "gemini-2.5-flash", "base_url": gemini,
+        "api_key": "the-gemini-key", "keep_key": "true",
+    })
+    client.post("/summaries", data={
+        "model": "deepseek-chat", "base_url": deepseek,
+        "api_key": "the-deepseek-key", "keep_key": "true",
+    })
+
+    assert summarize.key_for(gemini, conn) == "the-gemini-key"
+    assert summarize.key_for(deepseek, conn) == "the-deepseek-key"
+
+
+def test_the_summaries_page_never_carries_a_whole_key(client, conn):
+    """It says which endpoints hold a key so the field can be honest about the
+    one selected. A key itself in the page would be readable by anyone at it."""
+    from textcast import summarize
+
+    summarize.save_config(conn, base_url="https://api.deepseek.com/v1/", api_key="sk-secret-12345678")
+
+    body = client.get("/summaries").text
+
+    assert "sk-secret-12345678" not in body
+    assert "5678" in body, "the tail identifies it without revealing it"
+    assert "api.deepseek.com/v1" in body
+
+
+def test_forgetting_one_key_leaves_the_other_provider_usable(client, conn):
+    from textcast import summarize
+
+    gemini = "https://generativelanguage.googleapis.com/v1beta/openai/"
+    deepseek = "https://api.deepseek.com/v1/"
+    summarize.save_config(conn, base_url=gemini, api_key="gemini-key")
+    summarize.save_config(conn, base_url=deepseek, api_key="deepseek-key")
+
+    client.post("/summaries/forget-key", data={"base_url": deepseek})
+
+    assert summarize.key_for(deepseek, conn) == ""
+    assert summarize.key_for(gemini, conn) == "gemini-key"
+
+
 def test_the_normal_reading_pace_is_not_stored_as_an_option(client):
     """1.0 is the default, so writing it down would only be noise on every build."""
     assert web._build_options("", "", False, speed="1.0") == {}
@@ -1001,3 +1049,39 @@ def test_a_running_job_card_cannot_be_put_away(client, conn):
 
     assert "Writing summaries…" in page
     assert "data-dismissible" not in _status_card(page)
+
+
+def _article_with_summary(conn):
+    """An article carrying a summary block, which is all a hand-written one is."""
+    from textcast.document import Article, Block, BlockKind, Section
+
+    doc = Article(title="Summarised once", sections=[Section(title="One", blocks=[
+        Block(kind=BlockKind.SUMMARY, text="What it is about, briefly."),
+        Block(kind=BlockKind.PARA, text="The body of it."),
+    ])]).renumber()
+    article_id = db.save_article(doc, conn)
+    return article_id, db.get_article(article_id, conn)["slug"]
+
+
+def test_the_reader_says_which_model_wrote_the_summaries(client, conn):
+    article_id, slug = _article_with_summary(conn)
+    job_id = db.enqueue(article_id, "summarise", conn=conn, options={
+        "model": "deepseek-chat", "base_url": "https://api.deepseek.com/v1/",
+    })
+    db.update_job(job_id, conn, state="done")
+
+    page = client.get(f"/a/{slug}").text
+
+    assert "Summarised with" in page
+    assert "deepseek-chat" in page
+    assert "DeepSeek" in page, "the provider is named, not just the endpoint"
+
+
+def test_the_reader_names_no_model_for_a_summary_it_did_not_make(client, conn):
+    """A summary block carries no origin, so one written by hand looks exactly
+    like a generated one. Saying nothing beats naming the wrong model."""
+    _article_id, slug = _article_with_summary(conn)
+
+    page = client.get(f"/a/{slug}").text
+
+    assert "Summarised with" not in page

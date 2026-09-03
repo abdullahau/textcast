@@ -991,6 +991,40 @@ def active_jobs(conn: sqlite3.Connection | None = None) -> list[sqlite3.Row]:
     ).fetchall()
 
 
+def last_summary(article_id: int, conn: sqlite3.Connection | None = None) -> dict:
+    """How this article's summaries were last made, or an empty dict.
+
+    Read off the last summary job that finished, because that is the only
+    place the model is written down. A summary is a block like any other and
+    carries no origin: one written by hand and one written by a model are the
+    same row. So an article with summaries and nothing here was summarised
+    before this was recorded, or the text was written by hand — and in both
+    cases the honest answer is to say nothing.
+    """
+    conn = conn or connect()
+    row = conn.execute(
+        """
+        SELECT options, finished_at FROM job
+         WHERE article_id = ? AND kind = 'summarise' AND state = 'done'
+         ORDER BY COALESCE(finished_at, created_at) DESC LIMIT 1
+        """,
+        (article_id,),
+    ).fetchone()
+    if row is None:
+        return {}
+    try:
+        options = json.loads(row["options"] or "{}")
+    except ValueError:
+        return {}
+    if not options.get("model"):
+        return {}
+    return {
+        "model": options["model"],
+        "base_url": options.get("base_url", ""),
+        "at": row["finished_at"] or "",
+    }
+
+
 def recent_jobs(conn: sqlite3.Connection | None = None, limit: int = 20) -> list[sqlite3.Row]:
     conn = conn or connect()
     return conn.execute(
@@ -1020,6 +1054,26 @@ def set_setting(key: str, value: str, conn: sqlite3.Connection | None = None) ->
         "INSERT INTO setting (key, value) VALUES (?,?) ON CONFLICT (key) DO UPDATE SET value = excluded.value",
         (key, value),
     )
+
+
+def delete_setting(key: str, conn: sqlite3.Connection | None = None) -> bool:
+    """Remove one setting. True if there was one to remove."""
+    conn = conn or connect()
+    return conn.execute("DELETE FROM setting WHERE key = ?", (key,)).rowcount > 0
+
+
+def settings_matching(prefix: str, conn: sqlite3.Connection | None = None) -> dict[str, str]:
+    """Every setting whose key starts with `prefix`.
+
+    For the settings that are stored one per endpoint, where the key carries
+    the endpoint and the caller cannot know the names in advance.
+    """
+    conn = conn or connect()
+    rows = conn.execute(
+        "SELECT key, value FROM setting WHERE key LIKE ? ESCAPE '\\' ORDER BY key",
+        (prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%",),
+    )
+    return {row["key"]: row["value"] for row in rows}
 
 
 # --------------------------------------------------------------------------

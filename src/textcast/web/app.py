@@ -341,6 +341,20 @@ def tags_page(request: Request):
     return render(request, "tags.html", tags=db.list_tags())
 
 
+def _last_summary(article_id: int, conn) -> dict:
+    """How the summaries were last made, named for the page.
+
+    Empty when nothing is recorded, which is what the reader shows for a
+    summary written by hand: there is no source to name.
+    """
+    from ..summarize import provider_for
+
+    record = db.last_summary(article_id, conn)
+    if not record:
+        return {}
+    return {**record, "provider": provider_for(record["base_url"])}
+
+
 @app.get("/a/{slug}", response_class=HTMLResponse, dependencies=[Auth])
 def reader(request: Request, slug: str, edit: bool = False, edited: int = 0, removed: int = 0):
     row = article_or_404(slug)
@@ -399,6 +413,7 @@ def reader(request: Request, slug: str, edit: bool = False, edited: int = 0, rem
         removed=removed,
         kinds=[str(k) for k in BlockKind],
         summary_model=summaries_config(conn).model,
+        last_summary=_last_summary(row["id"], conn),
         build_on_top=build_on_top,
         modify_on_top=build_on_top and not has_summary,
     )
@@ -790,6 +805,7 @@ def _summaries_page(request: Request, **extra):
     from .. import summarize as summaries
 
     cfg = summaries.config()
+    stored = summaries.endpoints()
     return render(
         request,
         "summaries.html",
@@ -799,6 +815,11 @@ def _summaries_page(request: Request, **extra):
         default_model=summaries.DEFAULT_MODEL,
         providers=summaries.PROVIDERS,
         provider_name=summaries.provider_for(cfg.base_url),
+        # Which endpoints hold a key, and the tail of each. Never a key: this
+        # goes into the page, where anything sent is readable.
+        stored_keys=stored,
+        stored_list=summaries.stored_list(),
+        endpoint_id=summaries.endpoint_id(cfg.base_url),
         pending=db.summarisable(),
         **extra,
     )
@@ -821,13 +842,24 @@ def summaries_save(
     from .. import summarize as summaries
 
     # An untouched password field posts blank. Saving that would wipe the key
-    # every time the model was changed.
+    # every time the model was changed. The key is filed under `base_url` as
+    # submitted, not under the one already stored, or moving to a new provider
+    # and typing its key would overwrite the previous provider's.
     summaries.save_config(
         model=model,
         base_url=base_url,
         api_key=None if (keep_key and not api_key.strip()) else api_key,
         prompt=prompt,
     )
+    return RedirectResponse("/summaries", status_code=303)
+
+
+@app.post("/summaries/forget-key", dependencies=[Auth])
+def summaries_forget_key(request: Request, base_url: str = Form(default="")):
+    """Drop one endpoint's key, leaving every other endpoint's alone."""
+    from .. import summarize as summaries
+
+    summaries.forget_key(base_url)
     return RedirectResponse("/summaries", status_code=303)
 
 

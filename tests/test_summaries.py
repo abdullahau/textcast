@@ -100,6 +100,120 @@ def test_saving_nothing_leaves_the_stored_key_alone(conn):
     assert summarize.config(conn).api_key == "secret"
 
 
+# -- a key per endpoint ----------------------------------------------------
+
+GEMINI = "https://generativelanguage.googleapis.com/v1beta/openai/"
+DEEPSEEK = "https://api.deepseek.com/v1/"
+
+
+def test_two_providers_each_keep_their_own_key(conn):
+    """The whole point. One flat key meant a library could hold one provider."""
+    summarize.save_config(conn, base_url=GEMINI, api_key="gemini-key", model="gemini-2.5-flash")
+    summarize.save_config(conn, base_url=DEEPSEEK, api_key="deepseek-key", model="deepseek-chat")
+
+    assert summarize.key_for(GEMINI, conn) == "gemini-key"
+    assert summarize.key_for(DEEPSEEK, conn) == "deepseek-key"
+
+
+def test_switching_provider_switches_which_key_is_used(conn):
+    summarize.save_config(conn, base_url=GEMINI, api_key="gemini-key")
+    summarize.save_config(conn, base_url=DEEPSEEK, api_key="deepseek-key")
+
+    summarize.save_config(conn, base_url=GEMINI)
+    assert summarize.config(conn).api_key == "gemini-key"
+
+    summarize.save_config(conn, base_url=DEEPSEEK)
+    assert summarize.config(conn).api_key == "deepseek-key"
+
+
+def test_an_endpoint_with_no_key_does_not_borrow_another_ones(conn, monkeypatch):
+    """The bug this scoping exists to stop: the Gemini key going to DeepSeek,
+    which answers 401 and reads like a bad model name."""
+    monkeypatch.delenv("TEXTCAST_SUMMARY_API_KEY", raising=False)
+    summarize.save_config(conn, base_url=GEMINI, api_key="gemini-key")
+
+    summarize.save_config(conn, base_url=DEEPSEEK)
+
+    assert summarize.config(conn).api_key == ""
+    assert summarize.config(conn).ready is False
+
+
+def test_a_trailing_slash_does_not_make_a_second_endpoint(conn):
+    """`.../v1` and `.../v1/` are one endpoint and must not hold two keys."""
+    summarize.save_config(conn, base_url="https://api.deepseek.com/v1/", api_key="the-key")
+
+    assert summarize.key_for("https://api.deepseek.com/v1", conn) == "the-key"
+    assert summarize.key_for("https://API.DeepSeek.com/v1/", conn) == "the-key"
+
+
+def test_a_key_saved_before_a_provider_is_picked_is_still_found(conn):
+    """Save and read must resolve an unset endpoint the same way, or the key
+    is filed under a name nothing ever asks for."""
+    summarize.save_config(conn, api_key="secret")
+
+    assert summarize.config(conn).api_key == "secret"
+    assert summarize.key_for(summarize.DEFAULT_BASE_URL, conn) == "secret"
+
+
+def test_the_model_is_remembered_per_endpoint(conn):
+    """Picking a provider again should offer the model you chose, not the
+    first name in the built-in list."""
+    summarize.save_config(conn, base_url=DEEPSEEK, model="deepseek-reasoner", api_key="k")
+    summarize.save_config(conn, base_url=GEMINI, model="gemini-2.5-pro", api_key="k2")
+
+    assert summarize.model_for(DEEPSEEK, conn) == "deepseek-reasoner"
+    assert summarize.model_for(GEMINI, conn) == "gemini-2.5-pro"
+
+
+def test_forgetting_one_key_leaves_the_others(conn):
+    summarize.save_config(conn, base_url=GEMINI, api_key="gemini-key")
+    summarize.save_config(conn, base_url=DEEPSEEK, api_key="deepseek-key")
+
+    assert summarize.forget_key(DEEPSEEK, conn) is True
+
+    assert summarize.key_for(DEEPSEEK, conn) == ""
+    assert summarize.key_for(GEMINI, conn) == "gemini-key"
+
+
+def test_the_stored_list_names_the_providers_that_can_be_used_now(conn):
+    summarize.save_config(conn, base_url=DEEPSEEK, api_key="a-long-enough-key-1234")
+    summarize.save_config(conn, base_url=GEMINI, api_key="another-long-key-abcd")
+
+    rows = summarize.stored_list(conn)
+
+    assert [row["name"] for row in rows] == ["Google Gemini", "DeepSeek"], "listed order"
+    assert [row["hint"] for row in rows] == ["abcd", "1234"], "the tail, never the key"
+
+
+def test_the_environment_key_says_where_it_came_from(conn, monkeypatch):
+    """A key inherited from the environment is the one case where the endpoint
+    on screen did not supply it, and the page has to be able to say so."""
+    monkeypatch.setenv("TEXTCAST_SUMMARY_API_KEY", "from-the-environment")
+
+    assert summarize.config(conn).key_source == "environment"
+
+    summarize.save_config(conn, api_key="stored-key")
+    assert summarize.config(conn).key_source == "stored"
+    assert summarize.config(conn).api_key == "stored-key"
+
+
+def test_a_flat_key_is_filed_under_the_endpoint_it_was_for(conn):
+    """The migration. A library from before this held one key and one
+    endpoint; the key belongs to that endpoint and nowhere else."""
+    from textcast import migrate
+
+    db.set_setting(summarize.KEY_BASE_URL, DEEPSEEK, conn)
+    db.set_setting(summarize.KEY_API_KEY, "the-old-key", conn)
+    db.set_setting(summarize.KEY_MODEL, "deepseek-chat", conn)
+
+    migrate._scope_summary_key(conn)
+
+    assert summarize.key_for(DEEPSEEK, conn) == "the-old-key"
+    assert summarize.model_for(DEEPSEEK, conn) == "deepseek-chat"
+    assert db.get_setting(summarize.KEY_API_KEY, "", conn) == "", "the flat key is gone"
+    assert summarize.key_for(GEMINI, conn) == "", "it belongs to one endpoint only"
+
+
 # -- the call --------------------------------------------------------------
 
 

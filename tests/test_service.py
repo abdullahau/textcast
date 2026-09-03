@@ -161,3 +161,30 @@ def test_deleting_summaries_keeps_the_article_and_drops_the_audio(conn, settings
     assert not any(b.kind is BlockKind.SUMMARY for _s, b in after.blocks())
     assert after.sections[0].blocks[0].id == "b0-0", "ids close up behind them"
     assert delete_summaries(stored.article_id) == 0, "nothing left to remove"
+
+
+def test_a_summary_pass_records_the_model_it_asked(conn, settings):
+    """The job is the only durable record of how an article was summarised. A
+    summary is a block like any other and says nothing about where it came
+    from, so one written by hand is indistinguishable from a generated one."""
+    from textcast import summarize
+    from textcast.service import summarize as queue_summary
+
+    summarize.save_config(conn, base_url="https://api.deepseek.com/v1/",
+                          model="deepseek-chat", api_key="k")
+    stored = add_note()
+
+    job_id = queue_summary(stored.article_id, settings)
+    db.update_job(job_id, conn, state="done")
+
+    record = db.last_summary(stored.article_id, conn)
+    assert record["model"] == "deepseek-chat"
+    assert record["base_url"] == "https://api.deepseek.com/v1/"
+
+
+def test_an_article_nobody_summarised_records_nothing(conn, settings):
+    """Which is what the reader shows for a summary written by hand: silence
+    beats naming a model that did not write it."""
+    stored = add_note()
+
+    assert db.last_summary(stored.article_id, conn) == {}

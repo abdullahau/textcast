@@ -567,6 +567,20 @@ button.q:hover, button.q:focus-visible { color: var(--fg); border-color: var(--f
   color: var(--muted);
 }
 
+/* A label with a state beside it: "API key for DeepSeek  NO KEY STORED".
+   The state has to sit on the label's line, and `label` is a block. */
+.field-head {
+  display: flex;
+  align-items: baseline;
+  gap: .45rem;
+  flex-wrap: wrap;
+}
+
+.field-head label { margin-bottom: .35rem; }
+
+.pill.ok   { color: var(--good); border-color: color-mix(in srgb, var(--good) 35%, transparent); }
+.pill.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 35%, transparent); }
+
 .tag {
   display: inline-flex;
   align-items: center;
@@ -679,7 +693,7 @@ button.q:hover, button.q:focus-visible { color: var(--fg); border-color: var(--f
 label { display: block; font-size: .78rem; font-weight: 500; color: var(--fg-soft); margin-bottom: .35rem; }
 
 input[type=text], input[type=url], input[type=search], input[type=number],
-select, textarea {
+input[type=password], select, textarea {
   width: 100%;
   min-height: 2.1rem;
   padding: .42rem .6rem;

@@ -2,23 +2,74 @@
 {% block title %}Summaries — textcast{% endblock %}
 
 {% block scripts %}
+{# Which endpoints hold a key, and the tail of each. The tails are here so two
+   keys can be told apart; no whole key is ever sent to the page. #}
+<script type="application/json" id="endpoint-keys">{{ stored_keys|tojson }}</script>
 <script>
 /* Choosing a provider fills its address and one model worth starting on.
    Both fields stay editable, and the model is typed: a datalist put a
    dropdown arrow on the field with nothing behind it until a provider was
-   picked, which is a control that promises a menu and has none. */
+   picked, which is a control that promises a menu and has none.
+
+   It also says whether *that* provider has a key. The field is a password
+   box, so it looks the same whichever provider is selected, and it used to
+   read "stored" whenever any key existed at all — which is how a Gemini key
+   came to be sent to DeepSeek with the page insisting all was well. */
 (function () {
   var provider = document.getElementById("provider");
   var endpoint = document.getElementById("base_url");
   var model = document.getElementById("model");
+  var field = document.getElementById("api_key");
+  var label = document.getElementById("api_key_label");
+  var status = document.getElementById("api_key_status");
+  var payload = document.getElementById("endpoint-keys");
+  var known = {};
+  try { known = JSON.parse(payload.textContent || "{}"); } catch (e) { known = {}; }
+
+  function ident(url) {
+    return (url || "").trim().replace(/\/+$/, "").toLowerCase();
+  }
+
+  function providerName(url) {
+    var wanted = ident(url);
+    for (var i = 0; i < provider.options.length; i++) {
+      var option = provider.options[i];
+      if (option.value && ident(option.value) === wanted) return option.text;
+    }
+    return "";
+  }
+
+  function describe() {
+    var url = endpoint.value;
+    var name = providerName(url);
+    var entry = known[ident(url)];
+    label.textContent = name ? "API key for " + name : "API key for this endpoint";
+    if (entry && entry.hint !== undefined) {
+      status.textContent = entry.hint ? "stored \u2022\u2022\u2022\u2022" + entry.hint : "stored";
+      status.className = "pill ok";
+      field.placeholder = "leave blank to keep it";
+    } else {
+      status.textContent = "no key stored";
+      status.className = "pill warn";
+      field.placeholder = name ? "paste the " + name + " key" : "paste the key";
+    }
+  }
 
   provider.addEventListener("change", function () {
     var picked = provider.options[provider.selectedIndex];
-    if (!picked.value) return;
+    if (!picked.value) { describe(); return; }
     endpoint.value = picked.value;
+    /* The model last saved against this endpoint beats the first name in the
+       built-in list: it is the one you actually chose. */
+    var entry = known[ident(picked.value)];
     var models = (picked.dataset.models || "").split(",").filter(Boolean);
-    if (models.length) model.value = models[0];
+    if (entry && entry.model) model.value = entry.model;
+    else if (models.length) model.value = models[0];
+    describe();
   });
+
+  endpoint.addEventListener("input", describe);
+  describe();
 })();
 </script>
 {% endblock %}
@@ -97,14 +148,26 @@
          — Endpoint — and fills it, with the caret in it and the text selected.
          Nothing on the page was doing that, and no other field behaves so. #}
       <div>
-        <label for="api_key">API key</label>
-        <input type="password" name="api_key" id="api_key" autocomplete="new-password"
-               placeholder="{{ '•••••••• stored' if cfg.api_key else 'not set' }}">
+        <div class="field-head">
+          <label for="api_key" id="api_key_label">API key</label>
+          <span class="pill" id="api_key_status"></span>
+        </div>
+        <input type="password" name="api_key" id="api_key" autocomplete="new-password">
         <p class="hint" style="margin-top:.35rem">
-          Kept in the database on this machine. Leave blank to keep the one already stored.
-          <code>TEXTCAST_SUMMARY_API_KEY</code> supplies it when nothing is stored — one
-          variable, whichever provider you point at. A local Ollama needs no key; put
-          anything in it.
+          One key per endpoint, kept in the database on this machine. The key you type is
+          filed under the endpoint above, so a DeepSeek key and a Gemini key live side by
+          side and picking a provider brings its own. Leave the box blank to keep the key
+          that endpoint already has.
+        </p>
+        <p class="hint" style="margin-top:.35rem">
+          {% if cfg.key_source == 'environment' %}
+            This endpoint has no key stored, so it is using
+            <code>TEXTCAST_SUMMARY_API_KEY</code> from the environment. That one variable is
+            used by any endpoint with nothing stored, whichever provider it is for.
+          {% else %}
+            <code>TEXTCAST_SUMMARY_API_KEY</code> supplies a key to any endpoint that has
+            none stored. A local Ollama needs no key; put anything in it.
+          {% endif %}
         </p>
       </div>
     </div>
@@ -124,6 +187,43 @@
       Saving stores the settings and nothing else. No article is summarised until you ask for one.
     </p>
   </form>
+</div>
+
+<div class="card">
+  <h2>Stored keys</h2>
+  <p class="hint">
+    One key per endpoint. Switching provider above switches which of these is used, so a key
+    is only ever sent to the endpoint it was typed for.
+  </p>
+  {% if stored_list %}
+    <table class="plain" style="margin-top:.7rem">
+      <thead>
+        <tr><th>Provider</th><th>Key</th><th>Model</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for row in stored_list %}
+          <tr>
+            <td>
+              {{ row.name }}
+              {% if row.id == endpoint_id %}<span class="pill ok">in use</span>{% endif %}
+            </td>
+            <td class="muted">{{ '••••' ~ row.hint if row.hint else 'stored' }}</td>
+            <td class="muted">{{ row.model or '—' }}</td>
+            <td>
+              <form method="post" action="/summaries/forget-key">
+                <input type="hidden" name="base_url" value="{{ row.base_url }}">
+                <button class="narrow ghost" type="submit">Forget</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="hint" style="margin-top:.7rem">
+      No key is stored for any endpoint yet. Type one above and save.
+    </p>
+  {% endif %}
 </div>
 
 <div class="card">

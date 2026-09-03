@@ -244,9 +244,15 @@ def summarize(article_id: int, settings: Settings | None = None, replace: bool =
     conn = db.connect(settings.db_path)
     if db.get_article(article_id, conn) is None:
         raise IngestError(f"no article {article_id}")
-    if not config(conn).ready:
+    cfg = config(conn)
+    if not cfg.ready:
         raise IngestError("summaries need a model and an API key on the Summaries page")
-    options = {"replace": True} if replace else None
+    # The model goes on the job, which is the only durable record of how an
+    # article's summaries were made. A summary block does not say where it came
+    # from, and a block written by hand is the same row as a generated one.
+    options: dict = {"model": cfg.model, "base_url": cfg.base_url}
+    if replace:
+        options["replace"] = True
     return db.enqueue(article_id, kind="summarise", options=options, conn=conn)
 
 
