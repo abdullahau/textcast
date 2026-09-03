@@ -591,11 +591,22 @@ Things that have already bitten once.
   insists on a non-empty string, so it is sent "not-needed". `Config.ready`
   asks for a key only when `needs_key`, which is any host that is not this
   machine. `summarize.LOCAL_HOSTS` is that list.
-- **The model is typed, not chosen.** It was a select of each provider's
-  models with "Something else…" behind it. Model names move faster than
-  `PROVIDERS` does, so the menu is out of date the week it ships and hides the
-  name you want behind its last option. The provider's first model is the
-  field's placeholder instead: a suggestion, and nothing to maintain.
+- **The model is typed, and there is no list of model names at all.** It was
+  a select of each provider's models with "Something else…" behind it. A list
+  of model names kept in a file is a promise to chase every release, it is
+  wrong within weeks, and the name you want sits behind its last option.
+  Worse, changing provider replaced a typed name with the list's first entry,
+  which quietly overwrote a model that had been chosen on purpose. `PROVIDERS`
+  is addresses only now — twelve of them, each checked against the live
+  endpoint. Gemini answers 404 on `/models` and 400 on `/chat/completions`,
+  which is the path the app uses, so it is right and the others are too.
+- **The endpoint field belongs to the model box.** It sat in the key box,
+  which read as "type an address to file a key against" — but choosing where
+  the summaries come from is the other box's job, and an endpoint typed in the
+  key box would then be missing from the model picker. Adding an endpoint and
+  choosing one are the same act, and both live under Model selection. The key
+  box has a provider select and nothing else, offering only endpoints that
+  already exist.
 - **A key belongs to an endpoint, not to the app.** There was one flat
   `summary_api_key`, so a library held one key however many providers it used.
   Picking DeepSeek changed the endpoint and the model and kept the Gemini key,

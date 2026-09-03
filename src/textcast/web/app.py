@@ -812,7 +812,6 @@ def _summaries_page(request: Request, **extra):
         installed=summaries.is_installed(),
         default_prompt=summaries.DEFAULT_PROMPT,
         default_model=summaries.DEFAULT_MODEL,
-        providers=summaries.PROVIDERS,
         endpoint_choices=summaries.selectable_endpoints(),
         provider_name=summaries.provider_for(cfg.base_url),
         # Which endpoints hold a key, and the tail of each. Never a key: this

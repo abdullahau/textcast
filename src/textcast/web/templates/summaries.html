@@ -28,14 +28,15 @@
   }
 
   // ---- the key box ----------------------------------------------------
+  /* No endpoint field here. A key is attached to an endpoint that already
+     exists; where an endpoint comes from is the model box's business. */
   var keyProvider = document.getElementById("key-provider");
-  var keyEndpoint = document.getElementById("key-endpoint");
   var keyField = document.getElementById("api_key");
   var keyLabel = document.getElementById("api_key_label");
   var keyStatus = document.getElementById("api_key_status");
 
   function describeKey() {
-    var row = find(keyEndpoint.value);
+    var row = find(keyProvider.value);
     var name = row ? row.name : "";
     keyLabel.textContent = name ? "API key for " + name : "API key for this endpoint";
     if (row && row.hint) {
@@ -49,12 +50,7 @@
     }
   }
 
-  keyProvider.addEventListener("change", function () {
-    var picked = this.options[this.selectedIndex];
-    if (picked.value) keyEndpoint.value = picked.value;
-    describeKey();
-  });
-  keyEndpoint.addEventListener("input", describeKey);
+  keyProvider.addEventListener("change", describeKey);
   describeKey();
 
   // ---- the model box --------------------------------------------------
@@ -63,14 +59,8 @@
   var typed = document.getElementById("model");
   var keyNote = document.getElementById("model-key-note");
 
-  /* The model is typed, never chosen from a list. Model names move faster
-     than this file does, and a menu that is out of date is worse than a box:
-     it hides the name you want behind "Something else". The provider's own
-     names are offered as a placeholder — a hint, not a menu. */
   function describeModel() {
     var row = find(endpoint.value);
-    var names = (row && row.models) || [];
-    typed.placeholder = names.length ? names[0] : "the model name";
     if (!keyNote) return;
     if (row && row.hint) {
       keyNote.textContent = "key stored";
@@ -86,12 +76,23 @@
 
   provider.addEventListener("change", function () {
     var picked = this.options[this.selectedIndex];
-    endpoint.value = picked.value;
-    /* The model this endpoint was last used with, if there is one. Switching
-       provider and keeping the old provider's model name is a 404 waiting to
-       happen. */
-    var row = find(picked.value);
-    typed.value = (row && row.model) || "";
+    if (!picked.value) { endpoint.value = ""; typed.value = ""; endpoint.focus(); }
+    else {
+      endpoint.value = picked.value;
+      /* The model this endpoint was last used with, if there is one.
+         Switching provider and keeping the old one's model name is a 404
+         waiting to happen. */
+      var row = find(picked.value);
+      typed.value = (row && row.model) || "";
+    }
+    describeModel();
+  });
+
+  /* Typing an address the list does not hold moves the select to the way out,
+     so the two never disagree about which endpoint is selected. */
+  endpoint.addEventListener("input", function () {
+    var row = find(this.value);
+    provider.value = row ? row.base_url : "";
     describeModel();
   });
 
@@ -139,26 +140,21 @@
     <span class="tip">
       <button type="button" class="q" aria-label="How keys are stored">?</button>
       <span class="tip-body" role="tooltip">One key per endpoint, kept in the database on this
-      machine and typed only here. Storing a key does not switch to that provider — choose
-      that below. A local Ollama or LM Studio needs no key at all.</span>
+      machine and typed only here. Storing a key does not switch to that provider — choose that
+      below, which is also where an endpoint not on this list is added. A local Ollama or LM
+      Studio needs no key at all.</span>
     </span>
   </div>
   <form method="post" action="/summaries/key">
     <div class="row">
       <div>
         <label for="key-provider">Provider</label>
-        <select id="key-provider">
+        <select name="base_url" id="key-provider">
           {% for row in endpoint_choices %}
             <option value="{{ row.base_url }}"
                     {{ 'selected' if row.id == endpoint_id }}>{{ row.name }}</option>
           {% endfor %}
-          <option value="">Something else…</option>
         </select>
-      </div>
-      <div>
-        <label for="key-endpoint">Endpoint</label>
-        <input type="url" name="base_url" id="key-endpoint" value="{{ cfg.base_url }}"
-               autocomplete="off" spellcheck="false">
       </div>
     </div>
     <div class="row" style="margin-top:.7rem">
@@ -218,9 +214,10 @@
     <h2>Model selection</h2>
     <span class="tip">
       <button type="button" class="q" aria-label="Which model is used">?</button>
-      <span class="tip-body" role="tooltip">Which endpoint and model write the summaries. The
-      model is typed, so any name the endpoint accepts works; the greyed-out name is only a
-      suggestion. A provider running on this machine needs no key.</span>
+      <span class="tip-body" role="tooltip">Which endpoint and model write the summaries.
+      Picking a provider fills its address; anything else that speaks the OpenAI protocol works
+      too, typed in. The model is typed as well — there is no list of model names to fall behind
+      what the providers have released. A provider running on this machine needs no key.</span>
     </span>
   </div>
   <form method="post" action="/summaries">
@@ -235,13 +232,20 @@
             <option value="{{ row.base_url }}"
                     {{ 'selected' if row.id == endpoint_id }}>{{ row.name }}</option>
           {% endfor %}
+          <option value="" {{ 'selected' if not cfg.listed }}>Something else…</option>
         </select>
-        <input type="hidden" name="base_url" id="base_url" value="{{ cfg.base_url }}">
       </div>
       <div>
         <label for="model">Model</label>
         <input type="text" name="model" id="model" value="{{ cfg.model }}"
                autocomplete="off" spellcheck="false" placeholder="{{ default_model }}">
+      </div>
+    </div>
+    <div class="row" style="margin-top:.7rem">
+      <div>
+        <label for="base_url">Endpoint</label>
+        <input type="url" name="base_url" id="base_url" value="{{ cfg.base_url }}"
+               autocomplete="off" spellcheck="false">
       </div>
     </div>
     <div class="row" style="margin-top:.7rem">

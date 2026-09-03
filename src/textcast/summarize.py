@@ -30,38 +30,30 @@ log = logging.getLogger("textcast.summarize")
 DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
 DEFAULT_MODEL = "gemini-2.5-flash"
 
-#: Endpoints that speak the OpenAI protocol, with a model worth starting on.
-#: Anything not listed works too, as long as it speaks the same protocol.
+#: Endpoints that speak the OpenAI protocol. Anything not listed works too:
+#: type its address in the model box.
+#:
+#: Addresses only. There used to be a hand-written list of each provider's
+#: models beside them, offered as a menu. It was wrong within weeks — a list
+#: of model names maintained in a file is a promise to keep chasing releases,
+#: and the one name you wanted was always behind "Something else". The model
+#: is typed.
 PROVIDERS = [
-    ("gemini", "Google Gemini", "https://generativelanguage.googleapis.com/v1beta/openai/",
-     ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash"]),
-    ("openai", "OpenAI", "https://api.openai.com/v1/",
-     ["gpt-4.1-mini", "gpt-4.1", "o4-mini"]),
-    ("anthropic", "Anthropic", "https://api.anthropic.com/v1/",
-     ["claude-sonnet-4-5", "claude-haiku-4-5", "claude-opus-4-5"]),
-    ("openrouter", "OpenRouter", "https://openrouter.ai/api/v1/",
-     ["google/gemini-2.5-flash", "anthropic/claude-sonnet-4.5", "deepseek/deepseek-chat"]),
-    ("groq", "Groq", "https://api.groq.com/openai/v1/",
-     ["llama-3.3-70b-versatile", "openai/gpt-oss-120b"]),
-    ("deepseek", "DeepSeek", "https://api.deepseek.com/v1/",
-     ["deepseek-chat", "deepseek-reasoner"]),
-    ("mistral", "Mistral", "https://api.mistral.ai/v1/",
-     ["mistral-small-latest", "mistral-large-latest"]),
-    ("xai", "xAI Grok", "https://api.x.ai/v1/",
-     ["grok-4-fast", "grok-4"]),
-    ("together", "Together", "https://api.together.xyz/v1/",
-     ["meta-llama/Llama-3.3-70B-Instruct-Turbo"]),
-    ("cerebras", "Cerebras", "https://api.cerebras.ai/v1/",
-     ["llama-3.3-70b", "qwen-3-235b-a22b-instruct"]),
-    ("ollama", "Ollama, on this machine", "http://127.0.0.1:11434/v1/",
-     ["llama3.2", "qwen3", "gemma3"]),
-    ("lmstudio", "LM Studio, on this machine", "http://127.0.0.1:1234/v1/",
-     ["local-model"]),
+    ("gemini", "Google Gemini", "https://generativelanguage.googleapis.com/v1beta/openai/"),
+    ("openai", "OpenAI", "https://api.openai.com/v1/"),
+    ("anthropic", "Anthropic", "https://api.anthropic.com/v1/"),
+    ("openrouter", "OpenRouter", "https://openrouter.ai/api/v1/"),
+    ("groq", "Groq", "https://api.groq.com/openai/v1/"),
+    ("deepseek", "DeepSeek", "https://api.deepseek.com/v1/"),
+    ("mistral", "Mistral", "https://api.mistral.ai/v1/"),
+    ("xai", "xAI Grok", "https://api.x.ai/v1/"),
+    ("together", "Together", "https://api.together.xyz/v1/"),
+    ("cerebras", "Cerebras", "https://api.cerebras.ai/v1/"),
+    ("ollama", "Ollama, on this machine", "http://127.0.0.1:11434/v1/"),
+    ("lmstudio", "LM Studio, on this machine", "http://127.0.0.1:1234/v1/"),
 ]
 
-#: Model names move faster than this file. The list above is a starting point,
-#: not a menu: the model field takes anything the endpoint accepts.
-PROVIDER_URLS = {url: name for _id, name, url, _models in PROVIDERS}
+PROVIDER_URLS = {url: name for _id, name, url in PROVIDERS}
 
 
 def provider_for(base_url: str) -> str:
@@ -168,6 +160,11 @@ class Config:
     def provider(self) -> str:
         return provider_for(self.base_url) or endpoint_id(self.base_url)
 
+    @property
+    def listed(self) -> bool:
+        """Whether this endpoint is one of the built-in providers."""
+        return bool(provider_for(self.base_url))
+
 
 def _env(key: str) -> str:
     return os.environ.get(key, "").strip()
@@ -244,7 +241,7 @@ def stored_list(conn=None) -> list[dict]:
     answers "which keys does this machine hold".
     """
     known = endpoints(conn)
-    urls = {endpoint_id(url): (name, url) for _id, name, url, _models in PROVIDERS}
+    urls = {endpoint_id(url): (name, url) for _id, name, url in PROVIDERS}
 
     rows: list[dict] = []
     for ident, (name, url) in urls.items():
@@ -270,19 +267,18 @@ def selectable_endpoints(conn=None) -> list[dict]:
             "id": endpoint_id(url),
             "name": name,
             "base_url": url,
-            "models": list(models),
             "hint": known.get(endpoint_id(url), {}).get("hint", ""),
             "model": known.get(endpoint_id(url), {}).get("model", ""),
             "local": is_local(url),
         }
-        for _id, name, url, models in PROVIDERS
+        for _id, name, url in PROVIDERS
     ]
     seen = {row["id"] for row in rows}
     for ident, entry in known.items():
         if ident in seen:
             continue
         rows.append({
-            "id": ident, "name": ident, "base_url": ident, "models": [],
+            "id": ident, "name": ident, "base_url": ident,
             "hint": entry.get("hint", ""), "model": entry.get("model", ""),
             "local": is_local(ident),
         })
