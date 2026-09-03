@@ -613,6 +613,17 @@ Things that have already bitten once.
   patch release — a minor-version drift on either side would have broken it
   without a word. The builder is the runtime image now, with the `uv` binary
   copied in, which is what uv's own Docker guide asks for. No size change.
+- **Equal box gaps are not equal ink gaps.** The theme toggle sat between a
+  run of text links and the Add button with an identical 6.39px flex gap on
+  both sides, and still looked nearer to Add: `.bar-links a:not(.btn)` carries
+  .3rem of its own padding, so the visible gap on that side was .3rem wider,
+  while the button's fill is its edge and reserves nothing. The toggle takes
+  that .3rem back as a right margin. Measure the boxes *and* look at it.
+- **Tables centre their cells.** `table.plain td` was `vertical-align: top`
+  and `table.rules td` overrode it to `middle` — which is why the rules table
+  looked even and the jobs and keys tables did not. Middle is the default now
+  and the override is gone. Every table here puts short cells beside a badge
+  or a button, including the one with a wrapping regex in it.
 - **`hidden` loses to any rule that sets `display`.** The key box's Endpoint
   row is a `.row`, which is `display: flex`, so it went on showing while
   `element.hidden` read true — and a Playwright check of the property passed

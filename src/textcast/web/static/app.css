@@ -208,6 +208,12 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
   border: 1px solid var(--border);
   border-radius: 999px;
 }
+/* The links either side of it are not the same shape. A text link carries
+   .3rem of its own padding, so the ink gap on that side is .3rem wider than
+   the flex gap; the Add button's fill is its edge and reserves nothing. The
+   toggle needs that .3rem back on the button side, or it sits visibly nearer
+   to Add than to Summaries while every box gap is identical. */
+.bar-links .theme-switch { margin-right: .3rem; }
 .theme-switch:hover { opacity: 1; border-color: var(--border-hi); }
 /* The track grew to the bar's height; the knob did not, so it is centred
    rather than pinned. Its horizontal geometry is untouched. */
@@ -1093,13 +1099,15 @@ table.plain th {
   text-align: left; font-size: .68rem; text-transform: uppercase; letter-spacing: .07em;
   color: var(--muted); font-weight: 600; padding: .45rem .6rem; border-bottom: 1px solid var(--border-hi);
 }
-table.plain td { padding: .5rem .6rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+/* Middle, not top. Every table here holds short cells beside a badge, a pill
+   or a button, and top left the words sitting above the control. The one
+   table with a cell that wraps — a long regex in `table.rules .pattern` —
+   had already opted into middle on its own, which is what gave the rules
+   table its even look and the others a lopsided one. */
+table.plain td {
+  padding: .5rem .6rem; border-bottom: 1px solid var(--border); vertical-align: middle;
+}
 table.plain td.right { text-align: right; width: 1%; white-space: nowrap; }
-
-/* A row whose last cell is a control centres on it. `vertical-align: top`
-   suits a table of wrapping text; beside a 2rem button it leaves the words
-   sitting above it. */
-table.plain.keys td { vertical-align: middle; }
 
 /* A square icon button for a row action. A default button is 2.1rem tall with
    .85rem of padding either side of a word, which beside .84rem table text
@@ -1151,7 +1159,6 @@ code {
 
 .tablewrap { overflow-x: auto; }
 table.rules { min-width: 44rem; }
-table.rules td { vertical-align: middle; }
 table.rules tr.off { opacity: .45; }
 table.rules .pattern { max-width: 20rem; word-break: break-all; }
 table.rules .muted-cell { color: var(--muted); font-size: .8rem; }
