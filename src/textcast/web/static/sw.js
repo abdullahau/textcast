@@ -20,6 +20,12 @@ const SHELL_FILES = [
   "/static/progress.js",
   "/static/tags.js",
   "/static/icon.svg",
+  /* media-chrome owns the transport: the play button, the scrub bar and the
+     skip buttons. It was left to be picked up opportunistically on the first
+     reader page, so installing the app and marking an article offline before
+     ever opening one gave you an offline article with no controls. It is the
+     point of the offline article, so it is precached with the rest. */
+  "/static/vendor/media-chrome-4.19.2.js",
 ];
 
 self.addEventListener("install", (event) => {
@@ -82,18 +88,27 @@ async function mediaResponse(request) {
   return response;
 }
 
-/* Turn a stored whole file into the 206 the media element asked for. */
+/* Turn a stored whole file into the 206 the media element asked for.
+ *
+ * A Blob, not an ArrayBuffer. `arrayBuffer()` reads the whole section into
+ * memory to hand back a slice of it, and iOS asks for a range on every play,
+ * pause and seek — so scrubbing a 22-minute section meant copying 4.6 MB per
+ * drag. `blob.slice` is lazy: the browser keeps the body where it is and the
+ * Response reads only the part that was asked for.
+ */
 async function sliceRange(response, range) {
-  const body = await response.arrayBuffer();
-  const total = body.byteLength;
+  /* Parsed before the body is read, not after. Reading a Response disturbs
+     it, so the two "give up and hand back what we were given" paths below
+     were returning a Response nothing could read any more. */
   const match = /^bytes=(\d*)-(\d*)$/.exec(range.trim());
-  if (!match) return response;
+  if (!match || (match[1] === "" && match[2] === "")) return response;
 
+  const body = await response.blob();
+  const total = body.size;
   let start = match[1] === "" ? null : parseInt(match[1], 10);
   let end = match[2] === "" ? null : parseInt(match[2], 10);
   if (start === null) {
     // "bytes=-500" is the *last* 500 bytes, not the first.
-    if (end === null) return response;
     start = Math.max(0, total - end);
     end = total - 1;
   } else if (end === null || end >= total) {
@@ -151,11 +166,32 @@ self.addEventListener("fetch", (event) => {
     fetch(request)
       .then((response) => {
         if (response.ok && request.mode === "navigate") {
+          /* Cloned here, synchronously, and not inside the `match` below:
+             the page starts reading `response` as soon as this returns, and
+             a Response cannot be cloned once its body is being consumed.
+             Only a page already held offline is refreshed — this is the copy
+             the user asked to keep, not every page they happen to open. */
           const copy = response.clone();
           caches.open(OFFLINE).then((c) => c.match(request).then((existing) => existing && c.put(request, copy)));
         }
         return response;
       })
-      .catch(() => caches.match(request).then((hit) => hit || caches.match("/")))
+      .catch(async () => {
+        /* `respondWith` rejects if it is handed undefined, and the browser
+           then shows its own network error. `caches.match` resolves to
+           undefined for anything never stored, so an offline visit to a page
+           the user had not marked failed that way rather than saying so. */
+        return (await caches.match(request))
+          || (await caches.match("/"))
+          || new Response(
+            "<!doctype html><meta charset=utf-8>"
+            + "<meta name=viewport content='width=device-width,initial-scale=1'>"
+            + "<title>Offline</title>"
+            + "<p style='font:1rem system-ui;margin:3rem auto;max-width:30rem;padding:0 1rem'>"
+            + "You are offline, and this page is not one of the ones kept for offline reading. "
+            + "Open an article you marked to keep, or try again once you have a signal.",
+            { status: 503, headers: { "Content-Type": "text/html; charset=utf-8" } }
+          );
+      })
   );
 });

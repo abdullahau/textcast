@@ -330,6 +330,23 @@ def test_a_prompt_without_the_placeholder_still_sees_the_text():
     assert "Private shares changed hands." in client.prompts[0]
 
 
+def test_a_prompt_may_contain_braces_of_its_own():
+    """The prompt is editable on the Summaries page, and `format` read every
+    brace in it. A prompt asking for JSON, with a `{"summary": "..."}` example
+    in it, raised KeyError and every section of every article failed with that
+    as the reason. `{text}` is the only placeholder there has ever been, so it
+    is the only one substituted.
+    """
+    client = FakeClient()
+    example = '{"summary": "..."}'
+    cfg = Config(prompt=f"Reply as JSON like {example} for this:\n\n{{text}}", api_key="k")
+
+    summarize_text("The fund closed the position.", cfg, client)
+
+    assert "The fund closed the position." in client.prompts[0]
+    assert example in client.prompts[0], "the example survives intact"
+
+
 def test_a_failing_endpoint_is_reported_rather_than_raised_raw():
     client = FakeClient(reply=None)
 

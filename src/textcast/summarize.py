@@ -405,8 +405,12 @@ def summarize_text(text: str, cfg: Config | None = None, client=None) -> str:
 
     client = client or _client(cfg)
     prompt = (cfg.prompt or DEFAULT_PROMPT)
-    # A prompt without the placeholder still has to see the text.
-    filled = prompt.format(text=body) if "{text}" in prompt else f"{prompt}\n\n{body}"
+    # `replace`, not `format`. The prompt is editable on the Summaries page,
+    # and `format` reads every brace in it: a prompt asking for JSON, with
+    # `{"summary": "..."}` in it as an example, raised KeyError('"summary"')
+    # and every section of every article failed with that as the reason.
+    # `{text}` is the only placeholder there has ever been.
+    filled = prompt.replace("{text}", body) if "{text}" in prompt else f"{prompt}\n\n{body}"
 
     try:
         response = client.chat.completions.create(

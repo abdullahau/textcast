@@ -485,6 +485,51 @@ def test_cached_audio_still_answers_a_byte_range(live, browser):
         context.close()
 
 
+def test_a_suffix_range_and_a_malformed_one_are_both_answered(live, browser):
+    """The two odd shapes a Range header comes in.
+
+    "bytes=-500" is the *last* 500 bytes, not the first. And a header the
+    worker cannot parse falls back to handing over the whole file — which it
+    had already read to measure it, so what came back was a Response nothing
+    could read any more. The range is parsed before the body is touched now.
+    """
+    base, slug, manifest = live
+    context = browser.new_context()
+    page = context.new_page()
+    try:
+        page.goto(f"{base}/a/{slug}", wait_until="networkidle")
+        page.wait_for_function(
+            "() => navigator.serviceWorker && navigator.serviceWorker.controller",
+            timeout=20000,
+        )
+        page.click("#menu")
+        page.check("#opt-offline")
+
+        audio_url = f"/media/{slug}/{manifest.sections[0].file}"
+        page.wait_for_function(
+            "async (url) => !!(await caches.match(new Request(url)))",
+            arg=audio_url,
+            timeout=20000,
+        )
+
+        got = page.evaluate(
+            """async (url) => {
+                const ask = async (value) => {
+                    const r = await fetch(url, {headers: {Range: value}});
+                    return {status: r.status, bytes: (await r.arrayBuffer()).byteLength};
+                };
+                return {suffix: await ask("bytes=-500"), junk: await ask("bytes=oops")};
+            }""",
+            audio_url,
+        )
+
+        assert got["suffix"]["status"] == 206
+        assert got["suffix"]["bytes"] == 500, "the last 500 bytes, not the first"
+        assert got["junk"]["bytes"] > 0, "a range it cannot parse still returns a readable body"
+    finally:
+        context.close()
+
+
 def test_clicking_a_block_starts_at_that_block_and_nowhere_else(page, live):
     """Seeking while playing used to let the buffered tail of the old position out."""
     _base, _slug, manifest = live

@@ -669,6 +669,36 @@ Things that have already bitten once.
   `cache.py` imports only what `jobs` already has, and the parent is still
   38 MB. `service` re-exports the names, because the reader and the tests
   reach for them there.
+- **Parse the Range before reading the body, not after.** `sliceRange` read
+  the whole response to measure it and *then* looked at the header, so its two
+  "give up and hand back what we were given" paths — an unparseable header,
+  and a bare `bytes=-` — returned a Response whose body was already consumed.
+  The fetch failed outright rather than falling back to the whole file.
+- **Slice a Blob, not an ArrayBuffer.** `arrayBuffer()` reads a whole section
+  into memory to hand back a slice of it, and iOS asks for a range on every
+  play, pause and seek: scrubbing a 22-minute section copied 4.6 MB per drag.
+  `blob.slice` is lazy — the browser leaves the body where it is.
+- **Clone a Response synchronously or not at all.** The page starts reading
+  the response the moment the handler returns, and a Response cannot be cloned
+  once its body is being consumed. Deferring the clone into the `caches.match`
+  callback, to avoid cloning pages that are not held offline, is a saving that
+  does not work: it has to be taken up front and thrown away unused.
+- **The shell must precache what the reader actually needs.** media-chrome
+  owns the play button, the scrub bar and the skip buttons, and it was left to
+  be picked up opportunistically on the first reader page. Installing the app
+  and marking an article offline before ever opening one gave you an offline
+  article with no controls — the one case the feature exists for.
+- **An offline navigation must answer with something.** `respondWith` rejects
+  if it is handed `undefined`, and `caches.match` resolves to `undefined` for
+  anything never stored, so an offline visit to a page the user had not marked
+  fell through to the browser's own network error. There is a 503 page that
+  says which it is.
+- **The prompt is user-editable, so `format` is the wrong tool.** `str.format`
+  reads every brace in the string: a prompt asking for JSON, with a
+  `{"summary": "..."}` example in it, raised `KeyError` and every section of
+  every article failed with that as the reason. `{text}` is the only
+  placeholder there has ever been, so `str.replace` substitutes it and leaves
+  the rest alone.
 - **Nothing collected the cache, and 43% of it was unreachable.** A key is a
   hash, so a rule change, a text edit, a re-parse or a deleted article each
   left its old render behind and nothing ever overwrote it. Measured before
@@ -1006,8 +1036,16 @@ while they run, so anything landing on `main` unwatched is landing unread.
    12,000 blocks: 48 ms against 5 ms. Fine at a few hundred articles; measure
    before it is thousands.
 8. **The offline test covers one article, not eviction.** It caches, drops the
-   network and reloads. Nothing exercises the browser evicting a cache under
-   storage pressure, or `drop-article`.
+   network and reloads, and it now covers a suffix range and a malformed one.
+   Nothing exercises the browser evicting a cache under storage pressure, or
+   `drop-article`.
+   Worth deciding before it bites: `mediaResponse` stores *every* audio file it
+   fetches, so listening online quietly fills the offline cache with articles
+   nobody asked to keep — in the same cache as the ones they did. Under storage
+   pressure the browser evicts without knowing the difference, so an article
+   marked for the commute can be thrown away to make room for one played once.
+   Two caches, or only storing what `cache-article` asked for, would separate
+   them.
 9. **Mail polling has no test.** `mail.py` talks IMAP and nothing stands in
    for a server, and it now runs inside the worker rather than on a timer.
 10. **Article hits and block hits are ranked separately.** `search` puts
