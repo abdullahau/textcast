@@ -35,9 +35,17 @@
   var keyLabel = document.getElementById("api_key_label");
   var keyStatus = document.getElementById("api_key_status");
 
+  /* A listed provider by name; anything else by its host, which is the part
+     of an address someone recognises. "this endpoint" told you nothing. */
+  function nameOf(url) {
+    var row = find(url);
+    if (row) return row.name;
+    try { return new URL(url).hostname; } catch (e) { return ""; }
+  }
+
   function describeKey() {
     var row = find(keyProvider.value);
-    var name = row ? row.name : "";
+    var name = nameOf(keyProvider.value);
     keyLabel.textContent = name ? "API key for " + name : "API key for this endpoint";
     if (row && row.hint) {
       keyStatus.textContent = "stored \u2022\u2022\u2022\u2022" + row.hint;
@@ -51,6 +59,29 @@
   }
 
   keyProvider.addEventListener("change", describeKey);
+
+  /* An endpoint typed below has nowhere to put its key until it is saved, and
+     it is only saved once a model is typed against it — so a new provider had
+     to be configured in an order nobody would guess. The key box carries one
+     extra option, kept in step with whatever the model box holds, and selects
+     it as soon as the address is one the list does not know. */
+  var custom = null;
+
+  function offerCustom(url) {
+    var address = (url || "").trim();
+    if (!address || find(address)) {
+      if (custom) { custom.remove(); custom = null; describeKey(); }
+      return;
+    }
+    if (!custom) {
+      custom = document.createElement("option");
+      keyProvider.appendChild(custom);
+    }
+    custom.value = custom.textContent = address;
+    custom.selected = true;
+    describeKey();
+  }
+
   describeKey();
 
   // ---- the model box --------------------------------------------------
@@ -85,6 +116,7 @@
       var row = find(picked.value);
       typed.value = (row && row.model) || "";
     }
+    offerCustom(endpoint.value);
     describeModel();
   });
 
@@ -93,9 +125,11 @@
   endpoint.addEventListener("input", function () {
     var row = find(this.value);
     provider.value = row ? row.base_url : "";
+    offerCustom(this.value);
     describeModel();
   });
 
+  offerCustom(endpoint.value);
   describeModel();
 })();
 </script>
@@ -172,7 +206,9 @@
     <div class="row" style="margin-top:.9rem"><button class="narrow" type="submit">Save key</button></div>
     <p class="hint" style="margin:.6rem 0 0">
       Keys are typed here and nowhere else. They are stored in the database on this machine,
-      one per endpoint, and never sent back to this page.
+      one per endpoint, and never sent back to this page. The key is sent as an
+      <code>Authorization: Bearer</code> header, never in the address, so an endpoint added
+      below takes its key here rather than carrying one in its URL.
     </p>
   </form>
 

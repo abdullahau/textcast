@@ -192,6 +192,18 @@ def test_the_environment_cannot_supply_a_key(conn, monkeypatch):
     assert summarize.config(conn).api_key == "stored-key"
 
 
+def test_a_key_can_be_stored_for_an_endpoint_never_seen_before(conn):
+    """A gateway of your own is configured key-first, or model-first, either
+    way round. It used to appear in the key box only after a model had been
+    saved against it, which is an order nobody would guess."""
+    mine = "https://my-gateway.internal/v1/"
+
+    summarize.store_key(mine, "a-key", conn)
+
+    assert summarize.key_for(mine, conn) == "a-key"
+    assert mine.rstrip("/") in {row["id"] for row in summarize.selectable_endpoints(conn)}
+
+
 def test_a_model_on_this_machine_needs_no_key(conn):
     """Ollama and LM Studio are not behind an account."""
     summarize.save_config(conn, base_url="http://127.0.0.1:11434/v1/", model="qwen3")

@@ -600,6 +600,15 @@ Things that have already bitten once.
   is addresses only now — twelve of them, each checked against the live
   endpoint. Gemini answers 404 on `/models` and 400 on `/chat/completions`,
   which is the path the app uses, so it is right and the others are too.
+- **A key travels in a header, so an endpoint of your own still needs one.**
+  The OpenAI client sends `Authorization: Bearer <key>`; nothing is carried in
+  the address. So a gateway typed into the model box is not configured until a
+  key is filed against it — and it could not be, because the key box only
+  offers endpoints the database already knows, and a custom one is only
+  written once a *model* has been saved against it. Configuring a new provider
+  therefore had an order nobody would guess. The key box now carries one extra
+  option that tracks whatever the model box holds and selects itself as soon
+  as the address is unlisted, so either box can be filled in first.
 - **The endpoint field belongs to the model box.** It sat in the key box,
   which read as "type an address to file a key against" — but choosing where
   the summaries come from is the other box's job, and an endpoint typed in the
