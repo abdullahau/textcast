@@ -390,11 +390,22 @@ def new_ingest_key(request: Request):
     return RedirectResponse("/settings?saved=key", status_code=303)
 
 
-@app.get("/avatar", include_in_schema=False, dependencies=[Auth])
-def avatar():
-    """The stored picture, or a 404 so the page falls back to the drawn one."""
+@app.get("/avatar/{name}", include_in_schema=False, dependencies=[Auth])
+def avatar(name: str):
+    """The stored picture, under the name its own bytes gave it.
+
+    The name is in the URL because the answer is cached for a year and
+    `immutable` is a promise that the bytes at this address never change. On a
+    bare `/avatar` that promise was false the moment a new photograph was
+    uploaded: the URL did not move, so one cache went on serving the old
+    picture while another had the new one, and the mark appeared to change as
+    you walked between pages.
+
+    Only the picture the account is actually wearing is served, so a name is
+    not a way to walk the directory or to read one that was replaced.
+    """
     current = account()
-    if current is None or not current.avatar:
+    if current is None or not current.avatar or name != current.avatar:
         raise HTTPException(status_code=404, detail="no picture")
     path = settings.avatar_dir / current.avatar
     if not path.is_file():

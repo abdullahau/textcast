@@ -1518,10 +1518,10 @@ def test_a_profile_picture_is_stored_and_served(client, settings):
 
     account = accounts.get(db.connect(settings.db_path))
     assert account.has_photo
-    served = client.get("/avatar")
+    served = client.get(f"/avatar/{account.avatar}")
     assert served.status_code == 200
     assert served.content == png
-    assert '<img src="/avatar"' in client.get("/").text
+    assert f'src="/avatar/{account.avatar}"' in client.get("/").text
 
 
 def test_a_file_that_is_not_a_picture_is_refused(client, settings):
@@ -1559,7 +1559,7 @@ def test_the_sign_in_page_names_nobody(client, settings):
 
     assert "abdullah" not in body
     assert account.ingest_key not in body
-    assert 'src="/avatar"' not in body
+    assert "/avatar/" not in body
     assert 'id="profile-toggle"' not in body
 
 
@@ -1568,11 +1568,14 @@ def test_a_signed_out_reader_cannot_fetch_the_picture(client, settings):
     png = b"\x89PNG\r\n\x1a\n" + b"0" * 64
     client.post("/settings/avatar", files={"photo": ("me.png", png, "image/png")},
                 follow_redirects=False)
-    assert client.get("/avatar").status_code == 200
+    from textcast import accounts
+
+    name = accounts.get(db.connect(settings.db_path)).avatar
+    assert client.get(f"/avatar/{name}").status_code == 200
 
     client.cookies.clear()
 
-    assert client.get("/avatar", follow_redirects=False).status_code in (303, 401)
+    assert client.get(f"/avatar/{name}", follow_redirects=False).status_code in (303, 401)
 
 
 def test_the_profile_mark_returns_once_signed_in(client, settings):

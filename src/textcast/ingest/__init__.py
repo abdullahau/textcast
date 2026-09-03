@@ -11,6 +11,7 @@ from ..document import Article
 from .base import Adapter
 from .bloomberg import BloombergAdapter
 from .dom import Tree, parse
+from .economist import EconomistAdapter
 from .ft import FTAdapter
 from .generic import GenericAdapter
 from .newsletter import NewsletterAdapter
@@ -19,6 +20,7 @@ from .substack import SubstackAdapter
 ADAPTERS: list[Adapter] = [
     BloombergAdapter(),
     FTAdapter(),
+    EconomistAdapter(),
     # Before the newsletter adapter: a Substack issue arriving by email
     # matches both, and this one knows where the pictures and the byline are.
     SubstackAdapter(),

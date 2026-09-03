@@ -250,6 +250,16 @@ def replace_blocks(article_id: int, article: Article, conn: sqlite3.Connection |
     article.renumber()
     with transaction(conn):
         conn.execute("DELETE FROM block WHERE article_id = ?", (article_id,))
+        # The sections go too. They were left alone, so emptying one by hand
+        # deleted its blocks and left its heading standing over nothing —
+        # "Explore more" and "FT alerts" survived every edit that removed the
+        # links under them, because `load_article` seeds sections from this
+        # table and does not care whether any block points at them.
+        conn.execute("DELETE FROM section WHERE article_id = ?", (article_id,))
+        conn.executemany(
+            "INSERT INTO section (article_id, idx, title) VALUES (?,?,?)",
+            [(article_id, s.idx, s.title) for s in article.sections],
+        )
         conn.executemany(
             """
             INSERT INTO block
@@ -268,9 +278,6 @@ def replace_blocks(article_id: int, article: Article, conn: sqlite3.Connection |
             "UPDATE article SET word_count = ?, audio_ms = 0, audio_bytes = 0, status = 'new'"
             " WHERE id = ?",
             (article.word_count, article_id),
-        )
-        conn.execute(
-            "UPDATE section SET file = NULL, duration_ms = 0 WHERE article_id = ?", (article_id,)
         )
 
 

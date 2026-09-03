@@ -207,5 +207,15 @@ def test_a_bloomberg_page_names_who_wrote_it():
 
 @pytest.mark.skipif(not PAGES, reason="corpus not present")
 def test_every_page_in_the_corpus_has_a_byline():
+    """Except where the publication does not print one.
+
+    The Economist does not byline its leaders — that is its editorial policy,
+    not a parse that missed something, and there is nothing in the page to
+    find. `author` is editable on the article for anything pasted.
+    """
     for page in PAGES:
-        assert load(page).author, f"{page.name} parsed without an author"
+        article = load(page)
+        if article.adapter == "economist":
+            assert not article.author, "the leaders are unsigned; a name here came from somewhere"
+            continue
+        assert article.author, f"{page.name} parsed without an author"

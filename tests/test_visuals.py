@@ -441,3 +441,54 @@ def test_a_visual_block_survives_the_database(conn):
     assert blocks[1].media["rows"] == [["A", "B"], ["1", "2"]]
     assert blocks[2].media["src"] == "https://x.test/c.png"
     assert blocks[0].media is None
+
+
+# ------------------------------------------------------ the Economist
+
+
+def economist():
+    page = next((p for p in CORPUS.glob("*.html") if "Economist" in p.name), None)
+    if page is None:
+        pytest.skip("the Economist page is not in the corpus")
+    return parse_html(
+        page.read_text(encoding="utf-8", errors="replace"),
+        url="https://www.economist.com/leaders/2026/09/03/nvidia-is-driving-the-ai-boom-good",
+    )
+
+
+def test_the_economist_stops_before_its_own_recirculation():
+    """"Explore more" and the edition's other headlines are not this article.
+
+    They arrive as real headings with real text under them — nothing about
+    them looks like junk except where they sit — so the walk stops rather than
+    pruning afterwards.
+    """
+    article = economist()
+    titles = [s.title for s in article.sections]
+
+    assert article.adapter == "economist"
+    assert len(titles) == 1, titles
+    assert "Explore more" not in " ".join(titles)
+    assert "Bayeux" not in article.to_dict()["title"] + " ".join(titles)
+
+
+def test_the_dek_is_the_subtitle_and_not_the_first_heading():
+    """It is an `<h2>` straight after the `<h1>`, so the walk read it as one."""
+    article = economist()
+
+    assert article.subtitle.startswith("The chipmaker")
+    assert article.sections[0].title == "Nvidia is driving the AI boom. Good"
+
+
+def test_small_capitals_do_not_split_the_word_they_are_inside():
+    """The paper sets them with `<small>`, mid-word.
+
+    `Chat<small>GPT’</small>s` was read aloud as "Chat GPT’ s", and the drop
+    cap `<span data-caps>N</span><small>VIDIA</small>` as "N VIDIA".
+    """
+    text = " ".join(b.text for _s, b in economist().blocks())
+
+    assert "NVIDIA was named in 1993" in text
+    assert "ChatGPT" in text
+    assert "Chat GPT" not in text
+    assert "N VIDIA" not in text

@@ -190,7 +190,11 @@ def inline_footnotes(scope: Node | Tree, footnotes: dict[str, str], selector: st
 #: Whole sections that are site furniture, matched on the section title.
 JUNK_SECTIONS = re.compile(
     r"^(follow the topics|latest on |more from|related|most read|recommended|"
-    r"you might also|sign ?up|subscribe|comments|share this|explore the series)",
+    r"you might also|sign ?up|subscribe|comments|share this|explore the series|"
+    # A publication's own recirculation, which arrives as a heading with a
+    # handful of other headlines under it: the Economist's "Explore more" and
+    # "From the September 5th 2026 edition", the FT's "FT alerts".
+    r"explore more|from the .{0,40}edition|ft alerts?|more on this)",
     re.I,
 )
 

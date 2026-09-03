@@ -5,7 +5,7 @@
 {% macro avatar(account, size="") %}
 <span class="avatar {{ size }}">
   {%- if account and account.has_photo -%}
-    <img src="/avatar" alt="{{ account.username }}" width="64" height="64">
+    <img src="/avatar/{{ account.avatar }}" alt="{{ account.username }}" width="64" height="64">
   {%- else -%}
     {# width and height as attributes, not only in CSS: an SVG without them
        falls back to 300x150, which shoves the whole bar sideways on any load
