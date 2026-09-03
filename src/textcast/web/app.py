@@ -490,8 +490,17 @@ templates.env.globals["auth_on"] = settings.require_auth
 def render(request: Request, name: str, **context) -> HTMLResponse:
     context.setdefault("q", "")
     context.setdefault("origin", public_origin(request))
-    # The bar draws the profile mark on every page, so every page needs it.
-    context.setdefault("account", account())
+    # The bar draws the profile mark, so every page needs the account — but
+    # only a page whose reader is actually signed in. Handed to every page it
+    # put the username, and an `<img src="/avatar">`, into `/login`: readable
+    # by anyone who could reach the host, which on a public address is anyone
+    # at all. The picture itself never leaked — `/avatar` is behind `Auth`, so
+    # it answered 401 and the browser drew a broken image, which is how this
+    # was spotted. With access control off there is no signed-in state and
+    # nothing to protect.
+    context.setdefault(
+        "account", account() if (not settings.require_auth or signed_in(request)) else None
+    )
     return templates.TemplateResponse(request, name, context)
 
 

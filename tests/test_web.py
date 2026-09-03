@@ -1544,3 +1544,42 @@ def test_the_settings_page_shows_the_ingest_key_and_never_the_password(client, s
     assert PASSWORD not in body
     assert account.password_hash not in body
     assert account.session not in body
+
+
+def test_the_sign_in_page_names_nobody(client, settings):
+    """It is the one page an unauthenticated stranger can read.
+
+    The account was handed to every template, so `/login` carried the username
+    twice and an `<img src="/avatar">`. On a public address that is the account
+    name given to anyone who asks for the page.
+    """
+    account = sign_in_required(settings, username="abdullah")
+
+    body = client.get("/login", headers={"accept": "text/html"}).text
+
+    assert "abdullah" not in body
+    assert account.ingest_key not in body
+    assert 'src="/avatar"' not in body
+    assert 'id="profile-toggle"' not in body
+
+
+def test_a_signed_out_reader_cannot_fetch_the_picture(client, settings):
+    signed_in_client(client, settings)
+    png = b"\x89PNG\r\n\x1a\n" + b"0" * 64
+    client.post("/settings/avatar", files={"photo": ("me.png", png, "image/png")},
+                follow_redirects=False)
+    assert client.get("/avatar").status_code == 200
+
+    client.cookies.clear()
+
+    assert client.get("/avatar", follow_redirects=False).status_code in (303, 401)
+
+
+def test_the_profile_mark_returns_once_signed_in(client, settings):
+    """The fix must not cost the bar its mark on an ordinary page."""
+    signed_in_client(client, settings)
+
+    body = client.get("/").text
+
+    assert 'id="profile-toggle"' in body
+    assert "reader" in body
