@@ -2,135 +2,86 @@
 {% block title %}Summaries — textcast{% endblock %}
 
 {% block scripts %}
-{# Every endpoint the page can offer: its name, its address, the models worth
-   starting on, and the tail of its key if it holds one. Tails only — no whole
-   key is ever sent to the page. #}
-<script type="application/json" id="endpoints">{{ endpoint_choices|tojson }}</script>
+{# The stored keys: name, provider, endpoint and the tail of each key. Tails
+   only — no whole key is ever sent to the page. #}
+<script type="application/json" id="stored-keys">{{ keys|tojson }}</script>
 <script>
-/* Two boxes, two jobs. The key box files a key under an endpoint; the model
-   box says which endpoint and model write the summaries. They share this
-   payload and nothing else.
-
-   The key box has to name the provider it is about, because a password field
-   looks the same whichever one is selected — it used to read "stored"
-   whenever any key existed, which is how a Gemini key came to be sent to
-   DeepSeek with the page insisting all was well. */
+/* Two boxes, two jobs. The key box stores a named key; the model box picks
+   one of those names and says what to ask it for. A key is a named thing, not
+   the provider's — two accounts with one provider are two keys, and a gateway
+   of your own may hold several. */
 (function () {
-  var payload = document.getElementById("endpoints");
-  var rows = [];
-  try { rows = JSON.parse(payload.textContent || "[]"); } catch (e) { rows = []; }
-
-  function ident(url) { return (url || "").trim().replace(/\/+$/, "").toLowerCase(); }
-  function find(url) {
-    var wanted = ident(url);
-    for (var i = 0; i < rows.length; i++) if (rows[i].id === wanted) return rows[i];
+  var payload = document.getElementById("stored-keys");
+  var keys = [];
+  try { keys = JSON.parse(payload.textContent || "[]"); } catch (e) { keys = []; }
+  function keyNamed(name) {
+    for (var i = 0; i < keys.length; i++) if (keys[i].name === name) return keys[i];
     return null;
   }
 
   // ---- the key box ----------------------------------------------------
-  /* No endpoint field here. A key is attached to an endpoint that already
-     exists; where an endpoint comes from is the model box's business. */
-  var keyProvider = document.getElementById("key-provider");
-  var keyField = document.getElementById("api_key");
-  var keyLabel = document.getElementById("api_key_label");
-  var keyStatus = document.getElementById("api_key_status");
+  var provider = document.getElementById("key-provider");
+  var custom = document.getElementById("key-endpoint-row");
+  var address = document.getElementById("key-endpoint");
+  var name = document.getElementById("key-name");
+  var field = document.getElementById("api_key");
+  var note = document.getElementById("api_key_status");
 
-  /* A listed provider by name; anything else by its host, which is the part
-     of an address someone recognises. "this endpoint" told you nothing. */
-  function nameOf(url) {
-    var row = find(url);
-    if (row) return row.name;
-    try { return new URL(url).hostname; } catch (e) { return ""; }
+  /* A listed provider's address is in the code, so it stays right when that
+     provider moves it. Only a custom one needs typing, and only then. */
+  function onProvider() {
+    var picked = provider.options[provider.selectedIndex];
+    var listed = !!picked.value;
+    custom.hidden = listed;
+    var local = listed ? picked.dataset.local === "1" : isLocal(address.value);
+    note.textContent = local ? "no key needed on this machine" : "required";
+    note.className = local ? "pill ok" : "pill";
+    if (!name.value.trim()) name.placeholder = listed ? picked.textContent : "a name for this key";
   }
 
-  function describeKey() {
-    var row = find(keyProvider.value);
-    var name = nameOf(keyProvider.value);
-    keyLabel.textContent = name ? "API key for " + name : "API key for this endpoint";
-    if (row && row.hint) {
-      keyStatus.textContent = "stored \u2022\u2022\u2022\u2022" + row.hint;
-      keyStatus.className = "pill ok";
-      keyField.placeholder = "type a new one to replace it";
-    } else {
-      keyStatus.textContent = "no key stored";
-      keyStatus.className = "pill warn";
-      keyField.placeholder = name ? "paste the " + name + " key" : "paste the key";
-    }
+  function isLocal(url) {
+    try {
+      var host = new URL(url).hostname;
+      return host === "localhost" || host === "127.0.0.1" || host === "::1"
+          || host === "0.0.0.0" || host === "host.docker.internal";
+    } catch (e) { return false; }
   }
 
-  keyProvider.addEventListener("change", describeKey);
-
-  /* An endpoint typed below has nowhere to put its key until it is saved, and
-     it is only saved once a model is typed against it — so a new provider had
-     to be configured in an order nobody would guess. The key box carries one
-     extra option, kept in step with whatever the model box holds, and selects
-     it as soon as the address is one the list does not know. */
-  var custom = null;
-
-  function offerCustom(url) {
-    var address = (url || "").trim();
-    if (!address || find(address)) {
-      if (custom) { custom.remove(); custom = null; describeKey(); }
-      return;
-    }
-    if (!custom) {
-      custom = document.createElement("option");
-      keyProvider.appendChild(custom);
-    }
-    custom.value = custom.textContent = address;
-    custom.selected = true;
-    describeKey();
-  }
-
-  describeKey();
+  provider.addEventListener("change", onProvider);
+  address.addEventListener("input", onProvider);
+  onProvider();
 
   // ---- the model box --------------------------------------------------
-  var provider = document.getElementById("provider");
+  var chosen = document.getElementById("credential");
   var endpoint = document.getElementById("base_url");
-  var typed = document.getElementById("model");
-  var keyNote = document.getElementById("model-key-note");
+  var model = document.getElementById("model");
+  var origin = document.getElementById("endpoint-origin");
 
-  function describeModel() {
-    var row = find(endpoint.value);
-    if (!keyNote) return;
-    if (row && row.hint) {
-      keyNote.textContent = "key stored";
-      keyNote.className = "pill ok";
-    } else if (row && row.local) {
-      keyNote.textContent = "on this machine \u2014 no key needed";
-      keyNote.className = "pill ok";
-    } else {
-      keyNote.textContent = "no key stored";
-      keyNote.className = "pill warn";
-    }
+  /* Picking a key fills the endpoint from its provider and brings back the
+     model that key was last used with. Both stay editable: the endpoint
+     because a gateway may sit in front of a provider, the model because there
+     is no list of model names anywhere in this app. */
+  function onCredential() {
+    var entry = keyNamed(chosen.value);
+    if (!entry) { describeEndpoint(); return; }
+    endpoint.value = entry.endpoint;
+    model.value = entry.model || "";
+    describeEndpoint();
   }
 
-  provider.addEventListener("change", function () {
-    var picked = this.options[this.selectedIndex];
-    if (!picked.value) { endpoint.value = ""; typed.value = ""; endpoint.focus(); }
-    else {
-      endpoint.value = picked.value;
-      /* The model this endpoint was last used with, if there is one.
-         Switching provider and keeping the old one's model name is a 404
-         waiting to happen. */
-      var row = find(picked.value);
-      typed.value = (row && row.model) || "";
-    }
-    offerCustom(endpoint.value);
-    describeModel();
-  });
+  function describeEndpoint() {
+    var entry = keyNamed(chosen.value);
+    if (!origin) return;
+    if (!entry) { origin.textContent = ""; return; }
+    origin.textContent = endpoint.value.trim() === entry.endpoint
+      ? "the address for " + entry.provider_name
+      : "changed from " + entry.endpoint;
+    origin.className = endpoint.value.trim() === entry.endpoint ? "pill" : "pill warn";
+  }
 
-  /* Typing an address the list does not hold moves the select to the way out,
-     so the two never disagree about which endpoint is selected. */
-  endpoint.addEventListener("input", function () {
-    var row = find(this.value);
-    provider.value = row ? row.base_url : "";
-    offerCustom(this.value);
-    describeModel();
-  });
-
-  offerCustom(endpoint.value);
-  describeModel();
+  chosen.addEventListener("change", onCredential);
+  endpoint.addEventListener("input", describeEndpoint);
+  describeEndpoint();
 })();
 </script>
 {% endblock %}
@@ -139,7 +90,7 @@
 <div class="section-head">
   <h1>Summaries</h1>
   <span class="muted">
-    {%- if cfg.ready %}{{ cfg.provider }} · {{ cfg.model }}{% else %}not configured{% endif -%}
+    {%- if cfg.ready %}{{ cfg.credential or cfg.provider }} · {{ cfg.model }}{% else %}not configured{% endif -%}
   </span>
 </div>
 
@@ -173,22 +124,35 @@
     <h2>API keys</h2>
     <span class="tip">
       <button type="button" class="q" aria-label="How keys are stored">?</button>
-      <span class="tip-body" role="tooltip">One key per endpoint, kept in the database on this
-      machine and typed only here. Storing a key does not switch to that provider — choose that
-      below, which is also where an endpoint not on this list is added. A local Ollama or LM
-      Studio needs no key at all.</span>
+      <span class="tip-body" role="tooltip">Every key gets a name, and the name is what you
+      choose below. Two accounts with the same provider are two keys, so name them for what
+      they are — "Work Gemini", "Personal Gemini". Keys are kept in the database on this
+      machine, typed only here, and sent as an <code>Authorization: Bearer</code> header.
+      Storing a key does not start using it.</span>
     </span>
   </div>
   <form method="post" action="/summaries/key">
     <div class="row">
       <div>
+        <label for="key-name">Name</label>
+        <input type="text" name="name" id="key-name" autocomplete="off" spellcheck="false"
+               placeholder="Work Gemini" required>
+      </div>
+      <div>
         <label for="key-provider">Provider</label>
-        <select name="base_url" id="key-provider">
-          {% for row in endpoint_choices %}
-            <option value="{{ row.base_url }}"
-                    {{ 'selected' if row.id == endpoint_id }}>{{ row.name }}</option>
+        <select name="provider" id="key-provider">
+          {% for id, name, url in providers %}
+            <option value="{{ id }}" data-local="{{ '1' if '127.0.0.1' in url or 'localhost' in url else '0' }}">{{ name }}</option>
           {% endfor %}
+          <option value="">Something else…</option>
         </select>
+      </div>
+    </div>
+    <div class="row" style="margin-top:.7rem" id="key-endpoint-row" hidden>
+      <div>
+        <label for="key-endpoint">Endpoint</label>
+        <input type="url" name="base_url" id="key-endpoint" autocomplete="off" spellcheck="false"
+               placeholder="https://your-gateway/v1/">
       </div>
     </div>
     <div class="row" style="margin-top:.7rem">
@@ -197,7 +161,7 @@
          fills the nearest text field above as the username. #}
       <div>
         <div class="field-head">
-          <label for="api_key" id="api_key_label">API key</label>
+          <label for="api_key">API key</label>
           <span class="pill" id="api_key_status"></span>
         </div>
         <input type="password" name="api_key" id="api_key" autocomplete="new-password">
@@ -205,31 +169,31 @@
     </div>
     <div class="row" style="margin-top:.9rem"><button class="narrow" type="submit">Save key</button></div>
     <p class="hint" style="margin:.6rem 0 0">
-      Keys are typed here and nowhere else. They are stored in the database on this machine,
-      one per endpoint, and never sent back to this page. The key is sent as an
-      <code>Authorization: Bearer</code> header, never in the address, so an endpoint added
-      below takes its key here rather than carrying one in its URL.
+      Saving a name that already exists replaces that key. Leave the box blank to keep the key
+      it already holds and change only its provider.
     </p>
   </form>
 
   <h3 class="sub">Stored keys</h3>
-  {% if stored_list %}
+  {% if keys %}
     <table class="plain keys">
-      <thead><tr><th>Provider</th><th>Key</th><th></th></tr></thead>
+      <thead><tr><th>Name</th><th>Provider</th><th>Key</th><th></th></tr></thead>
       <tbody>
-        {% for row in stored_list %}
+        {% for row in keys %}
           <tr>
             <td>
               {{ row.name }}
-              {% if row.id == endpoint_id %}<span class="pill ok">in use</span>{% endif %}
+              {% if row.name == cfg.credential %}<span class="pill ok">in use</span>{% endif %}
             </td>
-            <td class="muted">{{ '••••' ~ row.hint if row.hint else 'stored' }}</td>
+            <td class="muted">{{ row.provider_name }}</td>
+            <td class="muted">
+              {%- if row.hint %}••••{{ row.hint }}{% elif row.local %}none needed{% else %}stored{% endif -%}
+            </td>
             <td class="right">
               <form method="post" action="/summaries/forget-key">
-                <input type="hidden" name="base_url" value="{{ row.base_url }}">
+                <input type="hidden" name="name" value="{{ row.name }}">
                 <button class="icon danger" type="submit"
-                        title="Forget the {{ row.name }} key"
-                        aria-label="Forget the {{ row.name }} key">
+                        title="Forget {{ row.name }}" aria-label="Forget {{ row.name }}">
                   <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                     <path d="M4 7h16M10 4h4M6 7l1 13h10l1-13M10 11v6M14 11v6"/>
                   </svg>
@@ -241,7 +205,7 @@
       </tbody>
     </table>
   {% else %}
-    <p class="hint">No key is stored for any endpoint yet.</p>
+    <p class="hint">No key is stored yet. Add one above, then choose it below.</p>
   {% endif %}
 </div>
 
@@ -250,25 +214,31 @@
     <h2>Model selection</h2>
     <span class="tip">
       <button type="button" class="q" aria-label="Which model is used">?</button>
-      <span class="tip-body" role="tooltip">Which endpoint and model write the summaries.
-      Picking a provider fills its address; anything else that speaks the OpenAI protocol works
-      too, typed in. The model is typed as well — there is no list of model names to fall behind
-      what the providers have released. A provider running on this machine needs no key.</span>
+      <span class="tip-body" role="tooltip">Which stored key writes the summaries, and what it
+      is asked for. The endpoint comes from the key's provider and is kept current in the app,
+      so it follows a provider that moves its address — type over it only for a gateway of your
+      own. The model is typed: there is no list of model names here to fall behind what the
+      providers have released.</span>
     </span>
   </div>
+  {% if not keys %}
+    <p class="hint">Add a key above first. Even a model on this machine needs a name to be
+    chosen by.</p>
+  {% endif %}
   <form method="post" action="/summaries">
     <div class="row">
       <div>
-        <div class="field-head">
-          <label for="provider">Provider</label>
-          <span class="pill" id="model-key-note"></span>
-        </div>
-        <select id="provider">
-          {% for row in endpoint_choices %}
-            <option value="{{ row.base_url }}"
-                    {{ 'selected' if row.id == endpoint_id }}>{{ row.name }}</option>
+        <label for="credential">Key</label>
+        <select name="credential" id="credential">
+          <option value="">None chosen</option>
+          {% for row in keys %}
+            {# The provider only when it adds something: a key named for its
+               provider would otherwise read "Google Gemini — Google Gemini". #}
+            <option value="{{ row.name }}" {{ 'selected' if row.name == cfg.credential }}>
+              {%- if row.name == row.provider_name %}{{ row.name }}
+              {%- else %}{{ row.name }} — {{ row.provider_name }}{% endif -%}
+            </option>
           {% endfor %}
-          <option value="" {{ 'selected' if not cfg.listed }}>Something else…</option>
         </select>
       </div>
       <div>
@@ -279,7 +249,10 @@
     </div>
     <div class="row" style="margin-top:.7rem">
       <div>
-        <label for="base_url">Endpoint</label>
+        <div class="field-head">
+          <label for="base_url">Endpoint</label>
+          <span class="pill" id="endpoint-origin"></span>
+        </div>
         <input type="url" name="base_url" id="base_url" value="{{ cfg.base_url }}"
                autocomplete="off" spellcheck="false">
       </div>

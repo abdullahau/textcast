@@ -17,7 +17,7 @@ docker compose logs -f worker  # builds and mail polling land here
 
 uv sync --extra cpu --extra kokoro --extra kokoro-onnx --extra web \
         --extra documents --extra summaries --group dev
-uv run pytest                  # 355 tests
+uv run pytest                  # 363 tests
 uv run ruff check src tests    # before committing; formatting is not enforced
 ```
 
@@ -566,78 +566,63 @@ Things that have already bitten once.
   worth reading, and it is how the stray emphasis markers were found.
 - **The summaries key field posts blank when untouched.** The form carries
   `keep_key`, or saving a new model name would wipe the stored key.
-- **Typing a key and choosing a provider are two acts.** They were one form,
-  so saving a model posted the key field too — which is why `keep_key` had to
-  exist, and why a blank box could wipe a key. Two boxes now, two routes:
-  `/summaries/key` files a key under an endpoint and touches nothing else,
-  `/summaries` sets the endpoint, the model and the prompt and cannot reach a
-  key at all. A blank key box is ignored rather than stored, so opening the
-  page and pressing Save is safe.
-- **The model picker must not demand a key.** Ollama and LM Studio need none,
-  so `selectable_endpoints` offers every built-in provider plus every endpoint
-  the database knows, keyed or not. `stored_list` is the other question —
-  which keys this machine holds — and only that one is about keys.
-- **A key is typed on the page, never exported.** `TEXTCAST_SUMMARY_API_KEY`
-  used to stand behind every endpoint with nothing stored. One variable for a
-  dozen providers meant the page could not say whose key was in use, and the
-  answer changed as you moved the dropdown — the same confusion the scoped
-  keys were introduced to end, one level up. `config()` reads the key under
-  the endpoint and nowhere else. `migrate._adopt_env_summary_key` files an
-  existing environment key under the selected endpoint on the first start
-  after upgrading, so nobody's summaries stop working, and only where nothing
-  is already stored.
-- **A local endpoint needs no key.** Ollama and LM Studio are not behind an
-  account, and `_client` refused to build without one — the OpenAI client
-  insists on a non-empty string, so it is sent "not-needed". `Config.ready`
-  asks for a key only when `needs_key`, which is any host that is not this
-  machine. `summarize.LOCAL_HOSTS` is that list.
-- **The model is typed, and there is no list of model names at all.** It was
-  a select of each provider's models with "Something else…" behind it. A list
-  of model names kept in a file is a promise to chase every release, it is
-  wrong within weeks, and the name you want sits behind its last option.
-  Worse, changing provider replaced a typed name with the list's first entry,
-  which quietly overwrote a model that had been chosen on purpose. `PROVIDERS`
-  is addresses only now — twelve of them, each checked against the live
-  endpoint. Gemini answers 404 on `/models` and 400 on `/chat/completions`,
-  which is the path the app uses, so it is right and the others are too.
-- **A key travels in a header, so an endpoint of your own still needs one.**
-  The OpenAI client sends `Authorization: Bearer <key>`; nothing is carried in
-  the address. So a gateway typed into the model box is not configured until a
-  key is filed against it — and it could not be, because the key box only
-  offers endpoints the database already knows, and a custom one is only
-  written once a *model* has been saved against it. Configuring a new provider
-  therefore had an order nobody would guess. The key box now carries one extra
-  option that tracks whatever the model box holds and selects itself as soon
-  as the address is unlisted, so either box can be filled in first.
-- **The endpoint field belongs to the model box.** It sat in the key box,
-  which read as "type an address to file a key against" — but choosing where
-  the summaries come from is the other box's job, and an endpoint typed in the
-  key box would then be missing from the model picker. Adding an endpoint and
-  choosing one are the same act, and both live under Model selection. The key
-  box has a provider select and nothing else, offering only endpoints that
-  already exist.
-- **A key belongs to an endpoint, not to the app.** There was one flat
-  `summary_api_key`, so a library held one key however many providers it used.
-  Picking DeepSeek changed the endpoint and the model and kept the Gemini key,
-  which answers 401 and reads like a bad model name — and the page could not
-  say otherwise, because a password box looks the same either way and its
-  placeholder read "stored" whenever *any* key existed. The key now lives
-  under `summary_api_key:<endpoint>` and the model under
-  `summary_model:<endpoint>`, so switching provider switches both.
-  `migrate._scope_summary_key` files the old flat key under whichever endpoint
-  was selected and deletes it. **There is deliberately no fall back to another
-  endpoint's key**: an endpoint with nothing stored has no key, and says so.
-- **Save and read must resolve an unset endpoint the same way.** `config()`
-  answers `DEFAULT_BASE_URL` when nothing is stored, so `save_config` has to
-  as well — both call `_default_base_url()`. Resolved apart, a key saved
-  before a provider was ever picked would be filed under a name the read side
-  never asks for, and would look like no key at all.
+- **A key is a named thing, not an endpoint's.** Keyed by endpoint there was
+  room for exactly one Gemini key, so a second account had nowhere to go —
+  and a gateway of your own may front several. `summary_key` holds one row per
+  key: `name` (the primary key, and what the model picker offers), `provider`,
+  `base_url`, `api_key`, and the model it was last used with. Two rows may
+  share a provider. `setting` holds only what is *in use*:
+  `summary_credential` names the row.
+- **A listed provider's address lives in the code, not the row.** `Credential.
+  endpoint` reads `PROVIDER_ADDRESSES[provider]` and falls back to `base_url`,
+  which is filled in only for a custom one. So a provider that moves its
+  endpoint moves every library with it. The override follows the same bargain
+  the reading pace makes with 1.0: `save_config` stores `summary_base_url`
+  only where it *differs* from the chosen key's own address, so an override
+  sticks and everything else stays live.
+- **Typing a key and choosing one are two acts.** They were one form, so
+  saving a model posted the key field too — which is why `keep_key` had to
+  exist, and why a blank box could wipe a key. Two boxes, two routes:
+  `/summaries/key` stores a named key and touches nothing else, `/summaries`
+  sets the key in use, the model, the endpoint and the prompt and cannot reach
+  a key at all. A blank key on an *update* keeps the one already stored,
+  because a password box posts empty when untouched; on a new entry it is
+  refused unless the endpoint is on this machine.
+- **Forgetting the key in use must stop using it.** Otherwise the config names
+  a row that is gone, `api_key` is empty and nothing says why.
+- **A local endpoint needs no key, and still needs a name.** Ollama and LM
+  Studio are not behind an account, but the model picker offers names, so they
+  are named keys with an empty key. `Config.ready` asks for a key only when
+  `needs_key`, which is any host not in `summarize.LOCAL_HOSTS`, and `_client`
+  sends "not-needed" because the OpenAI client refuses to be built without a
+  string.
+- **The model is typed, and there is no list of model names anywhere.** It was
+  a select of each provider's models. A list of model names kept in a file is
+  a promise to chase every release, it is wrong within weeks, and the name you
+  want sits behind its last option. Worse, changing provider replaced a typed
+  name with the list's first entry, which silently overwrote a model chosen on
+  purpose. `PROVIDERS` is addresses only — twelve, each checked against the
+  live endpoint. Gemini answers 404 on `/models` and 400 on
+  `/chat/completions`, the path the app uses, so it is right and so are the
+  others.
+- **`hidden` loses to any rule that sets `display`.** The key box's Endpoint
+  row is a `.row`, which is `display: flex`, so it went on showing while
+  `element.hidden` read true — and a Playwright check of the property passed
+  while the screenshot showed the field. `app.css` now has
+  `[hidden] { display: none !important; }`.
+- **Two migrations run in sequence for an old library**, and the tests run
+  them in that order. `_scope_summary_key` moves a flat `summary_api_key`
+  under its endpoint; `_adopt_env_summary_key` takes `TEXTCAST_SUMMARY_API_KEY`
+  in, once, where nothing is stored; `_name_summary_keys` turns every
+  endpoint-scoped key into a named row and marks the selected one as in use.
+  Each deletes what it consumed: left behind, they are a second answer to the
+  same question.
 - **`.../v1` and `.../v1/` are one endpoint.** `endpoint_id` lower-cases and
-  drops the trailing slash before the key is built, or the same provider holds
-  two keys and the page shows whichever was typed last.
-- **The page carries the tail of a key, never a key.** `endpoints()` sends
-  four characters, which is enough to tell two keys apart and not enough to
-  use one. Anything in the page is readable by anyone at the page.
+  drops the trailing slash. It no longer names a key, but the migration
+  matches an old key's endpoint against `PROVIDERS` with it.
+- **The page carries the tail of a key, never a key.** Four characters, which
+  is enough to tell two keys apart and not enough to use one. Anything in the
+  page is readable by anyone at the page.
 - **A summary block carries no origin.** One written by hand is the same row
   as one written by a model, so the model is recorded on the *job* —
   `service.summarize` puts it in `options` and `db.last_summary` reads back

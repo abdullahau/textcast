@@ -1040,6 +1040,11 @@ body.has-player { padding-bottom: 5.5rem; }
   box-shadow: 0 -20px 50px -25px rgba(0,0,0,.6);
 }
 .sheet[hidden] { display: none; }
+
+/* `hidden` is only `display: none` at the weakest specificity, so any rule
+   that sets display beats it. `.row` is a flex container, and a hidden row
+   went on showing while `element.hidden` read true. */
+[hidden] { display: none !important; }
 .sheet h3 { font-size: .72rem; text-transform: uppercase; letter-spacing: .09em; color: var(--muted); margin: 0; font-weight: 600; }
 .sheet-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: .6rem; }
 .sheet-head .ctl { width: 2rem; height: 2rem; min-width: 2rem; padding: 0; background: transparent; border-color: transparent; color: var(--muted); }

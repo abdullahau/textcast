@@ -90,95 +90,158 @@ def test_a_config_without_a_key_is_not_ready(conn):
     assert summarize.config(conn).ready is False
 
 
-def test_saving_nothing_leaves_the_stored_key_alone(conn):
-    summarize.save_config(conn, api_key="secret")
+def test_saving_a_model_leaves_the_stored_key_alone(conn):
+    summarize.save_credential("G", provider="gemini", api_key="secret", conn=conn)
+    summarize.save_config(conn, credential_name="G")
+
     summarize.save_config(conn, model="another-model")
 
     assert summarize.config(conn).api_key == "secret"
 
 
-# -- a key per endpoint ----------------------------------------------------
+# -- named keys ------------------------------------------------------------
 
 GEMINI = "https://generativelanguage.googleapis.com/v1beta/openai/"
 DEEPSEEK = "https://api.deepseek.com/v1/"
 
 
-def test_two_providers_each_keep_their_own_key(conn):
-    """The whole point. One flat key meant a library could hold one provider."""
-    summarize.save_config(conn, base_url=GEMINI, api_key="gemini-key", model="gemini-2.5-flash")
-    summarize.save_config(conn, base_url=DEEPSEEK, api_key="deepseek-key", model="deepseek-chat")
+def test_one_provider_can_hold_more_than_one_key(conn):
+    """The whole point of naming them. Keyed by endpoint there was room for
+    exactly one Gemini key, so a second account had nowhere to go."""
+    summarize.save_credential("Work Gemini", provider="gemini", api_key="work-key", conn=conn)
+    summarize.save_credential("Home Gemini", provider="gemini", api_key="home-key", conn=conn)
 
-    assert summarize.key_for(GEMINI, conn) == "gemini-key"
-    assert summarize.key_for(DEEPSEEK, conn) == "deepseek-key"
+    assert [c.name for c in summarize.credentials(conn)] == ["Work Gemini", "Home Gemini"]
+    assert summarize.credential("Work Gemini", conn).api_key == "work-key"
+    assert summarize.credential("Home Gemini", conn).api_key == "home-key"
+    assert summarize.credential("Home Gemini", conn).endpoint == GEMINI, "the same endpoint"
 
 
-def test_switching_provider_switches_which_key_is_used(conn):
-    summarize.save_config(conn, base_url=GEMINI, api_key="gemini-key")
-    summarize.save_config(conn, base_url=DEEPSEEK, api_key="deepseek-key")
+def test_choosing_a_key_chooses_its_endpoint(conn):
+    summarize.save_credential("G", provider="gemini", api_key="gemini-key", conn=conn)
+    summarize.save_credential("D", provider="deepseek", api_key="deepseek-key", conn=conn)
 
-    summarize.save_config(conn, base_url=GEMINI)
+    summarize.save_config(conn, credential_name="G")
     assert summarize.config(conn).api_key == "gemini-key"
+    assert summarize.config(conn).base_url == GEMINI
 
-    summarize.save_config(conn, base_url=DEEPSEEK)
+    summarize.save_config(conn, credential_name="D")
     assert summarize.config(conn).api_key == "deepseek-key"
+    assert summarize.config(conn).base_url == DEEPSEEK
 
 
-def test_an_endpoint_with_no_key_does_not_borrow_another_ones(conn):
-    """The bug this scoping exists to stop: the Gemini key going to DeepSeek,
-    which answers 401 and reads like a bad model name."""
-    summarize.save_config(conn, base_url=GEMINI, api_key="gemini-key")
+def test_a_listed_provider_takes_its_address_from_the_code(conn):
+    """So a provider that moves its endpoint moves everyone with it. Only an
+    address typed over the top is stored."""
+    summarize.save_credential("G", provider="gemini", api_key="gemini-key", conn=conn)
+    summarize.save_config(conn, credential_name="G", base_url=GEMINI)
 
-    summarize.save_config(conn, base_url=DEEPSEEK)
+    assert db.get_setting(summarize.KEY_BASE_URL, "", conn) == "", "nothing to pin it"
+    assert summarize.config(conn).base_url == GEMINI
+
+
+def test_an_endpoint_typed_over_the_top_sticks(conn):
+    """A gateway may sit in front of a provider, and that is the user's call."""
+    summarize.save_credential("G", provider="gemini", api_key="gemini-key", conn=conn)
+
+    summarize.save_config(conn, credential_name="G", base_url="https://proxy.internal/v1/")
+
+    assert summarize.config(conn).base_url == "https://proxy.internal/v1/"
+    assert summarize.config(conn).api_key == "gemini-key", "still that key"
+
+
+def test_a_custom_provider_keeps_the_address_it_was_given(conn):
+    mine = "https://my-gateway.internal/v1/"
+    summarize.save_credential("Mine", base_url=mine, api_key="a-key", conn=conn)
+
+    assert summarize.credential("Mine", conn).endpoint == mine
+    summarize.save_config(conn, credential_name="Mine")
+    assert summarize.config(conn).base_url == mine
+
+
+def test_a_custom_provider_needs_an_address(conn):
+    with pytest.raises(summarize.SummaryError, match="endpoint"):
+        summarize.save_credential("Nowhere", api_key="a-key", conn=conn)
+
+
+def test_a_key_needs_a_name(conn):
+    with pytest.raises(summarize.SummaryError, match="name"):
+        summarize.save_credential("  ", provider="gemini", api_key="a-key", conn=conn)
+
+
+def test_a_hosted_key_may_not_be_left_blank(conn):
+    """A blank key on a hosted provider is a 401 waiting to happen, and the
+    field is a password box, so a mistyped save would look like a save."""
+    with pytest.raises(summarize.SummaryError, match="needs a key"):
+        summarize.save_credential("Groq", provider="groq", conn=conn)
+
+
+def test_a_local_key_may_be_left_blank(conn):
+    """Ollama and LM Studio are not behind an account, and still need naming
+    so the model box has something to choose."""
+    summarize.save_credential("Ollama", provider="ollama", conn=conn)
+
+    summarize.save_config(conn, credential_name="Ollama", model="qwen3")
+    assert summarize.config(conn).api_key == ""
+    assert summarize.config(conn).ready is True
+
+
+def test_saving_a_key_again_keeps_it_when_the_box_is_left_blank(conn):
+    """The field is a password box, so an untouched one posts empty."""
+    summarize.save_credential("G", provider="gemini", api_key="the-key", conn=conn)
+
+    summarize.save_credential("G", provider="openai", api_key="", conn=conn)
+
+    assert summarize.credential("G", conn).api_key == "the-key"
+    assert summarize.credential("G", conn).provider == "openai", "the provider did change"
+
+
+def test_forgetting_a_key_leaves_the_others(conn):
+    summarize.save_credential("G", provider="gemini", api_key="gemini-key", conn=conn)
+    summarize.save_credential("D", provider="deepseek", api_key="deepseek-key", conn=conn)
+
+    assert summarize.forget_credential("D", conn) is True
+
+    assert summarize.credential("D", conn) is None
+    assert summarize.credential("G", conn).api_key == "gemini-key"
+
+
+def test_forgetting_the_key_in_use_stops_using_it(conn):
+    """Otherwise the config names a key that is gone and reads as ready."""
+    summarize.save_credential("G", provider="gemini", api_key="gemini-key", conn=conn)
+    summarize.save_config(conn, credential_name="G", model="a-model")
+
+    summarize.forget_credential("G", conn)
 
     assert summarize.config(conn).api_key == ""
     assert summarize.config(conn).ready is False
 
 
-def test_a_trailing_slash_does_not_make_a_second_endpoint(conn):
-    """`.../v1` and `.../v1/` are one endpoint and must not hold two keys."""
-    summarize.save_config(conn, base_url="https://api.deepseek.com/v1/", api_key="the-key")
+def test_the_model_is_remembered_per_key(conn):
+    """Choosing a key again should bring back the model it was used with, not
+    carry the previous provider's name into a 404."""
+    summarize.save_credential("G", provider="gemini", api_key="k1", conn=conn)
+    summarize.save_credential("D", provider="deepseek", api_key="k2", conn=conn)
 
-    assert summarize.key_for("https://api.deepseek.com/v1", conn) == "the-key"
-    assert summarize.key_for("https://API.DeepSeek.com/v1/", conn) == "the-key"
+    summarize.save_config(conn, credential_name="G", model="gemini-2.5-pro")
+    summarize.save_config(conn, credential_name="D", model="deepseek-reasoner")
 
-
-def test_a_key_saved_before_a_provider_is_picked_is_still_found(conn):
-    """Save and read must resolve an unset endpoint the same way, or the key
-    is filed under a name nothing ever asks for."""
-    summarize.save_config(conn, api_key="secret")
-
-    assert summarize.config(conn).api_key == "secret"
-    assert summarize.key_for(summarize.DEFAULT_BASE_URL, conn) == "secret"
+    assert summarize.credential("G", conn).model == "gemini-2.5-pro"
+    assert summarize.credential("D", conn).model == "deepseek-reasoner"
 
 
-def test_the_model_is_remembered_per_endpoint(conn):
-    """Picking a provider again should offer the model you chose, not the
-    first name in the built-in list."""
-    summarize.save_config(conn, base_url=DEEPSEEK, model="deepseek-reasoner", api_key="k")
-    summarize.save_config(conn, base_url=GEMINI, model="gemini-2.5-pro", api_key="k2")
+def test_a_key_is_named_by_its_provider_where_it_has_one(conn):
+    summarize.save_credential("Work", provider="gemini", api_key="k", conn=conn)
+    summarize.save_credential("Mine", base_url="https://box.internal/v1/", api_key="k", conn=conn)
 
-    assert summarize.model_for(DEEPSEEK, conn) == "deepseek-reasoner"
-    assert summarize.model_for(GEMINI, conn) == "gemini-2.5-pro"
+    assert summarize.credential("Work", conn).provider_name == "Google Gemini"
+    assert summarize.credential("Mine", conn).provider_name == "box.internal"
 
 
-def test_forgetting_one_key_leaves_the_others(conn):
-    summarize.save_config(conn, base_url=GEMINI, api_key="gemini-key")
-    summarize.save_config(conn, base_url=DEEPSEEK, api_key="deepseek-key")
+def test_a_stored_key_shows_only_its_tail(conn):
+    summarize.save_credential("G", provider="gemini", api_key="a-long-enough-key-1234", conn=conn)
 
-    assert summarize.forget_key(DEEPSEEK, conn) is True
-
-    assert summarize.key_for(DEEPSEEK, conn) == ""
-    assert summarize.key_for(GEMINI, conn) == "gemini-key"
-
-
-def test_the_stored_list_names_the_providers_that_can_be_used_now(conn):
-    summarize.save_config(conn, base_url=DEEPSEEK, api_key="a-long-enough-key-1234")
-    summarize.save_config(conn, base_url=GEMINI, api_key="another-long-key-abcd")
-
-    rows = summarize.stored_list(conn)
-
-    assert [row["name"] for row in rows] == ["Google Gemini", "DeepSeek"], "listed order"
-    assert [row["hint"] for row in rows] == ["abcd", "1234"], "the tail, never the key"
+    assert summarize.credential("G", conn).hint == "1234"
 
 
 def test_the_environment_cannot_supply_a_key(conn, monkeypatch):
@@ -188,20 +251,9 @@ def test_the_environment_cannot_supply_a_key(conn, monkeypatch):
 
     assert summarize.config(conn).api_key == ""
 
-    summarize.save_config(conn, api_key="stored-key")
+    summarize.save_credential("G", provider="gemini", api_key="stored-key", conn=conn)
+    summarize.save_config(conn, credential_name="G")
     assert summarize.config(conn).api_key == "stored-key"
-
-
-def test_a_key_can_be_stored_for_an_endpoint_never_seen_before(conn):
-    """A gateway of your own is configured key-first, or model-first, either
-    way round. It used to appear in the key box only after a model had been
-    saved against it, which is an order nobody would guess."""
-    mine = "https://my-gateway.internal/v1/"
-
-    summarize.store_key(mine, "a-key", conn)
-
-    assert summarize.key_for(mine, conn) == "a-key"
-    assert mine.rstrip("/") in {row["id"] for row in summarize.selectable_endpoints(conn)}
 
 
 def test_a_model_on_this_machine_needs_no_key(conn):
@@ -219,9 +271,10 @@ def test_a_hosted_endpoint_without_a_key_is_not_ready(conn):
     assert summarize.config(conn).ready is False
 
 
-def test_a_flat_key_is_filed_under_the_endpoint_it_was_for(conn):
-    """The migration. A library from before this held one key and one
-    endpoint; the key belongs to that endpoint and nowhere else."""
+def test_an_old_flat_key_becomes_a_named_one(conn):
+    """Two migrations in sequence, which is what an old library meets: the
+    one flat key is filed under its endpoint, then given the provider's name.
+    It must come out chosen, or summaries stop the day of the upgrade."""
     from textcast import migrate
 
     db.set_setting(summarize.KEY_BASE_URL, DEEPSEEK, conn)
@@ -229,11 +282,30 @@ def test_a_flat_key_is_filed_under_the_endpoint_it_was_for(conn):
     db.set_setting(summarize.KEY_MODEL, "deepseek-chat", conn)
 
     migrate._scope_summary_key(conn)
+    migrate._name_summary_keys(conn)
 
-    assert summarize.key_for(DEEPSEEK, conn) == "the-old-key"
-    assert summarize.model_for(DEEPSEEK, conn) == "deepseek-chat"
+    stored = summarize.credential("DeepSeek", conn)
+    assert stored.api_key == "the-old-key"
+    assert stored.model == "deepseek-chat"
+    assert stored.endpoint == DEEPSEEK
+    assert summarize.config(conn).api_key == "the-old-key", "and it is the one in use"
     assert db.get_setting(summarize.KEY_API_KEY, "", conn) == "", "the flat key is gone"
-    assert summarize.key_for(GEMINI, conn) == "", "it belongs to one endpoint only"
+
+
+def test_an_endpoint_scoped_key_is_named_for_its_provider(conn):
+    """A library from the version in between, where keys were per endpoint."""
+    from textcast import migrate
+
+    db.set_setting(summarize.PREFIX_API_KEY + summarize.endpoint_id(GEMINI), "g", conn)
+    db.set_setting(summarize.PREFIX_API_KEY + "https://box.internal/v1", "m", conn)
+    db.set_setting(summarize.KEY_BASE_URL, GEMINI, conn)
+
+    migrate._name_summary_keys(conn)
+
+    assert {c.name for c in summarize.credentials(conn)} == {"Google Gemini", "https://box.internal/v1"}
+    assert summarize.credential("https://box.internal/v1", conn).endpoint == "https://box.internal/v1"
+    assert summarize.config(conn).credential == "Google Gemini"
+    assert db.get_setting(summarize.KEY_BASE_URL, "", conn) == "", "not pinned to the old address"
 
 
 # -- the call --------------------------------------------------------------
@@ -360,7 +432,8 @@ def test_an_article_with_a_summary_is_not_offered_again(conn):
 def test_summarising_queues_the_model_pass_not_the_build(conn, settings, monkeypatch):
     from textcast.service import ingest
 
-    summarize.save_config(conn, api_key="k")
+    summarize.save_credential("G", provider="gemini", api_key="k", conn=conn)
+    summarize.save_config(conn, credential_name="G")
     stored = ingest(
         text="A note.\n\nWith two paragraphs in it.",
         title="A note",

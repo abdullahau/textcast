@@ -150,3 +150,20 @@ CREATE TABLE IF NOT EXISTS pronunciation (
 );
 
 CREATE INDEX IF NOT EXISTS pronunciation_order ON pronunciation (enabled, sort_order, id);
+
+-- One stored API key, named by whoever typed it. Named rather than keyed by
+-- endpoint, because two accounts with the same provider are two keys, and
+-- neither is "the Gemini key". `provider` is an id from summarize.PROVIDERS,
+-- or empty for one whose address is typed in: a listed provider's address
+-- comes from the code, so it stays right when a provider moves it.
+CREATE TABLE IF NOT EXISTS summary_key (
+    name     TEXT PRIMARY KEY,
+    provider TEXT NOT NULL DEFAULT '',
+    -- Only read when `provider` is empty.
+    base_url TEXT NOT NULL DEFAULT '',
+    api_key  TEXT NOT NULL DEFAULT '',
+    -- The model last used with this key, so switching key does not carry the
+    -- previous provider's model name into a 404.
+    model    TEXT NOT NULL DEFAULT '',
+    added_at TEXT NOT NULL
+);

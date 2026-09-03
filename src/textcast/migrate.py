@@ -44,6 +44,7 @@ def run(conn: sqlite3.Connection) -> None:
     _seed_pronunciations(conn)
     _scope_summary_key(conn)
     _adopt_env_summary_key(conn)
+    _name_summary_keys(conn)
 
 
 def _adopt_env_summary_key(conn: sqlite3.Connection) -> None:
@@ -87,6 +88,80 @@ def _adopt_env_summary_key(conn: sqlite3.Connection) -> None:
         (setting, key),
     )
     log.info("adopted TEXTCAST_SUMMARY_API_KEY for %s; it can go from the environment", endpoint)
+
+
+def _name_summary_keys(conn: sqlite3.Connection) -> None:
+    """Turn endpoint-scoped keys into named ones, once.
+
+    A key used to be filed under its endpoint, which allowed exactly one per
+    provider — so a second account, or a second gateway of your own, had
+    nowhere to go. A key is a named thing now, in `summary_key`, and the model
+    picker offers those names.
+
+    Each `summary_api_key:<endpoint>` becomes a credential named for its
+    provider, carrying the model it was last used with. Whichever endpoint was
+    selected becomes the key in use. The old rows go: left behind they would
+    be a second answer to the same question.
+    """
+    from . import db
+    from .summarize import (
+        KEY_BASE_URL,
+        KEY_CREDENTIAL,
+        PREFIX_API_KEY,
+        PREFIX_MODEL,
+        PROVIDERS,
+        endpoint_id,
+    )
+
+    if not has_table(conn, "setting") or not has_table(conn, "summary_key"):
+        return
+    rows = conn.execute(
+        "SELECT key, value FROM setting WHERE key LIKE ?", (PREFIX_API_KEY + "%",)
+    ).fetchall()
+    if not rows:
+        return
+
+    by_url = {endpoint_id(url): (pid, name) for pid, name, url in PROVIDERS}
+    models = {
+        row["key"][len(PREFIX_MODEL):]: row["value"]
+        for row in conn.execute(
+            "SELECT key, value FROM setting WHERE key LIKE ?", (PREFIX_MODEL + "%",)
+        )
+    }
+    where = conn.execute("SELECT value FROM setting WHERE key = ?", (KEY_BASE_URL,)).fetchone()
+    selected = endpoint_id(where["value"] if where else "")
+    in_use = ""
+
+    for row in rows:
+        endpoint = row["key"][len(PREFIX_API_KEY):]
+        key = (row["value"] or "").strip()
+        if not key:
+            continue
+        provider, name = by_url.get(endpoint, ("", endpoint))
+        conn.execute(
+            """
+            INSERT INTO summary_key (name, provider, base_url, api_key, model, added_at)
+            VALUES (?,?,?,?,?,?) ON CONFLICT (name) DO NOTHING
+            """,
+            (name, provider, "" if provider else endpoint, key, models.get(endpoint, ""), db.now()),
+        )
+        if endpoint == selected:
+            in_use = name
+
+    conn.execute("DELETE FROM setting WHERE key LIKE ?", (PREFIX_API_KEY + "%",))
+    conn.execute("DELETE FROM setting WHERE key LIKE ?", (PREFIX_MODEL + "%",))
+    if in_use:
+        conn.execute(
+            "INSERT INTO setting (key, value) VALUES (?,?)"
+            " ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+            (KEY_CREDENTIAL, in_use),
+        )
+    # The endpoint is stored only as an override now, and the one it held is
+    # the provider's own. Left in place it would pin the address against a
+    # provider that later moves it.
+    if selected in by_url:
+        conn.execute("DELETE FROM setting WHERE key = ?", (KEY_BASE_URL,))
+    log.info("named %d stored summary key(s)", len(rows))
 
 
 def _scope_summary_key(conn: sqlite3.Connection) -> None:

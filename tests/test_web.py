@@ -111,93 +111,90 @@ def test_choosing_a_model_cannot_touch_a_key(client, conn):
     """Two boxes, two routes. Saving a model must not be able to wipe a key."""
     from textcast import summarize
 
-    summarize.save_config(conn, api_key="secret")
+    summarize.save_credential("G", provider="gemini", api_key="secret", conn=conn)
+    client.post("/summaries", data={"credential": "G"})
 
-    client.post("/summaries", data={"model": "a-model"})
+    client.post("/summaries", data={"credential": "G", "model": "a-model"})
 
     assert summarize.config(conn).api_key == "secret"
     assert summarize.config(conn).model == "a-model"
 
 
-def test_saving_a_key_for_one_provider_does_not_overwrite_another(client, conn):
-    """The key is filed under the endpoint as submitted, not the stored one."""
+def test_two_keys_for_one_provider_are_both_kept(client, conn):
+    """The reason a key is named. Two accounts with Gemini are two keys."""
     from textcast import summarize
 
-    gemini = "https://generativelanguage.googleapis.com/v1beta/openai/"
-    deepseek = "https://api.deepseek.com/v1/"
+    client.post("/summaries/key", data={
+        "name": "Work Gemini", "provider": "gemini", "api_key": "the-work-key",
+    })
+    client.post("/summaries/key", data={
+        "name": "Home Gemini", "provider": "gemini", "api_key": "the-home-key",
+    })
 
-    client.post("/summaries/key", data={"base_url": gemini, "api_key": "the-gemini-key"})
-    client.post("/summaries/key", data={"base_url": deepseek, "api_key": "the-deepseek-key"})
-
-    assert summarize.key_for(gemini, conn) == "the-gemini-key"
-    assert summarize.key_for(deepseek, conn) == "the-deepseek-key"
+    assert summarize.credential("Work Gemini", conn).api_key == "the-work-key"
+    assert summarize.credential("Home Gemini", conn).api_key == "the-home-key"
 
 
-def test_storing_a_key_does_not_switch_provider(client, conn):
+def test_storing_a_key_does_not_start_using_it(client, conn):
     """Typing a Groq key is not a decision to summarise with Groq."""
     from textcast import summarize
 
-    gemini = "https://generativelanguage.googleapis.com/v1beta/openai/"
-    client.post("/summaries", data={"base_url": gemini, "model": "gemini-2.5-flash"})
+    summarize.save_credential("G", provider="gemini", api_key="gemini-key", conn=conn)
+    client.post("/summaries", data={"credential": "G", "model": "gemini-2.5-flash"})
 
     client.post("/summaries/key", data={
-        "base_url": "https://api.groq.com/openai/v1/", "api_key": "groq-key",
+        "name": "Groq", "provider": "groq", "api_key": "groq-key",
     })
 
-    assert summarize.config(conn).base_url == gemini, "still the provider that was chosen"
-    assert summarize.key_for("https://api.groq.com/openai/v1/", conn) == "groq-key"
+    assert summarize.config(conn).credential == "G", "still the key that was chosen"
+    assert summarize.credential("Groq", conn).api_key == "groq-key"
 
 
-def test_an_empty_key_box_is_ignored_rather_than_stored(client, conn):
-    """Opening the page and pressing Save must not wipe the key it is showing."""
+def test_a_key_with_no_name_is_refused_and_says_so(client, conn):
     from textcast import summarize
 
-    gemini = "https://generativelanguage.googleapis.com/v1beta/openai/"
-    summarize.save_config(conn, base_url=gemini, api_key="keep-me")
+    body = client.post("/summaries/key", data={"provider": "gemini", "api_key": "k"}).text
 
-    client.post("/summaries/key", data={"base_url": gemini, "api_key": "   "})
-
-    assert summarize.key_for(gemini, conn) == "keep-me"
+    assert "needs a name" in body
+    assert summarize.credentials(conn) == []
 
 
-def test_a_provider_with_no_key_is_still_selectable(client, conn):
-    """Ollama and LM Studio need none, so the model box cannot demand one."""
+def test_a_local_provider_is_chosen_by_name_like_any_other(client, conn):
+    """Ollama needs no key, and still needs naming to be chosen."""
     from textcast import summarize
 
-    ollama = "http://127.0.0.1:11434/v1/"
-    offered = {row["base_url"] for row in summarize.selectable_endpoints(conn)}
+    client.post("/summaries/key", data={"name": "Ollama", "provider": "ollama", "api_key": ""})
+    client.post("/summaries", data={"credential": "Ollama", "model": "llama3.2"})
 
-    assert ollama in offered
-    client.post("/summaries", data={"base_url": ollama, "model": "llama3.2"})
-    assert summarize.config(conn).base_url == ollama
+    cfg = summarize.config(conn)
+    assert cfg.api_key == "" and cfg.base_url == "http://127.0.0.1:11434/v1/"
+    assert cfg.ready is True
 
 
 def test_the_summaries_page_never_carries_a_whole_key(client, conn):
-    """It says which endpoints hold a key so the field can be honest about the
-    one selected. A key itself in the page would be readable by anyone at it."""
+    """It shows the tail so two keys can be told apart. A key itself in the
+    page would be readable by anyone at it."""
     from textcast import summarize
 
-    summarize.save_config(conn, base_url="https://api.deepseek.com/v1/", api_key="sk-secret-12345678")
+    summarize.save_credential("D", provider="deepseek", api_key="sk-secret-12345678", conn=conn)
 
     body = client.get("/summaries").text
 
     assert "sk-secret-12345678" not in body
     assert "5678" in body, "the tail identifies it without revealing it"
-    assert "api.deepseek.com/v1" in body
+    assert "DeepSeek" in body
 
 
-def test_forgetting_one_key_leaves_the_other_provider_usable(client, conn):
+def test_forgetting_one_key_leaves_the_others(client, conn):
     from textcast import summarize
 
-    gemini = "https://generativelanguage.googleapis.com/v1beta/openai/"
-    deepseek = "https://api.deepseek.com/v1/"
-    summarize.save_config(conn, base_url=gemini, api_key="gemini-key")
-    summarize.save_config(conn, base_url=deepseek, api_key="deepseek-key")
+    summarize.save_credential("G", provider="gemini", api_key="gemini-key", conn=conn)
+    summarize.save_credential("D", provider="deepseek", api_key="deepseek-key", conn=conn)
 
-    client.post("/summaries/forget-key", data={"base_url": deepseek})
+    client.post("/summaries/forget-key", data={"name": "D"})
 
-    assert summarize.key_for(deepseek, conn) == ""
-    assert summarize.key_for(gemini, conn) == "gemini-key"
+    assert summarize.credential("D", conn) is None
+    assert summarize.credential("G", conn).api_key == "gemini-key"
 
 
 def test_the_normal_reading_pace_is_not_stored_as_an_option(client):

@@ -804,7 +804,16 @@ def _summaries_page(request: Request, **extra):
     from .. import summarize as summaries
 
     cfg = summaries.config()
-    stored = summaries.endpoints()
+    # Name, provider, endpoint and the tail of each key. Never a key itself:
+    # this goes into the page, where anything sent is readable.
+    keys = [
+        {
+            "name": c.name, "provider": c.provider, "provider_name": c.provider_name,
+            "endpoint": c.endpoint, "hint": c.hint, "model": c.model,
+            "local": summaries.is_local(c.endpoint),
+        }
+        for c in summaries.credentials()
+    ]
     return render(
         request,
         "summaries.html",
@@ -812,13 +821,8 @@ def _summaries_page(request: Request, **extra):
         installed=summaries.is_installed(),
         default_prompt=summaries.DEFAULT_PROMPT,
         default_model=summaries.DEFAULT_MODEL,
-        endpoint_choices=summaries.selectable_endpoints(),
-        provider_name=summaries.provider_for(cfg.base_url),
-        # Which endpoints hold a key, and the tail of each. Never a key: this
-        # goes into the page, where anything sent is readable.
-        stored_keys=stored,
-        stored_list=summaries.stored_list(),
-        endpoint_id=summaries.endpoint_id(cfg.base_url),
+        providers=summaries.PROVIDERS,
+        keys=keys,
         pending=db.summarisable(),
         **extra,
     )
@@ -832,46 +836,48 @@ def summaries_page(request: Request):
 @app.post("/summaries", dependencies=[Auth])
 def summaries_save(
     request: Request,
+    credential: str = Form(default=""),
     model: str = Form(default=""),
     base_url: str = Form(default=""),
     prompt: str = Form(default=""),
 ):
-    """Which provider and model write the summaries, and what they are asked.
+    """Which stored key, model and endpoint write the summaries.
 
     No key here. Storing one is its own act, in its own box, and its own
     route: saving a model must never be able to touch a key.
     """
     from .. import summarize as summaries
 
-    summaries.save_config(model=model, base_url=base_url, prompt=prompt)
+    summaries.save_config(
+        credential_name=credential, model=model, base_url=base_url, prompt=prompt
+    )
     return RedirectResponse("/summaries", status_code=303)
 
 
 @app.post("/summaries/key", dependencies=[Auth])
 def summaries_save_key(
     request: Request,
+    name: str = Form(default=""),
+    provider: str = Form(default=""),
     base_url: str = Form(default=""),
     api_key: str = Form(default=""),
 ):
-    """Store one key under one endpoint. Nothing else moves.
+    """Store one named key. Nothing else moves — not which key is in use."""
+    from ..summarize import SummaryError, save_credential
 
-    Not which provider is in use: that is the model box. A blank key is
-    ignored rather than stored, or opening the page and pressing Save would
-    wipe the key of whichever endpoint the box happened to be showing.
-    """
-    from .. import summarize as summaries
-
-    if api_key.strip():
-        summaries.store_key(base_url, api_key)
+    try:
+        save_credential(name=name, provider=provider, base_url=base_url, api_key=api_key)
+    except SummaryError as exc:
+        return _summaries_page(request, error=str(exc))
     return RedirectResponse("/summaries", status_code=303)
 
 
 @app.post("/summaries/forget-key", dependencies=[Auth])
-def summaries_forget_key(request: Request, base_url: str = Form(default="")):
-    """Drop one endpoint's key, leaving every other endpoint's alone."""
+def summaries_forget_key(request: Request, name: str = Form(default="")):
+    """Delete one stored key, leaving every other one alone."""
     from .. import summarize as summaries
 
-    summaries.forget_key(base_url)
+    summaries.forget_credential(name)
     return RedirectResponse("/summaries", status_code=303)
 
 

@@ -58,7 +58,8 @@ def test_a_summarise_job_writes_the_blocks_and_stops_there(conn, settings, monke
     from textcast import summarize
     from textcast.document import BlockKind
 
-    summarize.save_config(conn, api_key="k", model="stub-1")
+    summarize.save_credential("K", provider="gemini", api_key="k", conn=conn)
+    summarize.save_config(conn, credential_name="K", model="stub-1")
     reply = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="In short."))])
     client = SimpleNamespace(
         chat=SimpleNamespace(completions=SimpleNamespace(create=lambda **kw: reply))
@@ -85,7 +86,8 @@ def test_a_partly_summarised_article_keeps_what_arrived(conn, settings, monkeypa
     from textcast import summarize
     from textcast.document import BlockKind
 
-    summarize.save_config(conn, api_key="k", model="stub-1")
+    summarize.save_credential("K", provider="gemini", api_key="k", conn=conn)
+    summarize.save_config(conn, credential_name="K", model="stub-1")
 
     def create(model, messages):
         if "second section" in messages[0]["content"]:
@@ -159,7 +161,8 @@ def test_the_two_kinds_never_meet_on_one_article(conn, settings):
 def test_a_failed_summary_does_not_mark_the_audio_failed(conn, settings, monkeypatch):
     from textcast import summarize
 
-    summarize.save_config(conn, api_key="k", model="stub")
+    summarize.save_credential("K", provider="gemini", api_key="k", conn=conn)
+    summarize.save_config(conn, credential_name="K", model="stub")
     monkeypatch.setattr(summarize, "_client", lambda cfg: (_ for _ in ()).throw(RuntimeError("no")))
     stored = ingest(text=LONG_NOTE, title="Summary will fail", build=False)
     db.enqueue(stored.article_id, kind="summarise", conn=conn)

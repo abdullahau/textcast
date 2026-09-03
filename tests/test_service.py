@@ -170,8 +170,8 @@ def test_a_summary_pass_records_the_model_it_asked(conn, settings):
     from textcast import summarize
     from textcast.service import summarize as queue_summary
 
-    summarize.save_config(conn, base_url="https://api.deepseek.com/v1/",
-                          model="deepseek-chat", api_key="k")
+    summarize.save_credential("D", provider="deepseek", api_key="k", conn=conn)
+    summarize.save_config(conn, credential_name="D", model="deepseek-chat")
     stored = add_note()
 
     job_id = queue_summary(stored.article_id, settings)

@@ -54,6 +54,8 @@ PROVIDERS = [
 ]
 
 PROVIDER_URLS = {url: name for _id, name, url in PROVIDERS}
+PROVIDER_NAMES = {pid: name for pid, name, _url in PROVIDERS}
+PROVIDER_ADDRESSES = {pid: url for pid, _name, url in PROVIDERS}
 
 
 def provider_for(base_url: str) -> str:
@@ -61,36 +63,31 @@ def provider_for(base_url: str) -> str:
     return PROVIDER_URLS.get((base_url or "").strip(), "")
 
 
-#: Keys in the ``setting`` table.
+#: Keys in the ``setting`` table. What is *in use*, as against what is stored:
+#: the key itself lives in `summary_key`, and this names which one.
 KEY_MODEL = "summary_model"
 KEY_BASE_URL = "summary_base_url"
-KEY_API_KEY = "summary_api_key"
+KEY_CREDENTIAL = "summary_credential"
 KEY_PROMPT = "summary_prompt"
 
-#: A key and a model belong to an *endpoint*, not to the app. One flat
-#: ``summary_api_key`` sent the old provider's key to the new one on every
-#: switch — a 401 that reads like a bad model name. These prefixes scope both,
-#: so picking a provider brings its own key and its own model.
+#: Read by the migration that turned endpoint-scoped keys into named ones.
+KEY_API_KEY = "summary_api_key"
 PREFIX_API_KEY = "summary_api_key:"
 PREFIX_MODEL = "summary_model:"
 
 
 def endpoint_id(base_url: str) -> str:
-    """The stable name of an endpoint, for use in a setting key.
+    """The stable name of an endpoint.
 
     Lower-cased and stripped of a trailing slash, because
     ``https://api.deepseek.com/v1`` and ``https://api.deepseek.com/v1/`` are
-    the same endpoint and must not hold two different keys.
+    the same endpoint.
     """
     return (base_url or "").strip().rstrip("/").lower()
 
 
-def _scoped(prefix: str, base_url: str) -> str:
-    return prefix + endpoint_id(base_url)
-
-
 #: Hosts that are this machine. A model served here is not behind an account,
-#: so the page must not demand a key for one and `ready` must not withhold it.
+#: so a key may be left blank for one and `ready` must not withhold it.
 LOCAL_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]", "host.docker.internal"}
 
 
@@ -112,6 +109,7 @@ def fingerprint(key: str) -> str:
     """
     key = (key or "").strip()
     return key[-4:] if len(key) >= 12 else ""
+
 
 #: Written for the ear: no markdown, no bullets, no heading, no "this section
 #: discusses" preamble. 150 words is about a minute, and it is spoken before
@@ -142,6 +140,8 @@ class SummaryError(RuntimeError):
 
 @dataclass(frozen=True)
 class Config:
+    #: The name of the stored key in use, empty when none is chosen.
+    credential: str = ""
     model: str = DEFAULT_MODEL
     base_url: str = DEFAULT_BASE_URL
     api_key: str = ""
@@ -160,26 +160,152 @@ class Config:
     def provider(self) -> str:
         return provider_for(self.base_url) or endpoint_id(self.base_url)
 
+
+# --------------------------------------------------------------------------
+# stored keys
+# --------------------------------------------------------------------------
+
+
+@dataclass
+class Credential:
+    """One stored API key, under the name whoever typed it gave it.
+
+    Named, not keyed by endpoint. Two accounts with the same provider are two
+    keys and neither is "the Gemini key"; a gateway of your own may hold
+    several. The name is what the model picker offers.
+    """
+
+    name: str
+    provider: str = ""
+    #: Only read when `provider` is empty. A listed provider's address comes
+    #: from PROVIDERS, so it stays right when that provider moves it.
+    base_url: str = ""
+    api_key: str = ""
+    model: str = ""
+
     @property
-    def listed(self) -> bool:
-        """Whether this endpoint is one of the built-in providers."""
-        return bool(provider_for(self.base_url))
+    def endpoint(self) -> str:
+        return PROVIDER_ADDRESSES.get(self.provider, "") or self.base_url
+
+    @property
+    def provider_name(self) -> str:
+        if self.provider:
+            return PROVIDER_NAMES.get(self.provider, self.provider)
+        from urllib.parse import urlsplit
+
+        try:
+            return urlsplit(self.base_url).hostname or "Custom"
+        except ValueError:
+            return "Custom"
+
+    @property
+    def hint(self) -> str:
+        return fingerprint(self.api_key)
+
+
+def _row_to_credential(row) -> Credential:
+    return Credential(
+        name=row["name"], provider=row["provider"], base_url=row["base_url"],
+        api_key=row["api_key"], model=row["model"],
+    )
+
+
+def credentials(conn=None) -> list[Credential]:
+    """Every stored key, oldest first, which is the order they were added."""
+    from . import db
+
+    conn = conn or db.connect()
+    # rowid is the order they were added; `added_at` is only to the second,
+    # so two keys typed a moment apart would otherwise sort by name.
+    rows = conn.execute("SELECT * FROM summary_key ORDER BY added_at, rowid").fetchall()
+    return [_row_to_credential(row) for row in rows]
+
+
+def credential(name: str, conn=None) -> Credential | None:
+    from . import db
+
+    conn = conn or db.connect()
+    row = conn.execute("SELECT * FROM summary_key WHERE name = ?", ((name or "").strip(),)).fetchone()
+    return _row_to_credential(row) if row else None
+
+
+def save_credential(
+    name: str,
+    provider: str = "",
+    base_url: str = "",
+    api_key: str = "",
+    conn=None,
+) -> str:
+    """Store or update one named key. Returns the name it was stored under.
+
+    A blank `api_key` on an update keeps the key already there, because the
+    field is a password box and an untouched one posts empty. On a new entry
+    it is allowed only for an endpoint on this machine, which needs none.
+    """
+    from . import db
+
+    conn = conn or db.connect()
+    name = (name or "").strip()
+    if not name:
+        raise SummaryError("a stored key needs a name")
+
+    provider = (provider or "").strip()
+    if provider and provider not in PROVIDER_ADDRESSES:
+        raise SummaryError(f"no provider called {provider!r}")
+    base_url = "" if provider else (base_url or "").strip()
+    if not provider and not base_url:
+        raise SummaryError("a custom provider needs an endpoint")
+
+    endpoint = PROVIDER_ADDRESSES.get(provider, "") or base_url
+    existing = credential(name, conn)
+    key = (api_key or "").strip() or (existing.api_key if existing else "")
+    if not key and not is_local(endpoint):
+        raise SummaryError(f"{name} needs a key: {endpoint} is not on this machine")
+
+    conn.execute(
+        """
+        INSERT INTO summary_key (name, provider, base_url, api_key, model, added_at)
+        VALUES (?,?,?,?,?,?)
+        ON CONFLICT (name) DO UPDATE SET
+            provider = excluded.provider,
+            base_url = excluded.base_url,
+            api_key  = excluded.api_key
+        """,
+        (name, provider, base_url, key, existing.model if existing else "", db.now()),
+    )
+    return name
+
+
+def forget_credential(name: str, conn=None) -> bool:
+    """Delete one stored key. The choice of which is in use goes with it."""
+    from . import db
+
+    conn = conn or db.connect()
+    cursor = conn.execute("DELETE FROM summary_key WHERE name = ?", ((name or "").strip(),))
+    if cursor.rowcount and db.get_setting(KEY_CREDENTIAL, "", conn) == name:
+        db.set_setting(KEY_CREDENTIAL, "", conn)
+    return bool(cursor.rowcount)
+
+
+# --------------------------------------------------------------------------
+# what is in use
+# --------------------------------------------------------------------------
 
 
 def _env(key: str) -> str:
     return os.environ.get(key, "").strip()
 
 
-def _default_base_url() -> str:
-    """The endpoint when none is stored. Read and write must agree on this."""
-    return _env("TEXTCAST_SUMMARY_BASE_URL") or DEFAULT_BASE_URL
-
-
 def config(conn=None) -> Config:
-    """What is stored, falling back to the environment for anything unset."""
+    """Which key, endpoint, model and prompt are in use.
+
+    The endpoint comes from the chosen key's provider unless one was typed
+    over it, and only a *difference* is stored — so a provider that moves its
+    address moves everyone who did not override it.
+    """
     from . import db
 
-    def stored(key: str, default: str) -> str:
+    def stored(key: str, default: str = "") -> str:
         try:
             return db.get_setting(key, "", conn) or default
         except Exception:
@@ -187,160 +313,67 @@ def config(conn=None) -> Config:
             log.debug("could not read %s", key, exc_info=True)
             return default
 
-    base_url = stored(KEY_BASE_URL, _default_base_url())
+    chosen = None
+    try:
+        chosen = credential(stored(KEY_CREDENTIAL), conn)
+    except Exception:
+        log.debug("could not read the stored keys", exc_info=True)
 
-    # The key is looked up under the endpoint and nowhere else. No fall back
-    # to another endpoint's key, and none to the environment: a key is typed
-    # on the Summaries page, so there is one answer to "which key is this".
+    base_url = stored(KEY_BASE_URL) or (chosen.endpoint if chosen else "") or _default_base_url()
     return Config(
-        model=stored(KEY_MODEL, _env("TEXTCAST_SUMMARY_MODEL") or DEFAULT_MODEL),
+        credential=chosen.name if chosen else "",
+        model=stored(KEY_MODEL, (chosen.model if chosen else "") or _default_model()),
         base_url=base_url,
-        api_key=stored(_scoped(PREFIX_API_KEY, base_url), ""),
+        api_key=chosen.api_key if chosen else "",
         prompt=stored(KEY_PROMPT, DEFAULT_PROMPT),
     )
 
 
-def key_for(base_url: str, conn=None) -> str:
-    """The stored key for one endpoint, ignoring the environment."""
-    from . import db
-
-    return db.get_setting(_scoped(PREFIX_API_KEY, base_url), "", conn)
+def _default_base_url() -> str:
+    """The endpoint before anything is chosen. Read and write must agree."""
+    return _env("TEXTCAST_SUMMARY_BASE_URL") or DEFAULT_BASE_URL
 
 
-def model_for(base_url: str, conn=None) -> str:
-    """The model last saved against one endpoint, or an empty string."""
-    from . import db
-
-    return db.get_setting(_scoped(PREFIX_MODEL, base_url), "", conn)
-
-
-def endpoints(conn=None) -> dict[str, dict]:
-    """What is stored per endpoint, for the settings page. Keys never leave.
-
-    Maps ``endpoint_id`` to the last four characters of its key and the model
-    last saved with it — enough for the page to say "DeepSeek: stored" as you
-    change the dropdown, and never enough to read a key back out of the page.
-    """
-    from . import db
-
-    known: dict[str, dict] = {}
-    for key, value in db.settings_matching(PREFIX_API_KEY, conn).items():
-        if value:
-            known.setdefault(key[len(PREFIX_API_KEY):], {})["hint"] = fingerprint(value)
-    for key, value in db.settings_matching(PREFIX_MODEL, conn).items():
-        if value:
-            known.setdefault(key[len(PREFIX_MODEL):], {})["model"] = value
-    return known
-
-
-def stored_list(conn=None) -> list[dict]:
-    """Every endpoint holding a key, named and ordered for the page.
-
-    Listed providers first, in the order of ``PROVIDERS``, then anything typed
-    by hand. An endpoint only remembering a model is not here: the list
-    answers "which keys does this machine hold".
-    """
-    known = endpoints(conn)
-    urls = {endpoint_id(url): (name, url) for _id, name, url in PROVIDERS}
-
-    rows: list[dict] = []
-    for ident, (name, url) in urls.items():
-        entry = known.get(ident)
-        if entry and entry.get("hint") is not None:
-            rows.append({"id": ident, "name": name, "base_url": url, **entry})
-    for ident, entry in known.items():
-        if ident not in urls and entry.get("hint") is not None:
-            rows.append({"id": ident, "name": ident, "base_url": ident, **entry})
-    return rows
-
-
-def selectable_endpoints(conn=None) -> list[dict]:
-    """Every endpoint the model picker can offer.
-
-    The built-in providers, then any endpoint the database already knows —
-    one typed by hand in the key box, or left behind by an older version. A
-    key is not required: Ollama and LM Studio need none.
-    """
-    known = endpoints(conn)
-    rows = [
-        {
-            "id": endpoint_id(url),
-            "name": name,
-            "base_url": url,
-            "hint": known.get(endpoint_id(url), {}).get("hint", ""),
-            "model": known.get(endpoint_id(url), {}).get("model", ""),
-            "local": is_local(url),
-        }
-        for _id, name, url in PROVIDERS
-    ]
-    seen = {row["id"] for row in rows}
-    for ident, entry in known.items():
-        if ident in seen:
-            continue
-        rows.append({
-            "id": ident, "name": ident, "base_url": ident,
-            "hint": entry.get("hint", ""), "model": entry.get("model", ""),
-            "local": is_local(ident),
-        })
-    return rows
-
-
-def store_key(base_url: str, api_key: str, conn=None) -> None:
-    """File one key under one endpoint, and change nothing else.
-
-    Separate from `save_config` on purpose: typing a key is not the same act
-    as choosing which provider writes the summaries, and the page keeps them
-    in two boxes. Saving a Groq key must not switch the app to Groq.
-    """
-    from . import db
-
-    db.set_setting(_scoped(PREFIX_API_KEY, base_url or _default_base_url()), api_key.strip(), conn)
-
-
-def forget_key(base_url: str, conn=None) -> bool:
-    """Drop one endpoint's key. Its model is left: it is not a secret."""
-    from . import db
-
-    return db.delete_setting(_scoped(PREFIX_API_KEY, base_url), conn)
+def _default_model() -> str:
+    return _env("TEXTCAST_SUMMARY_MODEL") or DEFAULT_MODEL
 
 
 def save_config(
     conn=None,
     *,
+    credential_name: str | None = None,
     model: str | None = None,
     base_url: str | None = None,
-    api_key: str | None = None,
     prompt: str | None = None,
 ) -> None:
     """Store whichever fields were given. An empty string clears a field.
 
-    The key and the model are stored against the endpoint being saved — the
-    one in this call if it was given, the one already stored otherwise. Saving
-    a DeepSeek key therefore cannot overwrite the Gemini key, and switching
-    back to Gemini finds both its key and the model it was last used with.
+    The endpoint is stored only where it *differs* from the chosen key's own,
+    the same bargain the reading pace makes with 1.0: an override sticks, and
+    everything else follows the address in the code.
     """
     from . import db
 
-    for key, value in (
-        (KEY_MODEL, model),
-        (KEY_BASE_URL, base_url),
-        (KEY_PROMPT, prompt),
-    ):
-        if value is not None:
-            db.set_setting(key, value.strip(), conn)
-
-    if api_key is None and model is None:
-        return
-
-    endpoint = base_url if base_url is not None else db.get_setting(KEY_BASE_URL, "", conn)
-    # An unset endpoint means the default one, and it must mean the same as
-    # it does in `config()`: resolved apart, a key saved before a provider was
-    # picked is filed under a name the read side never asks for.
-    endpoint = endpoint or _default_base_url()
-    if api_key is not None:
-        db.set_setting(_scoped(PREFIX_API_KEY, endpoint), api_key.strip(), conn)
+    if credential_name is not None:
+        db.set_setting(KEY_CREDENTIAL, credential_name.strip(), conn)
+    if prompt is not None:
+        db.set_setting(KEY_PROMPT, prompt.strip(), conn)
     if model is not None:
-        db.set_setting(_scoped(PREFIX_MODEL, endpoint), model.strip(), conn)
+        db.set_setting(KEY_MODEL, model.strip(), conn)
+
+    name = db.get_setting(KEY_CREDENTIAL, "", conn)
+    chosen = credential(name, conn) if name else None
+
+    if base_url is not None:
+        typed = base_url.strip()
+        canonical = chosen.endpoint if chosen else ""
+        db.set_setting(KEY_BASE_URL, "" if typed == canonical else typed, conn)
+
+    # The model this key was last used with, so choosing it again brings it
+    # back rather than carrying the previous provider's name into a 404.
+    if model is not None and chosen:
+        conn = conn or db.connect()
+        conn.execute("UPDATE summary_key SET model = ? WHERE name = ?", (model.strip(), chosen.name))
 
 
 def is_installed() -> bool:
