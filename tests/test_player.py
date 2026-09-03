@@ -442,6 +442,49 @@ def test_keeping_an_article_offline_survives_losing_the_network(live, browser):
         context.close()
 
 
+def test_cached_audio_still_answers_a_byte_range(live, browser):
+    """An <audio> element asks for ranges, and the Cache API ignores them.
+
+    The worker answered a request for 100 KB with the whole 2.4 MB file and
+    status 200, so the element read the first byte it got as the byte it had
+    asked for. On a phone that put every seek a few blocks late.
+    """
+    base, slug, manifest = live
+    context = browser.new_context()
+    page = context.new_page()
+    try:
+        page.goto(f"{base}/a/{slug}", wait_until="networkidle")
+        page.wait_for_function(
+            "() => navigator.serviceWorker && navigator.serviceWorker.controller",
+            timeout=20000,
+        )
+        page.click("#menu")
+        page.check("#opt-offline")
+
+        audio_url = f"/media/{slug}/{manifest.sections[0].file}"
+        page.wait_for_function(
+            "async (url) => !!(await caches.match(new Request(url)))",
+            arg=audio_url,
+            timeout=20000,
+        )
+
+        got = page.evaluate(
+            """async (url) => {
+                const r = await fetch(url, {headers: {Range: "bytes=100-199"}});
+                return {status: r.status,
+                        range: r.headers.get("content-range"),
+                        bytes: (await r.arrayBuffer()).byteLength};
+            }""",
+            audio_url,
+        )
+
+        assert got["status"] == 206, f"the worker answered {got['status']}, not a partial"
+        assert got["bytes"] == 100, f"asked for 100 bytes, got {got['bytes']}"
+        assert got["range"].startswith("bytes 100-199/")
+    finally:
+        context.close()
+
+
 def test_clicking_a_block_starts_at_that_block_and_nowhere_else(page, live):
     """Seeking while playing used to let the buffered tail of the old position out."""
     _base, _slug, manifest = live

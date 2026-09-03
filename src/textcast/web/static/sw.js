@@ -53,6 +53,68 @@ self.addEventListener("message", (event) => {
   }
 });
 
+/* Audio, and the reason seeking was wrong on a phone.
+ *
+ * An <audio> element does not fetch a file; it asks for byte ranges, and on
+ * iOS it does so for every play, pause and seek. `caches.match` ignores the
+ * Range header — matching is by URL — so a request for bytes 500000-600000
+ * was answered with the whole file and status 200. Measured: 2,437,998 bytes
+ * returned for a 100,001-byte ask. The element then read the first byte it
+ * got as the byte it asked for, so the clock and the audio parted company and
+ * every seek landed a few blocks late.
+ *
+ * `cache.put` refuses a 206 as well, so the write silently rejected and
+ * nothing ranged was ever stored.
+ *
+ * So: whole files go in the cache, and a ranged ask is served by slicing one.
+ * Offline playback keeps working, and it can seek.
+ */
+async function mediaResponse(request) {
+  const range = request.headers.get("range");
+  const cache = await caches.open(OFFLINE);
+  const hit = await cache.match(request);
+
+  if (hit) return range ? sliceRange(hit, range) : hit;
+  if (range) return fetch(request);  // a 206 cannot be stored, so do not try
+
+  const response = await fetch(request);
+  if (response.status === 200) cache.put(request, response.clone()).catch(() => {});
+  return response;
+}
+
+/* Turn a stored whole file into the 206 the media element asked for. */
+async function sliceRange(response, range) {
+  const body = await response.arrayBuffer();
+  const total = body.byteLength;
+  const match = /^bytes=(\d*)-(\d*)$/.exec(range.trim());
+  if (!match) return response;
+
+  let start = match[1] === "" ? null : parseInt(match[1], 10);
+  let end = match[2] === "" ? null : parseInt(match[2], 10);
+  if (start === null) {
+    // "bytes=-500" is the *last* 500 bytes, not the first.
+    if (end === null) return response;
+    start = Math.max(0, total - end);
+    end = total - 1;
+  } else if (end === null || end >= total) {
+    end = total - 1;
+  }
+  if (start > end || start >= total) {
+    return new Response(null, { status: 416, headers: { "Content-Range": `bytes */${total}` } });
+  }
+
+  return new Response(body.slice(start, end + 1), {
+    status: 206,
+    statusText: "Partial Content",
+    headers: {
+      "Content-Type": response.headers.get("Content-Type") || "application/octet-stream",
+      "Content-Length": String(end - start + 1),
+      "Content-Range": `bytes ${start}-${end}/${total}`,
+      "Accept-Ranges": "bytes"
+    }
+  });
+}
+
 self.addEventListener("fetch", (event) => {
   const request = event.request;
   if (request.method !== "GET") return;
@@ -63,15 +125,21 @@ self.addEventListener("fetch", (event) => {
   // Never cache the API: job state and positions must be live.
   if (url.pathname.startsWith("/api/")) return;
 
-  // Audio and static assets are immutable — cache first.
-  if (url.pathname.startsWith("/media/") || url.pathname.startsWith("/static/")) {
+  // Audio is cache-first, but a media element asks for byte ranges, and the
+  // Cache API does not know about them. See mediaResponse.
+  if (url.pathname.startsWith("/media/")) {
+    event.respondWith(mediaResponse(request));
+    return;
+  }
+
+  // Static assets are immutable — cache first.
+  if (url.pathname.startsWith("/static/")) {
     // Ignore ?v= when matching, so a page asking for ?v=4 still hits a stored
     // ?v=3 entry rather than going to the network on every load.
-    const options = url.pathname.startsWith("/static/") ? { ignoreSearch: true } : undefined;
     event.respondWith(
-      caches.match(request, options).then((hit) => hit || fetch(request).then((response) => {
+      caches.match(request, { ignoreSearch: true }).then((hit) => hit || fetch(request).then((response) => {
         const copy = response.clone();
-        caches.open(url.pathname.startsWith("/media/") ? OFFLINE : SHELL).then((c) => c.put(request, copy));
+        caches.open(SHELL).then((c) => c.put(request, copy));
         return response;
       }))
     );

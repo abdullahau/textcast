@@ -622,6 +622,15 @@ Things that have already bitten once.
   1.55rem) / 2` is the whole answer. Measured 3px above and 3px below, and the
   "no file chosen" text does not move: it is still placed by the same
   line-height as before.
+- **A service worker must not answer a byte range from `caches.match`.** An
+  `<audio>` element does not fetch a file, it asks for ranges, and on iOS it
+  does so for every play, pause and seek. Cache matching is by URL, so the
+  Range header is ignored: a request for bytes 500000-600000 came back as
+  status 200 with the whole 2,437,998-byte file. The element read the first
+  byte it got as the byte it had asked for, so the clock and the audio parted
+  company and every seek landed a few blocks late. `cache.put` refuses a 206
+  as well, so the write silently rejected and nothing ranged was ever stored.
+  `sw.js` now stores whole files and slices one into a real 206.
 - **A stored time is UTC and a shown time is not.** `db.now()` writes
   `datetime.now(UTC).isoformat`, which is the only sane thing to store. The
   Builds page printed it raw, so a build that started at 16:41 in Dubai read
