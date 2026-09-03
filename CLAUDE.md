@@ -17,7 +17,7 @@ docker compose logs -f worker  # builds and mail polling land here
 
 uv sync --extra cpu --extra kokoro --extra kokoro-onnx --extra web \
         --extra documents --extra summaries --group dev
-uv run pytest                  # 439 tests
+uv run pytest                  # 444 tests
 uv run ruff check src tests    # before committing; formatting is not enforced
 ```
 
@@ -309,6 +309,8 @@ Re-measure before overturning any of these. The numbers are from this box:
 | **Visuals are opt-in per adapter, and the newsletter walk stays text-only** | `blocks_from_dom` takes `visuals=NO_VISUALS` by default, so a walk that has not been told what a publication's furniture looks like behaves exactly as it did before. FT, Bloomberg, Substack and the generic extractor pass rules; `newsletter.py` does not, because a newsletter is built out of layout tables and `_table_block` cannot tell a two-by-two of prose from data. |
 | **An `iframe` is kept by allowlist, never by blocklist** | `EMBED_HOSTS` names fifteen chart tools. Everything else is refused, because an `iframe` is far more often an advert, a consent shim or a beacon — the SpaceX page carries three and not one is a graphic. A new advert network appears more often than a new chart tool does. And the frame is not fetched until the reader presses **Load the chart**: a live chart is a third party the reader has not agreed to. |
 | **A picture is fetched, not hotlinked** | Pointing an `<img>` at the publication's own CDN cost three things at once: an article kept offline showed nothing, a paywalled image answered 403 to a reader not signed in, and the publication learned the reader's address. Storage is the cheapest of the four. The fetch runs inside the ingest request, in a pool of four, because that request already fetches the page for `kind=url` — and it is never fatal: a picture that will not download keeps its remote address and the reader hotlinks that one. Named for a hash of its address, so a re-parse writes nothing, two blocks quoting the same chart share a file, and the response can be cached for ever. |
+| **Re-parse replaces nothing when the parse has not changed** | Seven of the nine sources here re-parse to exactly what is already stored, and each was being deleted and rewritten — which takes the article out of `ready` and orphans audio that is still correct. Over a library that reads as "re-parsing broke everything". `_same_article` compares the section titles, every block as it would be stored, and the metadata. It ignores `media["file"]`, which the picture fetch writes *after* the store: compared, no article with a picture could ever be found unchanged. |
+| **Re-parse queues nothing** | It used to queue a build per article, which over a library is the machine for the rest of the day and nobody asked for it. The audio is invalid either way once the ids move; *when* to spend the machine is the owner's call, and the page says the ids moved rather than acting on it. |
 | **selectolax, not BeautifulSoup** | 4.8× faster on the corpus (66 ms vs 314 ms for 6.3 MB), one wheel, no lxml. Its `[class*="Footnotes_base"]` also beats a regex over the class list. |
 | **torch from the CPU index** | The default pulls CUDA: 15 nvidia packages, 5.2 GB venv, 9.3 GB image, on a box with no GPU. Pinned in `[tool.uv.sources]`. Now 1.4 GB and 3.3 GB. |
 | **4 single-threaded engines, not 1 four-threaded** | RTF 0.562 vs 0.629, an 11% gain. 2×2 gives 0.633 (no gain); 6×1 gives 0.593 (worse). The model is bound more by memory bandwidth than cores — do not expect 4× from 4 cores. |
@@ -512,6 +514,33 @@ Things that have already bitten once.
   `colspan="1000"`, which is a way of saying "the whole row", not a width.
   Left alone it made a row of a thousand cells. Capped at 12, and `tfoot` is
   read into `media["foot"]` rather than into the rows: it is a credit line.
+- **Re-parse used to delete every summary in the library.** A summary is a
+  block, and no stored source ever held one, so rebuilding the blocks from the
+  source simply did not produce them. Thirty-five of them, across seven
+  articles, each one a call to a model, and nothing said a word — the word
+  count dropped by ~500 an article and that was the only sign. They are
+  carried across now, filed under their section title before the delete and
+  put back at the head of the section they belonged to. The title is the only
+  handle there is: a section the parser fix renames or splits loses its
+  summary, and `Ingested.summaries_lost` says how many so it is visible rather
+  than silent.
+- **`media["file"]` is bookkeeping and must not be compared.** The picture
+  fetch writes it after `store` has run, so the stored copy always carries one
+  and a fresh parse never does. Anything diffing a stored article against a
+  fresh parse has to drop it first, or every article with a picture in it
+  looks changed for ever.
+- **`extract.STRIP` removed the visuals before the walk could see them.**
+  `figure`, `figcaption` and `iframe` were on it, so giving the catch-all
+  adapter a `VisualRules` did precisely nothing and the failure was silent —
+  the rules were right, the DOM had already been emptied. They are off the
+  list; `visuals.py` refuses the furniture, which is what it is for.
+- **The service worker's cache name only moves when `__version__` does.**
+  It is stamped automatically, which was the fix for forgetting to bump it by
+  hand — but a stylesheet or script edit inside one version is still invisible
+  to every installed client, because the cache name did not change. Two bugs
+  were reported off a phone that were both correct in the code and measured
+  so. **Bump `__version__` with any change under `static/`**, and keep
+  `pyproject.toml` in step: it said 0.3.0 while the package said 0.3.1.
 - **An audio wipe must ask what it is deleting.** `delete_audio` and the wipe
   after a block edit both did `for child in media.glob("*"): child.unlink()`,
   which is fine while everything in there is a file and wrong the moment
@@ -1078,10 +1107,20 @@ while they run, so anything landing on `main` unwatched is landing unread.
   dropdown of twelve. 30 summaries imported from the old notebook are attached
   to seven articles; they average 358 words against the 150 the prompt now
   asks for, so they read long until made again.
-- **The library is nine articles**, most of them `new`: the silence trim and
-  the imported summaries both need a rebuild, which the owner is doing by
-  hand. Only ~99 of 388 blocks are cached, so it is roughly two hours of
-  synthesis, not seconds.
+- **The library is fourteen articles, and every one of them is `new`.** The
+  audio and the whole block cache were dropped by hand on 3 September 2026 —
+  730 MB of cache and 80 MB of media — because the re-parse below moved the
+  block ids and nothing on disk lined up any more. Nothing is cached, so a
+  rebuild is full synthesis rather than an encode: budget hours, not seconds,
+  and rebuild the articles you actually want to listen to.
+- **Every article with a stored original has been re-parsed.** Nine of the
+  fourteen have one; the other five predate `sources/` and cannot be
+  re-parsed by anything. Seven re-parsed to exactly what was stored. Two
+  gained a visual: the Alphaville post its lead image and the Ker-CHING ready
+  reckoner, and one Money Stuff issue the chart that `figure` in the noise
+  list had been dropping. Both pictures are stored under
+  `media/<slug>/images/` and survived the audio wipe, which is the guarantee
+  `delete_audio` was rewritten to give.
 - **The read-along is correct.** The two bugs that made it wrong — the cue at
   a boundary, and the missing highlight on load — are fixed and tested.
 - **It is on the public internet**, at `https://textcast.abdullah.run`, behind
