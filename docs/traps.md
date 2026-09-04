@@ -869,3 +869,12 @@ Each cost an afternoon once; the incident is in git, the rule is here.
   `check()` waits for a visible element and times out. A test about the
   *setting* sets the property and dispatches `change`; opening the sheet is a
   different test's business.
+- **`page.wait_for_function` does not await a promise it gets back.** Proved
+  by handing it `"async () => { await new Promise(r => setTimeout(r, 100));
+  return false; }"` and watching it resolve in under 150 ms — a predicate
+  that can never be true. `page.evaluate` awaits correctly; a test that must
+  wait for an async condition (a service worker's cache, in particular) polls
+  from Python with `evaluate` in a loop instead of trusting
+  `wait_for_function` to do it. Existing `wait_for_function` calls built on
+  `caches.match` were not re-audited; treat one as unproven until it has been
+  made to fail first, the way every fixed bug here was.
