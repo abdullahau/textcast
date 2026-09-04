@@ -605,3 +605,48 @@ def test_a_reparse_that_changes_the_text_drops_the_audio_it_invalidated(conn, se
 
     assert not (media / "section-000.opus").exists(), "stale audio survived"
     assert not (media / "section-000.vtt").exists(), "a stale timing map survived"
+
+
+class FakeResponse:
+    """Enough of `requests.Response` for `fetch` to decode."""
+
+    def __init__(self, body: bytes, content_type: str):
+        self.content = body
+        self.headers = {"Content-Type": content_type}
+        self.encoding = "ISO-8859-1"   # what requests picks with no charset
+
+    @property
+    def apparent_encoding(self):
+        return "utf-8"
+
+    @property
+    def text(self):
+        return self.content.decode(self.encoding, errors="replace")
+
+    def raise_for_status(self):
+        return None
+
+
+def test_a_page_that_names_no_charset_is_read_as_what_it_holds(monkeypatch):
+    """`requests` answers ISO-8859-1 for any `text/html` with no charset --
+    the old HTTP/1.1 default -- and the page is almost always UTF-8. Semafor
+    sends exactly that, so its curly quotes reached the reader as the three
+    characters their UTF-8 bytes spell in Latin-1."""
+    from textcast import netguard, service
+
+    body = "He said “William,” and left — briefly.".encode()
+    monkeypatch.setattr(netguard, "get", lambda *a, **k: FakeResponse(body, "text/html"))
+
+    assert service.fetch("https://example.com/a") == "He said “William,” and left — briefly."
+
+
+def test_a_charset_the_server_does_name_is_believed(monkeypatch):
+    """Only the silence is guessed at. A server that says what it sent is
+    taken at its word, or a page of real Latin-1 would be re-read as UTF-8."""
+    from textcast import netguard, service
+
+    text = "café naïve"
+    response = FakeResponse(text.encode("iso-8859-1"), "text/html; charset=iso-8859-1")
+    monkeypatch.setattr(netguard, "get", lambda *a, **k: response)
+
+    assert service.fetch("https://example.com/a") == text

@@ -73,6 +73,14 @@ def fetch(url: str, timeout: float = 30.0) -> str:
         response.raise_for_status()
     except (requests.RequestException, netguard.UnsafeURL) as exc:
         raise IngestError(f"could not fetch {url}: {exc}") from exc
+    # `requests` falls back to ISO-8859-1 for any `text/html` that names no
+    # charset -- the old HTTP/1.1 default -- and the page is almost always
+    # UTF-8. Semafor sends exactly that header, so every curly quote arrived
+    # as the three characters its UTF-8 bytes spell in Latin-1: an opening
+    # quote came through as "a-circumflex, euro, oe". The body is asked
+    # instead, and only where the server declined to say.
+    if "charset=" not in response.headers.get("Content-Type", "").lower():
+        response.encoding = response.apparent_encoding or "utf-8"
     return response.text
 
 
