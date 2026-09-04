@@ -1905,3 +1905,36 @@ def test_every_audio_address_carries_the_build_it_belongs_to(client, settings, c
     served = client.get(f"/media/{db.get_article(article_id, conn)['slug']}/{section['file']}")
     assert served.status_code == 200
     assert served.content == b"OggS"
+
+
+def _running_job(conn, article_id: int) -> None:
+    """Put this article's build in the state a claimed one is really in."""
+    db.enqueue(article_id, "build", conn=conn)
+    conn.execute("UPDATE job SET state = 'running' WHERE article_id = ?", (article_id,))
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["/api/articles/{id}/delete", "/api/articles/{id}/reparse", "/api/articles/{id}/audio/delete"],
+)
+def test_a_running_build_answers_409_whichever_route_asked(client, conn, monkeypatch, path):
+    """One meaning, one code.
+
+    Each route mapped `IngestError` to whatever its own failure meant --
+    400 for bad input, 404 for no such article -- so the running-job refusal
+    inherited three different codes, and the delete-audio one said 404 about
+    an article that plainly exists.
+    """
+    from textcast.document import Article, Block, BlockKind, Section
+
+    monkeypatch.setattr(web, "_voices", lambda *a: [])
+    doc = Article(title="A busy note", sections=[Section(title="One", blocks=[
+        Block(kind=BlockKind.PARA, text="The body of it."),
+    ])]).renumber()
+    article_id = db.save_article(doc, conn)
+    _running_job(conn, article_id)
+
+    reply = client.post(path.format(id=article_id), headers={"accept": "application/json"})
+
+    assert reply.status_code == 409
+    assert "running" in reply.json()["detail"]

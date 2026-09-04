@@ -38,6 +38,17 @@ class IngestError(RuntimeError):
     pass
 
 
+class ArticleBusy(IngestError):
+    """A build or a summary is writing this article right now.
+
+    Its own class because the three routes that can raise it each already
+    mapped `IngestError` to whatever *their* own failure meant -- 400 for
+    bad input, 404 for no such article -- and a running job is neither. It
+    subclasses `IngestError` so every caller that already handles one goes
+    on working; only the routes that want to say 409 have to know.
+    """
+
+
 @dataclass
 class Ingested:
     article_id: int
@@ -393,7 +404,7 @@ def delete_audio(article_id: int, settings: Settings | None = None) -> int:
     if row is None:
         raise IngestError(f"no article {article_id}")
     if db.has_running_job(article_id, conn):
-        raise IngestError(f"a build or summary is running for {row['slug']}; wait for it to finish")
+        raise ArticleBusy(f"a build or summary is running for {row['slug']}; wait for it to finish")
 
     removed = _drop_media(row["slug"], settings)
 
@@ -459,7 +470,7 @@ def delete(article_id: int, settings: Settings | None = None) -> bool:
     if row is None:
         return False
     if db.has_running_job(article_id, conn):
-        raise IngestError(f"a build or summary is running for {row['slug']}; wait for it to finish")
+        raise ArticleBusy(f"a build or summary is running for {row['slug']}; wait for it to finish")
 
     # The whole directory this time, pictures included: nothing is left that
     # could want them.
@@ -578,7 +589,7 @@ def reparse(
     if row is None:
         raise IngestError(f"no article {article_id}")
     if db.has_running_job(article_id, conn):
-        raise IngestError(f"a build or summary is running for {row['slug']}; wait for it to finish")
+        raise ArticleBusy(f"a build or summary is running for {row['slug']}; wait for it to finish")
 
     for suffix in SOURCE_SUFFIXES:
         path = settings.source_dir / f"{row['slug']}{suffix}"

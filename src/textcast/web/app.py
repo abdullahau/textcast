@@ -30,7 +30,16 @@ from ..jobs import Worker
 from ..prefs import save_voice_defaults, voice_defaults
 
 # summarize is renamed: the ingest form has a field of the same name.
-from ..service import IngestError, delete_audio, delete_summaries, ingest, rebuild, rebuild_many, reparse
+from ..service import (
+    ArticleBusy,
+    IngestError,
+    delete_audio,
+    delete_summaries,
+    ingest,
+    rebuild,
+    rebuild_many,
+    reparse,
+)
 from ..service import delete as delete_article
 from ..service import edit_blocks as save_block_edits
 from ..service import summarize as queue_summary
@@ -1679,6 +1688,8 @@ def api_rebuild(
 def api_reparse(request: Request, article_id: int, adapter: str = Form(default="")):
     try:
         result = reparse(article_id, adapter=adapter or None)
+    except ArticleBusy as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except IngestError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if _wants_html(request):
@@ -1751,6 +1762,8 @@ def api_delete_audio(request: Request, article_id: int):
     """Undo a build without losing the article."""
     try:
         removed = delete_audio(article_id)
+    except ArticleBusy as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except IngestError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     if _wants_html(request):
@@ -1776,7 +1789,7 @@ def api_delete_summaries(request: Request, article_id: int):
 def api_delete(request: Request, article_id: int):
     try:
         found = delete_article(article_id)
-    except IngestError as exc:
+    except ArticleBusy as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if not found:
         raise HTTPException(status_code=404, detail="no such article")
