@@ -857,6 +857,18 @@ Each cost an afternoon once; the incident is in git, the rule is here.
   off the scope instead, which is known before the body is streamed and before
   `Auth` runs. `_read_capped` counts as it reads, for a chunked body that
   declared no length at all.
+- **An SVG is a document wearing a picture's clothes.** A newsletter's own can
+  carry a `<script>`, and served same-origin as `image/svg+xml` it ran against
+  the signed-in session — but only when the address was opened *directly*, in
+  a new tab. Inside an `<img>` it never could: browsers do not script an SVG
+  loaded as an image. Dropping the type was the first answer and it cost more
+  than it bought — the file was still fetched and still stored, now as `.img`
+  and served as `application/octet-stream`, so the reader got a broken picture
+  instead of a chart. `INERT` fixes the response rather than the allow-list:
+  `sandbox` gives it an origin of its own, so there is no cookie and no DOM to
+  reach, and a browser ignores the header when the file is loaded as an image.
+  It is on every picture, not only the SVGs — a rule with no exception cannot
+  be applied to the wrong file.
 - **It is plain ASGI, not `@app.middleware("http")`.** That decorator is
   `BaseHTTPMiddleware`, which wraps every response in a stream; `/media` serves
   range requests straight off disk and should not be wrapped to check a header.

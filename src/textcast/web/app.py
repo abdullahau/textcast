@@ -1964,6 +1964,30 @@ IMAGE_TYPES = {
     ".webp": "image/webp",
     ".gif": "image/gif",
     ".avif": "image/avif",
+    ".svg": "image/svg+xml",
+}
+
+#: What makes a stored picture safe to serve as itself.
+#:
+#: An SVG is an XML *document*, not a bitmap: a newsletter's own can carry a
+#: `<script>`, and served same-origin with its real type, opening the image
+#: address directly ran that script against the signed-in session. Inside an
+#: `<img>` it never could -- browsers do not script an SVG loaded as an image
+#: -- so the hole was only ever "open image in new tab", which is exactly the
+#: thing a reader does to look closer at a chart.
+#:
+#: `sandbox` puts the response in an origin of its own, so what it can reach
+#: is nothing: no cookie, no DOM, no same-origin request. `default-src 'none'`
+#: stops it fetching anything of its own. Both are ignored when the browser
+#: loads the file as an image, so a picture goes on being a picture.
+#:
+#: Cheaper than an allow-list with an SVG-shaped hole in it, and it holds for
+#: whatever type is added next. Applied to every picture, not only the SVGs:
+#: a PNG has nothing to gain from it and nothing to lose, and a rule with no
+#: exception cannot be applied to the wrong file.
+INERT = {
+    "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+    "X-Content-Type-Options": "nosniff",
 }
 
 
@@ -1985,7 +2009,7 @@ def article_image(slug: str, name: str):
         # `private`, as the avatar is: this route is behind `Auth`, and
         # `public` invites a shared cache in front to keep a copy it can hand
         # to anyone who asks for the same address.
-        headers={"Cache-Control": "private, max-age=31536000, immutable"},
+        headers={"Cache-Control": "private, max-age=31536000, immutable", **INERT},
     )
 
 

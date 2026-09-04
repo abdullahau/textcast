@@ -1989,3 +1989,35 @@ def test_an_upload_that_never_declared_its_size_is_still_capped(monkeypatch):
 
     small = UploadFile(filename="small.pdf", file=io.BytesIO(b"x" * 10))
     assert asyncio.run(web._read_capped(small)) == b"x" * 10
+
+
+def test_a_stored_svg_is_served_as_itself_but_cannot_run(client, settings):
+    """SVG is stored and served like any other picture. What stops it being
+    a way in is the response, not an allow-list: `sandbox` gives it an origin
+    of its own, so the script a newsletter put in it has no session to reach.
+    A browser ignores both headers when it loads the file as an image."""
+    directory = settings.media_dir / "a-note" / "images"
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "abc123.svg").write_bytes(
+        b'<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'
+    )
+
+    reply = client.get("/media/a-note/images/abc123.svg")
+
+    assert reply.status_code == 200
+    assert reply.headers["content-type"].startswith("image/svg+xml"), "still a picture"
+    assert "sandbox" in reply.headers["content-security-policy"]
+    assert "default-src 'none'" in reply.headers["content-security-policy"]
+    assert reply.headers["x-content-type-options"] == "nosniff"
+
+
+def test_every_picture_gets_the_same_headers_not_only_the_svgs(client, settings):
+    """A rule with no exception cannot be applied to the wrong file."""
+    directory = settings.media_dir / "a-note" / "images"
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "abc124.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+
+    reply = client.get("/media/a-note/images/abc124.png")
+
+    assert reply.headers["content-type"].startswith("image/png")
+    assert "sandbox" in reply.headers["content-security-policy"]
