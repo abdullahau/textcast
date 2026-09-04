@@ -78,6 +78,9 @@ src/textcast/
 │                   two secrets — the session and the ingest key.
 ├── pictures.py     Fetches every picture an article cites into
 │                   `media/<slug>/images/`, and sweeps what nothing wants.
+├── netguard.py     Checks an address is public before service.fetch or
+│                   pictures._download connects to it, hop by hop through
+│                   any redirect.
 ├── ingest/         one adapter per publication + the shared DOM walker
 │   ├── dom.py      selectolax helpers (lexbor)
 │   ├── base.py     the shared walker + junk pruning
