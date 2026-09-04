@@ -239,6 +239,36 @@ def test_a_library_predating_the_record_is_offered_the_built_ins_once_more(conn)
     assert len(db.list_pronunciations(conn)) == after
 
 
+def test_a_library_with_the_old_case_blind_respelling_is_migrated(conn):
+    """era and refund shipped case-blind once. Seeding cannot fix a pattern
+    that changed shape -- it skips anything already offered -- so a stored
+    row must be updated in place, and the seeded-patterns record moved with
+    it or the next seed pass adds the new pattern beside the old one."""
+    import json
+
+    from textcast import migrate
+
+    new_era = r"(?<!\w)[Ee]ra(s|'s)?(?!\w)"
+    old_era = r"(?<!\w)era(s|'s)?(?!\w)"
+    rule = next(r for r in db.list_pronunciations(conn) if r.pattern == new_era)
+    db.delete_pronunciation(rule.id, conn)
+    db.add_pronunciation("regex", old_era, r"eera\1", conn, ignore_case=True, builtin=True)
+
+    stored = {tuple(pair) for pair in json.loads(db.get_setting(db.SEEDED_KEY, "[]", conn))}
+    stored.discard(("regex", new_era))
+    stored.add(("regex", old_era))
+    db.set_setting(db.SEEDED_KEY, json.dumps(sorted(stored)), conn)
+
+    migrate._fix_case_sensitive_respellings(conn)
+
+    rule = next(r for r in db.list_pronunciations(conn) if r.pattern == new_era)
+    assert not rule.ignore_case
+    assert normalize("his ERA was under 3.00") == "his ERA was under 3.00"
+    assert normalize("a new era of cheap money") == "a new eera of cheap money"
+
+    assert db.seed_pronunciations(conn) == 0, "the migrated row, not a duplicate of it"
+
+
 def test_adding_a_rule_takes_effect_immediately(conn):
     assert normalize("Hodlers gonna FOOBAR") == "Hodlers gonna FOOBAR"
     db.add_pronunciation("word", "FOOBAR", "foo bar", conn)
@@ -664,6 +694,16 @@ def test_era_lands_on_one_vowel_for_both_engines(conn):
 def test_era_does_not_fire_inside_a_longer_word(conn):
     for text in ("a federal opera house", "she was a general", "the operator called"):
         assert normalize(text) == text
+
+
+def test_era_in_all_caps_is_the_acronym_not_the_word(conn):
+    """ERA is a baseball and finance stat, not "era" shouting. The
+    respelling used to be case-blind and rewrote it into "eera" too."""
+    assert normalize("his ERA was under 3.00") == "his ERA was under 3.00"
+
+
+def test_refund_in_all_caps_is_left_alone(conn):
+    assert normalize("REFUND POLICY") == "REFUND POLICY"
 
 
 def test_hubris_gets_its_glide_back_without_moving_misaki(conn):

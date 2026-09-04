@@ -454,17 +454,27 @@ RESPELL = {
     # espeak, nˈApɔl on misaki, whose capital A is that same /eɪ/. "Nypaul" is
     # nˈaɪpɔːl / nˈIpɔl, right on both. A regex, so Naipaul's comes too.
     r"(?<!\w)Naipaul(?!\w)": "Nypaul",
+}
+
+#: The same idea as RESPELL, but never case-blind: each pattern spells out
+#: the casings it accepts instead of taking `ignore_case`. "era" and
+#: "refund" are ordinary words with an ALL-CAPS reading that is a different
+#: word entirely — the baseball and finance stat ERA, a REFUND heading — and
+#: `ignore_case=True` rewrote those the same as the word, which nothing
+#: since RESPELL's own seeding loop ever exercised because nothing in
+#: `tests/corpus` happens to write either one in capitals.
+RESPELL_CASE_SENSITIVE = {
     # Both engines get "era" wrong and each in its own direction: misaki says
     # ˈɛɹə, "ERR-uh", and espeak ˈiəɹə, a British "EE-uh-ruh" that an American
     # voice reads as three syllables. "eera" is ˈɪɹə on both — one "EER-uh",
     # the same phonemes from either phonemiser. A regex, not a word rule, so
     # the plural and the possessive come too.
-    r"(?<!\w)era(s|'s)?(?!\w)": r"eera\1",
+    r"(?<!\w)[Ee]ra(s|'s)?(?!\w)": r"eera\1",
     # The noun's stress on every form. Not a correction: ɹəfˈʌnd / ɹᵻfˈʌnd is
     # the textbook verb, and this is a house preference. Delete it on the
     # Voice page to go back. The inflections are named rather than left to a
     # bare prefix, because "reefundable" wrecks ɹˈifəndəbᵊl.
-    r"(?<!\w)refund(s|ed|ing)?(?!\w)": r"reefund\1",
+    r"(?<!\w)[Rr]efund(s|ed|ing)?(?!\w)": r"reefund\1",
 }
 
 #: A domain name, said the way a person says one.
@@ -690,6 +700,16 @@ def builtin_rules() -> list[Rule]:
             replacement=respelling,
             ignore_case=True,
             note="the phonemiser reads the written form wrongly",
+            sort_order=25,
+        ))
+
+    for pattern, respelling in RESPELL_CASE_SENSITIVE.items():
+        add(Rule(
+            kind="regex",
+            pattern=pattern,
+            replacement=respelling,
+            note="the phonemiser reads the written form wrongly; an ALL-CAPS "
+                 "reading is a different word and must not match",
             sort_order=25,
         ))
 

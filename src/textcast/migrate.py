@@ -45,6 +45,7 @@ def run(conn: sqlite3.Connection) -> None:
     # been added by a release that shipped no spelling for it yet, and this
     # only ever writes where nothing is written.
     _fill_builtin_phonemes(conn)
+    _fix_case_sensitive_respellings(conn)
     _seed_pronunciations(conn)
     _scope_summary_key(conn)
     _adopt_env_summary_key(conn)
@@ -375,6 +376,56 @@ def _fill_builtin_phonemes(conn: sqlite3.Connection) -> None:
             ).rowcount
     if filled:
         log.info("filled %d missing phoneme spelling(s) on built-in rules", filled)
+
+
+def _fix_case_sensitive_respellings(conn: sqlite3.Connection) -> None:
+    """era and refund stop matching their own ALL-CAPS reading.
+
+    Seeding cannot do this either, for the reason `_fill_builtin_phonemes`
+    cannot: it skips a pattern it has offered before, and the shipped
+    pattern changed shape rather than merely gaining a spelling. A library
+    that already held the old, case-blind pattern would otherwise keep
+    rewriting ERA -- the baseball and finance stat, not the word -- into
+    "eera" for ever, because the new pattern is a different string and
+    seeding would only ever add it beside the old one, never in place of it.
+
+    Matched on the exact old pattern, so a rule someone has since edited is
+    left alone, the same reasoning `_fill_builtin_phonemes` uses. Seeding's
+    own record of what has been offered is moved along with the row it
+    describes, or the next call would see the new pattern as one never
+    offered and add it beside the row this just fixed, rather than in
+    place of it.
+    """
+    if not has_table(conn, "pronunciation"):
+        return
+    changes = [
+        (r"(?<!\w)era(s|'s)?(?!\w)", r"(?<!\w)[Ee]ra(s|'s)?(?!\w)"),
+        (r"(?<!\w)refund(s|ed|ing)?(?!\w)", r"(?<!\w)[Rr]efund(s|ed|ing)?(?!\w)"),
+    ]
+    fixed = 0
+    for old, new in changes:
+        fixed += conn.execute(
+            """
+            UPDATE pronunciation SET pattern = ?, ignore_case = 0
+             WHERE kind = 'regex' AND pattern = ? AND ignore_case = 1
+            """,
+            (new, old),
+        ).rowcount
+    if not fixed:
+        return
+    log.info("stopped %d respelling(s) from matching their own ALL-CAPS reading", fixed)
+
+    import json
+
+    from . import db
+
+    stored = db.get_setting(db.SEEDED_KEY, "", conn)
+    if stored:
+        offered = {tuple(pair) for pair in json.loads(stored)}
+        for old, new in changes:
+            offered.discard(("regex", old))
+            offered.add(("regex", new))
+        db.set_setting(db.SEEDED_KEY, json.dumps(sorted(offered)), conn)
 
 
 def _seed_pronunciations(conn: sqlite3.Connection) -> None:
