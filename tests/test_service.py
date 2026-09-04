@@ -7,7 +7,7 @@ import pytest
 from textcast import db
 from textcast.document import Block
 from textcast.pronounce import Rule
-from textcast.service import IngestError, ingest, rebuild_many, reparse
+from textcast.service import IngestError, delete, delete_audio, ingest, rebuild_many, reparse
 
 NOTE = (
     "# Money Stuff\n\n"
@@ -29,6 +29,39 @@ def test_reparse_keeps_the_tags_and_the_build_options(conn):
     assert again.slug == first.slug
     assert db.tags_for(again.article_id, conn) == ["Money Stuff"]
     assert db.get_build_options(again.article_id, conn) == {"voice": "bm_george"}
+
+
+def running_job(conn, article_id: int, kind: str = "build") -> int:
+    """Simulate a child process already at work on this article's files."""
+    job_id = db.enqueue(article_id, kind=kind, conn=conn)
+    db.update_job(job_id, conn, state="running")
+    return job_id
+
+
+def test_reparse_refuses_while_a_build_is_running(conn):
+    stored = add_note()
+    running_job(conn, stored.article_id)
+
+    with pytest.raises(IngestError, match="running"):
+        reparse(stored.article_id)
+
+
+def test_delete_refuses_while_a_build_is_running(conn):
+    stored = add_note()
+    running_job(conn, stored.article_id)
+
+    with pytest.raises(IngestError, match="running"):
+        delete(stored.article_id)
+
+    assert db.get_article(stored.article_id, conn) is not None, "left alone, not removed"
+
+
+def test_delete_audio_refuses_while_a_summary_is_running(conn):
+    stored = add_note()
+    running_job(conn, stored.article_id, kind="summarise")
+
+    with pytest.raises(IngestError, match="running"):
+        delete_audio(stored.article_id)
 
 
 def test_a_failed_reparse_leaves_the_original_alone(conn, settings):

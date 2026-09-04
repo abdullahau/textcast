@@ -392,6 +392,8 @@ def delete_audio(article_id: int, settings: Settings | None = None) -> int:
     row = db.get_article(article_id, conn)
     if row is None:
         raise IngestError(f"no article {article_id}")
+    if db.has_running_job(article_id, conn):
+        raise IngestError(f"a build or summary is running for {row['slug']}; wait for it to finish")
 
     removed = _drop_media(row["slug"], settings)
 
@@ -456,6 +458,8 @@ def delete(article_id: int, settings: Settings | None = None) -> bool:
     row = db.get_article(article_id, conn)
     if row is None:
         return False
+    if db.has_running_job(article_id, conn):
+        raise IngestError(f"a build or summary is running for {row['slug']}; wait for it to finish")
 
     # The whole directory this time, pictures included: nothing is left that
     # could want them.
@@ -573,6 +577,8 @@ def reparse(
     row = db.get_article(article_id, conn)
     if row is None:
         raise IngestError(f"no article {article_id}")
+    if db.has_running_job(article_id, conn):
+        raise IngestError(f"a build or summary is running for {row['slug']}; wait for it to finish")
 
     for suffix in SOURCE_SUFFIXES:
         path = settings.source_dir / f"{row['slug']}{suffix}"

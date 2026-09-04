@@ -1739,7 +1739,11 @@ def api_delete_summaries(request: Request, article_id: int):
 
 @app.post("/api/articles/{article_id}/delete", dependencies=[Auth])
 def api_delete(request: Request, article_id: int):
-    if not delete_article(article_id):
+    try:
+        found = delete_article(article_id)
+    except IngestError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if not found:
         raise HTTPException(status_code=404, detail="no such article")
 
     if _wants_html(request):

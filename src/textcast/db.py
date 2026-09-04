@@ -1028,6 +1028,23 @@ def get_job(job_id: int, conn: sqlite3.Connection | None = None) -> sqlite3.Row 
     return conn.execute("SELECT * FROM job WHERE id = ?", (job_id,)).fetchone()
 
 
+def has_running_job(article_id: int, conn: sqlite3.Connection | None = None) -> bool:
+    """A child process is right now writing this article's rows or files.
+
+    Only `running` matters. A *queued* job's row is deleted along with the
+    article by the foreign key and can never be claimed after that, so it was
+    never a race. A running one is already a child process outside any
+    transaction this connection can see — deleting or re-parsing out from
+    under it left files it went on writing, and job rows it went on updating,
+    with nothing left pointing at either.
+    """
+    conn = conn or connect()
+    row = conn.execute(
+        "SELECT 1 FROM job WHERE article_id = ? AND state = 'running' LIMIT 1", (article_id,)
+    ).fetchone()
+    return row is not None
+
+
 def active_jobs(conn: sqlite3.Connection | None = None) -> list[sqlite3.Row]:
     conn = conn or connect()
     return conn.execute(
