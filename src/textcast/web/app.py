@@ -288,6 +288,19 @@ def login_page(request: Request, next: str = "/"):
     )
 
 
+@lru_cache(maxsize=1)
+def _dummy_password_hash() -> str:
+    """A valid-looking hash nobody's password will ever match.
+
+    Checked whenever the username itself is wrong, so that reply costs the
+    same scrypt call a wrong password does. Computed once and cached, not
+    per request -- it only has to be *some* hash, never the right one.
+    """
+    from .. import accounts
+
+    return accounts.hash_password(secrets.token_urlsafe(32))
+
+
 @app.post("/login", include_in_schema=False)
 def login(
     request: Request,
@@ -312,9 +325,14 @@ def login(
     wrong = "That username and password do not match."
     if current is None:
         return render(request, "login.html", next=target, unconfigured=True)
-    if username.strip() != current.username or not accounts.verify_password(
-        password, current.password_hash
-    ):
+    # verify_password runs whichever hash applies, every time -- not only
+    # when the username matches. `or` short-circuiting on the username above
+    # answered a wrong one in a plain string compare and a wrong password in
+    # scrypt's own ~100ms, which is the same oracle the ingest key's check
+    # ordering exists to avoid, just left open here.
+    right_user = username.strip() == current.username
+    hash_to_check = current.password_hash if right_user else _dummy_password_hash()
+    if not accounts.verify_password(password, hash_to_check) or not right_user:
         limits.LOGIN_ATTEMPTS.spend(who)
         return render(request, "login.html", next=target, error=wrong)
     limits.LOGIN_ATTEMPTS.forget(who)

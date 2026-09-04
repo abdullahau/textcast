@@ -177,6 +177,27 @@ def test_a_correct_sign_in_does_not_spend_the_failure_budget(client, settings):
     assert limits.LOGIN_ATTEMPTS.check("testclient") == 0.0
 
 
+def test_a_wrong_username_still_pays_the_scrypt_cost(client, settings, monkeypatch):
+    """`or` used to short-circuit on the username, so a wrong username came
+    back in a plain string compare and a wrong password (right username)
+    came back after scrypt -- a timing oracle for the username alone."""
+    from textcast import accounts
+
+    sign_in_required(settings)
+    calls = []
+    real_verify = accounts.verify_password
+
+    def spy(password, stored):
+        calls.append(stored)
+        return real_verify(password, stored)
+
+    monkeypatch.setattr(accounts, "verify_password", spy)
+
+    client.post("/login", data={"username": "nobody", "password": "guess"})
+
+    assert calls, "verify_password was never reached for a wrong username"
+
+
 def test_the_cookie_carries_a_session_and_never_the_password(client, settings):
     """It used to carry the credential itself, on every request."""
     account = sign_in_required(settings)
