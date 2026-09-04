@@ -509,7 +509,14 @@ def sign_out_everywhere(request: Request):
 
 
 def _safe_next(target: str) -> str:
-    """Only ever redirect inside this app, never to another host."""
+    """Only ever redirect inside this app, never to another host.
+
+    A browser resolves a backslash exactly like a forward slash, so
+    `/\\evil.example` arrives as the protocol-relative `//evil.example`
+    even though it never starts with `//` itself. Checked after every
+    backslash is turned into a slash, not before.
+    """
+    target = target.replace("\\", "/")
     if not target.startswith("/") or target.startswith("//"):
         return "/"
     return target

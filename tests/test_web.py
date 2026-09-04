@@ -178,12 +178,13 @@ def test_changing_the_password_signs_every_other_browser_out(client, settings):
     ).status_code == 303
 
 
-def test_sign_in_never_redirects_off_this_host(client, settings):
+@pytest.mark.parametrize("bait", ["//evil.example.com/", "/\\evil.example.com/", "/\\/evil.example.com/"])
+def test_sign_in_never_redirects_off_this_host(client, settings, bait):
     sign_in_required(settings)
 
     response = client.post(
         "/login",
-        data={"username": "reader", "password": PASSWORD, "next": "//evil.example.com/"},
+        data={"username": "reader", "password": PASSWORD, "next": bait},
         follow_redirects=False,
     )
 
