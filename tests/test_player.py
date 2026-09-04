@@ -466,6 +466,68 @@ def test_keeping_an_article_offline_survives_losing_the_network(live, browser):
         context.close()
 
 
+def wait_until_uncached(page, url, timeout=10.0):
+    """Poll from Python, not with `wait_for_function`.
+
+    `wait_for_function` does not await a promise-returning predicate here —
+    proven by handing it one that always resolves `false` after a delay and
+    watching it return immediately anyway — so a predicate built on
+    `caches.match` cannot be trusted to actually wait for anything. `evaluate`
+    does await correctly; this just calls it in a loop.
+    """
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if not page.evaluate("async (u) => !!(await caches.match(u))", url):
+            return
+        time.sleep(0.2)
+    raise AssertionError(f"{url} was never removed from the cache")
+
+
+def test_reconciling_drops_an_articles_page_along_with_its_media(live, browser):
+    """An article unticked in another tab, or removed from the library, is
+    only caught by the next page load's `reconcile` message. It used to drop
+    the marker and the media but leave the page cached for ever, with
+    nothing left pointing at it."""
+    base, slug, manifest = live
+    context = browser.new_context()
+    page = context.new_page()
+    try:
+        page.goto(f"{base}/a/{slug}", wait_until="networkidle")
+        page.wait_for_function(
+            "() => navigator.serviceWorker && navigator.serviceWorker.controller",
+            timeout=20000,
+        )
+
+        page.click("#menu")
+        page.check("#opt-offline")
+
+        audio_url = first_audio_url(page, slug)
+        page.wait_for_function(
+            "async (url) => !!(await caches.match(new Request(url)))",
+            arg=audio_url,
+            timeout=20000,
+        )
+        page.wait_for_function(
+            "async (url) => !!(await caches.match(url))",
+            arg=f"/a/{slug}",
+            timeout=20000,
+        )
+
+        # Removed directly, not through the checkbox -- unticking it would
+        # already correctly clean up via `drop-article`. This is what a
+        # second tab doing the same, or the article being deleted from the
+        # library, looks like from here: the marker and the files stay put
+        # until the next page load reconciles them.
+        page.evaluate("(slug) => localStorage.removeItem('tc:offline:' + slug)", slug)
+        page.reload(wait_until="domcontentloaded")
+
+        wait_until_uncached(page, f"/a/{slug}")
+        wait_until_uncached(page, audio_url)
+    finally:
+        context.set_offline(False)
+        context.close()
+
+
 def test_cached_audio_still_answers_a_byte_range(live, browser):
     """An <audio> element asks for ranges, and the Cache API ignores them.
 

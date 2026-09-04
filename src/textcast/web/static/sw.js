@@ -63,6 +63,10 @@ self.addEventListener("activate", (event) => {
  */
 const wantedMark = (slug) => `/__offline__/${encodeURIComponent(slug)}`;
 const mediaPrefix = (slug) => `/media/${encodeURIComponent(slug)}/`;
+// The one place an article's own page lives, so `reconcile` can find it
+// without the page having to tell it -- `location.pathname` at the moment
+// "keep offline" was ticked is this same address.
+const pagePath = (slug) => `/a/${encodeURIComponent(slug)}`;
 const absolute = (path) => new URL(path, location.origin).href;
 
 async function isWanted(slug) {
@@ -169,7 +173,11 @@ self.addEventListener("message", (event) => {
         const keep = new Set(wanted || []);
         let dropped = 0;
         for (const stored of await keptSlugs(cache)) {
-          if (!keep.has(stored)) dropped += await forget(cache, stored, null);
+          // `null` here left the page behind: only its marker and its media
+          // went, so an article dropped from the library, or unticked in
+          // another tab, kept its page cached for ever with nothing left
+          // pointing at it and `usage()` never counting it.
+          if (!keep.has(stored)) dropped += await forget(cache, stored, pagePath(stored));
         }
         reply(event, { ok: true, dropped });
       })
@@ -323,8 +331,13 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(
       caches.match(request, { cacheName: SHELL }).then((exact) => exact || fetch(request)
         .then((response) => {
-          const copy = response.clone();
-          caches.open(SHELL).then((c) => c.put(request, copy));
+          // Exact-match lookups always win over the network, so a 404 or a
+          // 500 cached here under this build's own ?v= would answer for the
+          // rest of the build's life with no way to retry.
+          if (response.ok) {
+            const copy = response.clone();
+            caches.open(SHELL).then((c) => c.put(request, copy)).catch(() => {});
+          }
           return response;
         })
         .catch(() => caches.match(request, { ignoreSearch: true, cacheName: SHELL })))
