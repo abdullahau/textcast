@@ -14,9 +14,9 @@ it is read — with a handle beside every paragraph to jump the audio there.
 1. **Take anything in.** Pasted text or Markdown, a URL, a PDF, a Word file, a
    saved `.html` page, a `.eml` newsletter, a bookmarklet click on a paywalled
    article, the Android share sheet, or an iOS Shortcut.
-2. **Parse it properly.** Per-publication adapters (Bloomberg, FT) with a
-   content-density fallback for everything else. Footnotes are inlined into the
-   sentence that cites them.
+2. **Parse it properly.** Per-publication adapters — Bloomberg, the FT, the
+   Economist, Substack — with a content-density fallback for everything else.
+   Footnotes are inlined into the sentence that cites them.
 3. **Teach it how to say things.** Money, percentages and dates are rewritten
    for the ear. Acronyms are respelled — `GAAP` as `gap` — and where no
    spelling reaches a word, IPA phonemes are handed to the model directly.
@@ -24,28 +24,70 @@ it is read — with a handle beside every paragraph to jump the audio there.
    exportable.
 4. **Speak it.** Optionally summarise each section first, then Kokoro reads it
    a block at a time, encoded to Opus.
-5. **Read along.** The player highlights the current paragraph and follows it
+5. **Keep the pictures.** Every chart, table and photograph an article cites is
+   fetched once and stored beside the audio, so an article kept offline is
+   still the article. A picture is a block like any other, in its place in the
+   read-along, and the player can stop at one so you can look at it.
+6. **Read along.** The player highlights the current paragraph and follows it
    down the page. The text stays selectable, so you can still copy from it.
-6. **Take it with you.** Install to the home screen, keep articles offline,
+7. **Take it with you.** Install to the home screen, keep articles offline,
    control it from the lock screen.
 
-## Run it
+## Install it on a fresh machine
+
+Docker and the compose plugin are the only things you need first. Five steps,
+start to finish:
 
 ```bash
-git clone git@github.com:abdullahau/textcast.git && cd textcast
-cp .env.example .env          # set TEXTCAST_UID/GID to `id -u` and `id -g`
-docker compose up -d --build
+# 1. Docker, if the machine has none (Debian or Ubuntu)
+curl -fsSL https://get.docker.com | sh
+sudo usermod -aG docker "$USER" && newgrp docker
+
+# 2. The code
+git clone https://github.com/abdullahau/textcast.git && cd textcast
+
+# 3. The settings. Set TEXTCAST_UID and TEXTCAST_GID or SQLite will refuse
+#    to write: the image's user is 10001 and yours is not.
+cp .env.example .env
+printf 'TEXTCAST_UID=%s\nTEXTCAST_GID=%s\n' "$(id -u)" "$(id -g)" >> .env
+
+# 4. Build and start. The first build takes about seven minutes and 3.3 GB:
+#    it bakes the Kokoro weights in, so a fresh container needs no network.
+docker compose -f docker-compose.yml up -d --build
+
+# 5. Check it
+curl -s localhost:8000/health   # {"ok":true,...}
+docker compose logs -f worker
 ```
 
-Then open <http://127.0.0.1:8000>. Two containers off one image: `app` serves
-the pages, `worker` does the synthesis (CPU-limited, so it cannot starve the
-web process). Both share `./data` as a **bind mount**, so the database, the
-audio, the saved originals and the render cache stay on the host where your
-backups already point.
+Open <http://127.0.0.1:8000> and add something. Nothing else is installed on
+the host — espeak-ng, ffmpeg and the model are all in the image.
 
-The first build is slow — it downloads PyTorch and bakes the Kokoro weights
-into the image, about 3.3 GB and seven minutes. After that the model is in the
-image and a fresh container needs no network at all.
+**Anything reachable from the internet needs three more lines in `.env`**, set
+before the first start, because they seed the account and are then never read
+again:
+
+```ini
+TEXTCAST_REQUIRE_AUTH=1
+TEXTCAST_USERNAME=you
+TEXTCAST_AUTH_TOKEN=a-long-password-you-will-change-in-the-app
+TEXTCAST_PUBLIC_URL=https://textcast.example.com   # what the bookmarklet posts to
+```
+
+Put a reverse proxy or a tailnet in front for TLS; textcast takes no view on
+which. To update: `git pull && docker compose -f docker-compose.yml up -d
+--build`. `./data` is a bind mount, so it survives, and it is the whole backup.
+
+## How it runs
+
+Two containers off one image: `app` serves the pages, `worker` does the
+synthesis (CPU-limited, so it cannot starve the web process). Both share
+`./data` as a **bind mount**, so the database, the audio, the saved originals
+and the render cache stay on the host where your backups already point.
+
+Both engines' weights are baked into the image, which is what the first build
+spends its 3.3 GB and seven minutes on. A fresh container then needs no
+network at all — and no espeak-ng or ffmpeg on the host either.
 
 There is no command line. Adding an article, choosing a voice, summarising and
 building are all done in the app.
@@ -107,7 +149,8 @@ Build it once:
 3. Set Method to **POST** and Request Body to **Form**.
 4. Add a field `kind` with the value `url`.
 5. Add a field `url` and set its value to **Shortcut Input**.
-6. If access control is on, add a header `x-textcast-token` holding your token.
+6. If access control is on, add a header `x-textcast-token` holding the
+   **ingest key** from the Settings page — not your password.
 7. In the shortcut details, turn on **Show in Share Sheet** and accept URLs.
 
 The same steps are on the Add page, with your host filled in. Anything shared
@@ -201,29 +244,36 @@ values, and what you save on the page wins over them.
 
 A provider running on this machine — Ollama, LM Studio — needs no key at all.
 
-Summarising queues a rebuild, because a new block moves every paragraph after
-it. That is also why it is its own job: the model runs once, the audio follows.
+Summarising queues **nothing**. A summary is a block, and inserting one moves
+every id after it, so the audio has to be made after the text is final — and
+when that happens is yours to say. That is why it is its own job kind: it
+writes the blocks and stops.
 
 ## The voice
 
-Kokoro-82M reads everything. Measured here on 4 ARM cores with no GPU, against
-a real 659-character paragraph:
+Kokoro-82M reads everything, through either of two runtimes. They are the
+*same weights* and were judged indistinguishable by ear, so the choice is made
+on everything else. Measured here on 4 ARM cores with no GPU, over a whole
+build pool:
 
-| Engine | RTF | Speed | Rate | Install |
-| --- | --- | --- | --- | --- |
-| **Kokoro-82M** (`af_heart`) | 0.65 | 1.5× real time | 24 kHz | 113 packages, 4.9 GB |
+| Engine | RTF | Resident | Install |
+| --- | --- | --- | --- |
+| **kokoro-onnx** (default) | 0.456 | 530 MB | ~40 MB of wheels |
+| kokoro (torch) | 0.557 | 1,512 MB | torch, ~1.4 GB |
 
-A faster ONNX engine shipped alongside it for a while and was dropped. It was
-about twice the speed, but its delivery was thinner: volume drifted and long
-paragraphs glitched. Carrying two engines cost a registry, a build option, a
-second set of weights and a second licence, and the second one was never the
-one worth listening to.
+ONNX is the default: cheaper by every measure that is not the sound. Both are
+built into the image, and the engine is a per-article choice on the article
+page, so switching back and forth costs nothing after the first build of each.
+`TEXTCAST_TTS_ENGINE` moves the default.
 
-`textcast voices` lists the 20 American voices the default pipeline loads;
-8 British ones ship too. Set the default with `TEXTCAST_TTS_VOICE`. Voice,
-quote voice, reading pace and footnote handling are then set **per article** —
-when you add it, or on its page afterwards. Nothing is inherited from a folder
-or a feed.
+A third engine, Supertonic, was measured and refused: about twice the speed,
+but volume drifted and long paragraphs glitched. Speed does not earn an engine
+its place.
+
+20 American voices ship, and 8 British. Set the default on the **Voice** page
+or with `TEXTCAST_TTS_VOICE`. Voice, quote voice, reading pace and footnote
+handling are then set **per article** — on its page, after you have seen what
+the parser made of it. Nothing is inherited from a folder or a feed.
 
 **Quote voice.** A block quote needs a mark or it runs into the sentence before
 it. Left blank, the reader says "Start quote" and "End quote" aloud — the
@@ -237,9 +287,12 @@ speed control is a separate thing and changes nothing on disk.
 
 The two hard parts are not hand-written:
 
-- **Sync is WebVTT.** Each section ships a metadata track whose cue ids are
-  block ids, so the browser runs its own timing algorithm and fires `cuechange`
-  as each block starts. No timing map to search, no drift.
+- **The timings come from the build, not from a guess.** One list produces the
+  block rows, the WebVTT track and the JSON the page carries, so they cannot
+  disagree. The highlight reads the audio clock every frame and finds the
+  block with one bisect — 2 ms and the same in every browser. The WebVTT track
+  stays as the backstop for a background tab, where frames stop and audio does
+  not.
 - **Transport is [media-chrome](https://github.com/muxinc/media-chrome)** (MIT,
   vendored as one 41 KB gzipped file, no build step) — play/pause, seek bar,
   time display, playback rate, keyboard, ARIA.
@@ -261,16 +314,24 @@ tailnet in front, or nothing at all on a private LAN. `TEXTCAST_HOST` and
 `TEXTCAST_PORT` control where it listens.
 
 Access control is off by default, which suits a private network. For anything
-internet-facing set `TEXTCAST_REQUIRE_AUTH=1` and `TEXTCAST_AUTH_TOKEN`. A
-browser is then sent to `/login`, which takes the token and keeps it in a
-cookie; scripts send it as an `x-textcast-token` header instead.
+internet-facing set `TEXTCAST_REQUIRE_AUTH=1`, plus `TEXTCAST_USERNAME` and
+`TEXTCAST_AUTH_TOKEN`. Those two seed the account row **once**, on an empty
+database, and are never read again: after that the username, the password and
+the profile picture live in the app, on the Settings page. Editing `.env` later
+does nothing, which is worth knowing before you try it.
+
+A browser is sent to `/login` and carries a **session** in a cookie — never the
+password, so changing the password signs every other browser out. The
+bookmarklet and the iPhone Shortcut carry a second secret, the **ingest key**,
+which opens `POST /api/ingest` and nothing else: one lifted out of a bookmarks
+bar can add an article and cannot delete one. Rotate it on the Settings page.
 
 ## Data model
 
-The **block** is the unit — a paragraph, quote, list item, footnote or
-generated summary is one row with a stable id. Reading, listening, highlighting, seeking and
-search all read the same table, so they cannot drift apart. SQLite in WAL mode,
-with an FTS5 index over block text.
+The **block** is the unit — a paragraph, quote, list item, footnote, picture,
+table or generated summary is one row with a stable id. Reading, listening,
+highlighting, seeking and search all read the same table, so they cannot drift
+apart. SQLite in WAL mode, with an FTS5 index over block text.
 
 Original sources are kept, so a parser fix can be replayed with **Re-parse**
 without re-fetching. Every synthesised block is cached by content hash, so a
@@ -298,7 +359,7 @@ matches and so must stay last.
 ## Tests
 
 ```bash
-uv run pytest                        # 207 tests
+uv run pytest
 uv run playwright install chromium   # once, for the browser tests
 ```
 
@@ -313,12 +374,16 @@ src/textcast/
 │   ├── dom.py      selectolax helpers
 │   ├── extract.py  content-density fallback
 │   └── documents.py text, Markdown, PDF and DOCX readers
-├── tts/            engine registry and kokoro.py
+├── pronounce.py    the editable word rules: respellings and IPA
+├── pictures.py     fetches every picture an article cites, and sweeps them
+├── accounts.py     the one account, the session and the ingest key
+├── tts/            engine registry and the two Kokoro runtimes
 ├── audio.py        synthesis, Opus encoding, WebVTT
+├── cache.py        what the block cache holds and may forget
 ├── db.py           SQLite, search, tags, jobs, positions
-├── migrate.py      runs on every start; seeding only
+├── migrate.py      runs on every start; seeding and column adds
 ├── jobs.py         the build worker, and `python -m textcast`
-├── prefs.py        default voice, quote voice and reading pace
+├── prefs.py        default engine, voice, quote voice and reading pace
 ├── service.py      ingestion, deletion, re-parse, summary queueing
 ├── mail.py         IMAP newsletter fetch
 └── web/            FastAPI, templates, one stylesheet, the player

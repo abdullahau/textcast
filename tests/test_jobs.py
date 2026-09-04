@@ -439,3 +439,32 @@ def test_a_sweep_that_fails_does_not_fail_the_build(conn, settings, monkeypatch)
     watched(worker, FakeChild(exitcode=0))
 
     assert worker._run_in_child(("build",)) is True
+
+
+def test_a_dying_build_child_leaves_the_summary_beside_it_alone(conn, settings):
+    """The two lanes run side by side, and requeueing swept both.
+
+    A build child that was killed put *every* running job back, so the
+    summary running next to it started again from the top -- and its article
+    was stamped `queued`, which claims audio is on the way for an article
+    nobody asked to build. `status` describes the audio and nothing else.
+    """
+    worker = Worker(settings)
+    building = ingest(text="# Building\n\nA paragraph.", title="Building", build=False)
+    summarising = ingest(text="# Summarising\n\nA paragraph.", title="Summarising", build=False)
+
+    db.enqueue(building.article_id, kind="build", conn=conn)
+    db.enqueue(summarising.article_id, kind="summarise", conn=conn)
+    build_job = db.claim_job(conn, ("build",))
+    summary_job = db.claim_job(conn, ("summarise",))
+    assert build_job and summary_job
+
+    worker._requeue_orphans(("build",))
+
+    assert db.get_job(build_job["id"], conn)["state"] == "queued"
+    assert db.get_job(summary_job["id"], conn)["state"] == "running", (
+        "the other lane is still working"
+    )
+    assert db.get_article(summarising.article_id, conn)["status"] != "queued", (
+        "a summary does not claim the audio is coming"
+    )

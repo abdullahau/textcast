@@ -451,7 +451,11 @@
   visualBox.checked = pauseAtVisual;
   visualBox.addEventListener("change", function () {
     pauseAtVisual = this.checked;
-    store("pause-visual", pauseAtVisual ? "1" : "0", true);
+    /* Three arguments, and the value is the third. Passing `true` there wrote
+       the string "true", which the read above compares against "1" — so the
+       setting was stored and never came back, and the box was empty on every
+       reload. The two other stores here had it right. */
+    store("pause-visual", "", pauseAtVisual ? "1" : "0");
   });
 
 

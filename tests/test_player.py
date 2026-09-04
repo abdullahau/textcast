@@ -845,3 +845,33 @@ def test_the_player_reads_through_a_table_unless_it_is_asked_not_to(live, browse
 
     assert page.evaluate("!document.getElementById('audio').paused"), "it stopped anyway"
     context.close()
+
+
+def test_the_pause_at_a_chart_setting_survives_a_reload(live, browser):
+    """It was stored as the string "true" and read back against "1".
+
+    `store(key, fallback, value)` takes the value third; this call passed the
+    "1"/"0" as the fallback and `true` as the value. So the box was ticked,
+    the setting was written, and the next page load compared "true" with "1"
+    and drew it empty. The two other stores in the file had it right, which
+    is why nothing else lost its setting.
+    """
+    base, slug, _manifest = live
+    context = browser.new_context()
+    page = context.new_page()
+    page.goto(f"{base}/a/{slug}")
+    page.wait_for_selector("#doc .b")
+
+    page.evaluate(
+        "() => { const box = document.getElementById('opt-pause-visual');"
+        " box.checked = true; box.dispatchEvent(new Event('change')); }"
+    )
+    assert page.evaluate("localStorage.getItem('tc:pause-visual')") == "1"
+
+    page.reload()
+    page.wait_for_selector("#doc .b")
+    assert page.evaluate("document.getElementById('opt-pause-visual').checked") is True, (
+        "the setting was saved and did not come back"
+    )
+    context.close()
+

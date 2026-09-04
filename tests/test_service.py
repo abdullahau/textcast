@@ -466,3 +466,56 @@ def test_a_stored_picture_does_not_make_an_article_look_changed(settings, conn, 
     assert figure.media["file"], "the picture was not stored"
 
     assert service.reparse(stored.article_id, settings=settings).unchanged
+
+
+def test_the_keys_follow_the_saved_default_engine_too(conn, settings):
+    """The middle of the three layers a build reads, which this skipped.
+
+    `jobs._build` takes the engine from the article's own options, then the
+    default saved on the Voice page, then the environment. This read the
+    article's options and then jumped straight to the environment -- so
+    choosing an engine on the Voice page while `TEXTCAST_TTS_ENGINE` still
+    named the other one made every key here a key no build had written.
+
+    `_sweep_cache` runs after every build, so the sweep then deleted the
+    renders that build had just produced: the cache emptied itself and every
+    rebuild went back to the model.
+    """
+    from textcast.prefs import save_voice_defaults
+    from textcast.service import cache_keys
+
+    result = ingest(text="# Defaults\n\nOne paragraph, one saved default.", title="Defaults")
+    assert settings.engine != "kokoro", "the environment names the other engine"
+
+    save_voice_defaults(conn, engine="kokoro")
+    keys = cache_keys(result.article_id, conn, settings)
+
+    db.set_build_options(result.article_id, {"engine": "kokoro"}, conn)
+    assert keys == cache_keys(result.article_id, conn, settings), (
+        "the saved default must key the same renders as naming it per article"
+    )
+
+
+def test_a_sweep_collects_a_part_file_nothing_will_ever_finish(conn, settings):
+    """A killed build leaves one, and no reader ever asks for that name.
+
+    They were stepped over, so they accumulated for the life of the library.
+    Only the cold ones go: `service.delete` sweeps from a web request, and a
+    build in another process may be part-way through writing one.
+    """
+    import os
+    import time
+
+    from textcast.service import sweep_cache
+
+    settings.cache_dir.mkdir(parents=True, exist_ok=True)
+    abandoned = settings.cache_dir / f"{'a' * 64}.1-2.part"
+    abandoned.write_bytes(b"\x00" * 20)
+    os.utime(abandoned, (time.time() - 7200, time.time() - 7200))
+    in_flight = settings.cache_dir / f"{'b' * 64}.3-4.part"
+    in_flight.write_bytes(b"\x00" * 20)
+
+    sweep_cache(settings, conn)
+
+    assert not abandoned.exists(), "an hour-old part file is nobody's"
+    assert in_flight.exists(), "a build may still be writing this one"

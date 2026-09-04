@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import threading
@@ -153,7 +154,12 @@ def _speak(
             pass
 
     samples = engine.synthesize(text, voice=voice, speed=speed, lang=lang).samples
-    tmp = path.with_suffix(".part")
+    # The writer's own name, not one derived from the key alone. Two blocks in
+    # a section can hold the same words -- a repeated stand-first, an identical
+    # list item -- and the pool renders them side by side, so both threads had
+    # one `.part` between them: the first `replace` moved it, and the second
+    # raised FileNotFoundError and failed the build.
+    tmp = path.with_suffix(f".{os.getpid()}-{threading.get_ident()}.part")
     to_int16(samples).tofile(tmp)
     tmp.replace(path)
     # The caller gets the model's own floats, not the round trip. Only a later
@@ -385,8 +391,25 @@ def render_article(
         )
 
     manifest.total_ms = sum(s.duration_ms for s in manifest.sections)
+    _drop_stale_sections(out_dir, manifest)
     (out_dir / "manifest.json").write_text(manifest.to_json(), encoding="utf-8")
     return manifest
+
+
+def _drop_stale_sections(out_dir: Path, manifest: AudioManifest) -> None:
+    """Remove section files this build did not write.
+
+    A build overwrites `section-000` onwards, so a re-parse or an edit that
+    leaves an article with fewer sections than it had strands the tail: the
+    manifest never names them, so the player is right, but they sit on disk
+    for ever and `jobs._build` sums every `*.opus` in the directory to record
+    `audio_bytes` -- which then reported audio the article does not have.
+    """
+    written = {section.file for section in manifest.sections}
+    written |= {section.track for section in manifest.sections if section.track}
+    for path in out_dir.glob("section-*"):
+        if path.is_file() and path.name not in written:
+            path.unlink(missing_ok=True)
 
 
 def encode_opus_bytes(samples: np.ndarray, sample_rate: int, bitrate: str = "48k") -> bytes:

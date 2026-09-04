@@ -93,20 +93,32 @@ def _suffix_for(url: str, content_type: str) -> str:
 
 def _download(url: str) -> tuple[bytes, str] | None:
     try:
-        response = requests.get(
+        with requests.get(
             url, timeout=TIMEOUT, headers={"User-Agent": USER_AGENT}, stream=True
-        )
-        response.raise_for_status()
-        content_type = response.headers.get("Content-Type", "")
-        if not content_type.lower().startswith("image/"):
-            log.info("not a picture, skipped: %s (%s)", url, content_type or "no type")
-            return None
-        body = response.content
+        ) as response:
+            response.raise_for_status()
+            content_type = response.headers.get("Content-Type", "")
+            if not content_type.lower().startswith("image/"):
+                log.info("not a picture, skipped: %s (%s)", url, content_type or "no type")
+                return None
+            # Read up to the cap and stop there, rather than buying the whole
+            # body and measuring it afterwards. `stream=True` bought nothing
+            # while the next line was `response.content`: a host answering
+            # with a gigabyte put a gigabyte in memory before MAX_BYTES was
+            # ever consulted, and the fetch runs inside the ingest request.
+            chunks, size = [], 0
+            for chunk in response.iter_content(64 * 1024):
+                size += len(chunk)
+                if size > MAX_BYTES:
+                    log.warning("refused %s: over %d bytes", url, MAX_BYTES)
+                    return None
+                chunks.append(chunk)
+            body = b"".join(chunks)
     except requests.RequestException as exc:
         log.warning("could not fetch %s: %s", url, exc)
         return None
-    if not body or len(body) > MAX_BYTES:
-        log.warning("refused %s: %d bytes", url, len(body))
+    if not body:
+        log.warning("refused %s: it was empty", url)
         return None
     return body, _suffix_for(url, content_type)
 

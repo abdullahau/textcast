@@ -1774,13 +1774,33 @@ def article_image(slug: str, name: str):
     return FileResponse(
         path,
         media_type=IMAGE_TYPES.get(path.suffix, "application/octet-stream"),
-        headers={"Cache-Control": "public, max-age=31536000, immutable"},
+        # `private`, as the avatar is: this route is behind `Auth`, and
+        # `public` invites a shared cache in front to keep a copy it can hand
+        # to anyone who asks for the same address.
+        headers={"Cache-Control": "private, max-age=31536000, immutable"},
     )
 
 
 @app.get("/media/{slug}/{name}", dependencies=[Auth])
 def media(slug: str, name: str):
-    """Serve audio straight off disk, with range support for seeking."""
+    """Serve audio straight off disk, with range support for seeking.
+
+    `private`, because this route is behind `Auth` and `public` invites a CDN
+    in front to keep a copy of the library's audio and hand it to anyone who
+    asks for the same address.
+
+    `immutable` is kept, and it is not yet true: a picture's name is a hash of
+    its address, but `section-000.opus` is rewritten by every build of the
+    article. Weakening it to `no-cache` was tried and reverted, because it
+    breaks the offline cache outright: the audio element asks for byte ranges,
+    so the browser's HTTP cache holds a *partial* entry for the file, and
+    without a long-lived header Chromium satisfies the service worker's own
+    plain GET as a ranged one. `Cache.addAll` then refuses the lot —
+    "Partial response (status code 206) is unsupported" — and an article
+    marked for offline stored nothing at all. The honest fix is to put the
+    build in the URL, so the promise becomes true rather than being dropped;
+    see `PLAN.md`.
+    """
     if "/" in name or ".." in name or ".." in slug:
         raise HTTPException(status_code=400, detail="bad path")
     path = settings.media_dir / slug / name
@@ -1790,7 +1810,7 @@ def media(slug: str, name: str):
     return FileResponse(
         path,
         media_type=types.get(path.suffix),
-        headers={"Cache-Control": "public, max-age=31536000, immutable"},
+        headers={"Cache-Control": "private, max-age=31536000, immutable"},
     )
 
 

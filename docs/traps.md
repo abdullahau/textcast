@@ -240,6 +240,13 @@ section you are about to touch**, and add to it when something bites you.
 - **A menu with no way out is a trap.** The sheet had only Escape, which a
   phone does not have. It closes on its own button and on a tap outside; the
   nav and profile menus do the same.
+- **`store` takes the value third, and one call passed it second.** The
+  "pause at a chart" toggle wrote the boolean `true` where the "1"/"0" belonged,
+  so it was stored as the string "true" and the read compared that against
+  "1". The setting saved and never came back, and the box was empty on every
+  reload. The two other `store` calls in the file had it right, which is why
+  nothing else lost its setting — and why no test caught it: every test that
+  touched the box set it and used it in the same page load.
 
 ## The library, search and the pager
 
@@ -453,6 +460,13 @@ Each cost an afternoon once; the incident is in git, the rule is here.
   its first pool instance into `tts._shared` and must take that entry back only
   if the slot still holds *its* engine — a web process that built its own must
   not lose it.
+- **Requeueing orphans swept both lanes.** A build child killed by the OOM
+  killer put *every* running job back, including the summary running beside it
+  in the other lane — which then started again from the top and paid for its
+  calls twice. It also stamped that article `queued`, claiming audio was coming
+  for an article nobody had asked to build. `_requeue_orphans` takes the lane's
+  kinds, and only a build may move `article.status`. Only `start` sweeps both,
+  and there nothing is running.
 
 ## The block cache
 
@@ -487,6 +501,26 @@ Each cost an afternoon once; the incident is in git, the rule is here.
 - **The cache holds int16; the caller still gets the model's floats.** `_speak`
   returns the fresh samples, not the round trip. Only a *later* build reads the
   quantised copy, which is where the −90 dBFS was measured.
+- **`cache_keys` must read all three layers of the engine, not two.** It took
+  the article's own build option and then jumped to `settings.engine`, skipping
+  the default saved on the Voice page. Choose an engine there while
+  `TEXTCAST_TTS_ENGINE` still names the other one and every key was computed
+  for an engine no build had used — so the sweep that runs *after every build*
+  deleted the renders that build had just written. The cache emptied itself,
+  each rebuild went back to the model, and nothing said so: a sweep reports how
+  much it freed, not whether it should have. Read `voice_defaults` once and use
+  it for the engine as it already did for voice, quote voice and pace.
+- **A `.part` file is nobody's, and stepping over it is not the same as
+  collecting it.** The sweep skipped every `.part`, so the half-written renders
+  a killed build leaves behind accumulated for the life of the library. They go
+  now, but only once cold: `service.delete` sweeps from a web request, and a
+  build in another process may be part-way through writing one.
+- **The temporary file was named from the key alone.** The key is a hash of the
+  spoken text, so two blocks with the same words are one key — a repeated
+  stand-first, an identical list item — and the pool renders them at the same
+  moment. Both threads had one `.part` between them: the first `replace` moved
+  it, and the second raised `FileNotFoundError` and failed the whole build. The
+  name carries the pid and the thread now.
 
 ## Data, time and export
 
@@ -559,6 +593,29 @@ Each cost an afternoon once; the incident is in git, the rule is here.
   bookmarklet posts `kind=html` with the page *your* browser rendered, session
   applied. The share sheet and Shortcut post `kind=url` and the server fetches
   it as a stranger. Only the first gets past a paywall.
+- **`/media/` promises `immutable` and cannot keep it — and you cannot simply
+  stop promising.** A picture's name is a hash of its address, so that URL
+  never changes what it holds. A section's is `section-000.opus`, which every
+  build of the article rewrites, so a rebuilt article held offline goes on
+  playing the audio it had before, against the *new* timing map. The obvious
+  fix — weaken the header to `no-cache` — was tried, and it breaks the offline
+  feature outright. The audio element asks for byte ranges, so the browser's
+  HTTP cache holds a *partial* entry for that URL; without a long-lived header
+  Chromium serves the service worker's own plain GET from it as a ranged
+  request, and `Cache.addAll` refuses the whole batch: "Partial response
+  (status code 206) is unsupported". Marking an article offline then stored
+  nothing — not the audio, not even the page — and the `.catch(() => {})`
+  around `addAll` said so to nobody. Measured: the OFFLINE cache came back
+  empty for every variant that dropped the year (`private`, `no-cache`,
+  `max-age=0, must-revalidate`) and full for the one that kept it. The fix is
+  to put the build in the URL so the promise becomes true; see `PLAN.md`.
+- **`public` on a route behind `Auth` invites a CDN to keep the library.**
+  Both media routes say `private` now, as the avatar already did.
+- **A picture's size cap was checked after the picture was bought.**
+  `_download` passed `stream=True` and then read `response.content`, which
+  pulls the whole body regardless — so a host answering with a gigabyte put a
+  gigabyte in memory before `MAX_BYTES` was consulted, inside the ingest
+  request. It reads in 64 KB chunks and stops at the cap.
 
 ## Docker and the image
 

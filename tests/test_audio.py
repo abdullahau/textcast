@@ -417,3 +417,53 @@ def test_a_sample_over_full_scale_clips_rather_than_wraps():
     from textcast.audio import to_int16
 
     assert to_int16(np.array([1.5, -1.5], dtype=np.float32)).tolist() == [32767, -32768]
+
+
+def test_a_shorter_rebuild_takes_the_section_files_it_no_longer_writes(tmp_path):
+    """A build overwrites section-000 onwards and used to leave the tail.
+
+    An edit or a re-parse that drops a section stranded its files. The
+    manifest never named them, so the player was right -- but they sat there
+    for ever, and `jobs._build` sums every `*.opus` in the directory to
+    record `audio_bytes`, so the library reported audio the article no
+    longer had.
+    """
+    out = tmp_path / "media"
+    render_article(sample_article(), FakeEngine(), out, voice="v1")
+    assert (out / "section-001.opus").exists(), "two sections to start with"
+
+    shorter = Article(
+        title="Test",
+        sections=[Section(title="One", blocks=[Block(kind=BlockKind.PARA, text="a" * 40)])],
+    ).renumber()
+    manifest = render_article(shorter, FakeEngine(), out, voice="v1")
+
+    assert len(manifest.sections) == 1
+    assert (out / "section-000.opus").exists()
+    assert not (out / "section-001.opus").exists(), "the tail was left behind"
+    assert not (out / "section-001.vtt").exists()
+
+
+def test_two_blocks_with_the_same_words_do_not_share_one_part_file(tmp_path):
+    """The cache key is a hash of the text, so identical blocks are one key.
+
+    The temporary file was named from that key alone, so a pool rendering
+    both at once had one `.part` between two threads: the first `replace`
+    moved it and the second raised FileNotFoundError, failing the build.
+    """
+    repeated = "The very same sentence, twice over."
+    article = Article(
+        title="Twice",
+        sections=[Section(title="One", blocks=[
+            Block(kind=BlockKind.PARA, text=repeated),
+            Block(kind=BlockKind.PARA, text=repeated),
+        ])],
+    ).renumber()
+
+    manifest = render_article(
+        article, FakeEngine(), tmp_path / "out",
+        pool=[FakeEngine(), FakeEngine()], voice="v1", cache_dir=tmp_path / "cache",
+    )
+
+    assert len(manifest.sections[0].blocks) == 2
+    assert not list((tmp_path / "cache").glob("*.part")), "nothing half-written is left"

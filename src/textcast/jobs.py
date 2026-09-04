@@ -175,13 +175,28 @@ class Worker:
         except Exception as exc:
             log.warning("mail poll failed: %s", exc)
 
-    def _requeue_orphans(self) -> None:
-        """A job left 'running' means the process died mid-build. Retry it."""
+    def _requeue_orphans(self, kinds: tuple[str, ...] | None = None) -> None:
+        """A job left 'running' means the process died mid-job. Retry it.
+
+        ``kinds`` scopes it to one lane. The two lanes run side by side, so a
+        build child dying used to take the summary running beside it back to
+        `queued` and start it again from the top -- and stamp its article
+        `queued`, which claims audio is coming for an article nobody has asked
+        to build. Only `start` sweeps both, and there nothing is running.
+        """
         conn = db.connect(self.settings.db_path)
-        rows = conn.execute("SELECT id, article_id FROM job WHERE state = 'running'").fetchall()
+        where, params = "state = 'running'", []
+        if kinds:
+            where += f" AND kind IN ({','.join('?' * len(kinds))})"
+            params = list(kinds)
+        rows = conn.execute(f"SELECT id, article_id, kind FROM job WHERE {where}", params).fetchall()
         for row in rows:
             conn.execute("UPDATE job SET state = 'queued', progress = 0 WHERE id = ?", (row["id"],))
-            conn.execute("UPDATE article SET status = 'queued' WHERE id = ?", (row["article_id"],))
+            # `status` describes the audio, so only a build may move it.
+            if row["kind"] == "build":
+                conn.execute(
+                    "UPDATE article SET status = 'queued' WHERE id = ?", (row["article_id"],)
+                )
         if rows:
             log.info("requeued %d interrupted job(s)", len(rows))
 
@@ -256,7 +271,7 @@ class Worker:
             # outright, by the OOM killer or a shutdown, with a job still
             # marked running and nobody left to finish it.
             log.error("the %s process exited with %s", lane, child.exitcode)
-            self._requeue_orphans()
+            self._requeue_orphans(kinds)
         elif lane == "build":
             self._sweep_cache()
         return True

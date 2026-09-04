@@ -10,6 +10,7 @@ in a child at all. Everything here is already in the parent's import graph.
 from __future__ import annotations
 
 import logging
+import time
 from pathlib import Path
 
 from . import db
@@ -29,12 +30,15 @@ def cache_keys(article_id: int, conn, settings: Settings, chosen=None) -> set[st
     library: they are the same for every article and reading them per article
     is a database round trip per article for one answer.
 
-    The engine comes off the article's own build options. It used to be the
-    string "kokoro", which was right when there was one engine and wrong for
-    every article since: thirteen of fourteen here are kokoro-onnx, so the keys
-    named files that did not exist -- and for an article built under kokoro
-    once and rebuilt under ONNX, they named the *old* files and deleted those,
-    leaving the ones in use.
+    The engine comes off the article's own build options, then off the *saved*
+    default -- the same three layers, in the same order, that `jobs._build`
+    reads. It used to be the string "kokoro", which was right when there was
+    one engine and wrong for every article since. Then it was
+    `settings.engine`, which skipped the middle layer: choose an engine on the
+    Voice page while the environment still names the other one, and every key
+    here was computed for an engine no build had used. `_sweep_cache` runs
+    after every build, so it deleted the renders that build had just written --
+    the cache emptied itself and each rebuild went back to the model.
 
     The phonemiser matters for the same reason. A rule written in IPA reaches
     only the engine it was written for, so the spoken text is not the same
@@ -42,7 +46,7 @@ def cache_keys(article_id: int, conn, settings: Settings, chosen=None) -> set[st
     """
     chosen = chosen or voice_defaults(conn, settings)
     options = db.get_build_options(article_id, conn)
-    engine = options.get("engine") or settings.engine
+    engine = options.get("engine") or chosen.engine
     voice = options.get("voice") or chosen.voice or "af_heart"
     quote_voice = options.get("quote_voice") or chosen.quote_voice
     speed = float(options.get("speed") or chosen.speed or 1.0)
@@ -115,10 +119,18 @@ def sweep_cache(
 
     removed = freed = 0
     for path in settings.cache_dir.glob("*"):
-        if not path.is_file() or path.suffix == ".part":
+        if not path.is_file():
             continue
+        if path.suffix == ".part":
+            # A half-written render, left by a build that was killed. Nothing
+            # can ever read one -- the name a reader looks for carries no
+            # `.part` -- and stepping over them meant they accumulated for
+            # ever. Only the cold ones: `service.delete` sweeps from a web
+            # request, and a build may be part-way through writing one.
+            if not _is_stale(path):
+                continue
         # A file from an older format is unreachable whatever its name says.
-        if path.stem in wanted and path.suffix == CACHE_SUFFIX:
+        elif path.stem in wanted and path.suffix == CACHE_SUFFIX:
             continue
         try:
             freed += path.stat().st_size
@@ -129,6 +141,18 @@ def sweep_cache(
     if removed:
         log.info("swept %d orphaned renders, freed %s", removed, _size(freed))
     return removed, freed
+
+
+#: How long a `.part` must have sat still before it counts as abandoned. One
+#: block takes seconds to render, so an hour is far beyond any live write.
+STALE_PART_SECONDS = 3600
+
+
+def _is_stale(path: Path) -> bool:
+    try:
+        return time.time() - path.stat().st_mtime > STALE_PART_SECONDS
+    except OSError:
+        return False
 
 
 def _size(count: int) -> str:
