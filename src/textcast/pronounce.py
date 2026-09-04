@@ -30,6 +30,7 @@ from __future__ import annotations
 import logging
 import re
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass
 from functools import lru_cache
 
@@ -80,16 +81,34 @@ class Rule:
         """Build the matching pattern, or None when it cannot be compiled."""
         return _compiled(self.kind, self.pattern, self.ignore_case)
 
-    def substitution(self, g2p: str = DEFAULT_G2P, phonemes: bool = True) -> str:
+    def substitution(
+        self, g2p: str = DEFAULT_G2P, phonemes: bool = True
+    ) -> str | Callable[[re.Match[str]], str]:
         r"""What to put in place of a match, for this engine.
 
         The IPA written for the engine's own phonemiser if there is any, and
         the plain replacement otherwise. Phonemes keep the original text
         visible to the tokeniser and go in the link target, so ``\g<0>``
-        carries the match through.
+        carries the match through — safe here because the code writes that
+        template, not the rule's author.
+
+        A *regex* rule may have its own capturing groups and legitimately
+        write ``\1`` into them — the built-in ``refund(s|ed|ing)?`` to
+        ``reefund\1`` depends on exactly that, so its replacement stays a
+        template. A word or phrase pattern never has a capturing group of
+        its own, so a backslash in *that* plain replacement is never meant
+        as one: ``re.sub`` read it as a template anyway, and a replacement
+        containing ``\1`` or a stray ``\`` before a digit raised
+        ``re.error`` and the rule silently stopped firing. Returned as a
+        function there instead, so it is inserted exactly as written.
         """
         ipa = self.phonemes_for(g2p) if phonemes else ""
-        return rf"[\g<0>](/{ipa}/)" if ipa else self.replacement
+        if ipa:
+            return rf"[\g<0>](/{ipa}/)"
+        if self.kind == "regex":
+            return self.replacement
+        replacement = self.replacement
+        return lambda match: replacement
 
     def fires_for(self, g2p: str = DEFAULT_G2P, phonemes: bool = True) -> bool:
         """Whether this rule has anything to say to that engine."""
@@ -121,7 +140,7 @@ def _compiled(kind: str, pattern: str, ignore_case: bool) -> re.Pattern | None:
 @lru_cache(maxsize=32)
 def _prepared(
     rules: tuple[Rule, ...], g2p: str, phonemes: bool
-) -> tuple[tuple[re.Pattern, str], ...]:
+) -> tuple[tuple[str | None, re.Pattern, str | Callable[[re.Match[str]], str]], ...]:
     """The rules that speak to this engine, compiled and paired with what they say.
 
     Same reason as ``_compiled``, one level up. ``apply`` runs over every block

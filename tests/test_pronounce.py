@@ -43,6 +43,26 @@ def test_ignore_case_is_opt_in():
     assert apply("jul", loose) == "July"
 
 
+def test_a_replacement_with_a_backslash_digit_is_inserted_literally():
+    """`re.sub` reads `\\1` in a replacement as a backreference, not text a
+    rule's author typed. A word rule has no capturing group at all, so this
+    used to raise re.error and the rule silently stopped firing."""
+    rules = [Rule(kind="word", pattern="q1", replacement=r"Q\1", ignore_case=True)]
+    assert apply("results for q1", rules) == r"results for Q\1"
+
+
+def test_a_phrase_replacement_with_a_backslash_is_also_literal():
+    rules = [Rule(kind="phrase", pattern="the path", replacement=r"C:\group<0>")]
+    assert apply("set the path now", rules) == r"set C:\group<0> now"
+
+
+def test_a_regex_rule_may_still_use_its_own_capturing_group():
+    """The one case a backslash-digit must keep meaning what `re.sub` says:
+    the built-in `refund(s|ed|ing)?` to `reefund\\1` depends on it."""
+    rules = [Rule(kind="regex", pattern=r"colou?r(s)?", replacement=r"colour\1")]
+    assert apply("two colors", rules) == "two colours"
+
+
 def test_a_broken_pattern_is_skipped_not_fatal():
     """A bad rule must never be what stops a build."""
     rules = [
