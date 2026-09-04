@@ -45,6 +45,25 @@ def test_reingesting_the_same_content_is_refused(conn):
     assert caught.value.article_id == first
 
 
+def test_the_fingerprint_check_runs_with_the_write_lock_already_held(conn, monkeypatch):
+    """Checked before the transaction opened, two concurrent ingests of the
+    same content -- the mail poll and a manual add landing at once -- could
+    both pass the check before either held the lock, and the second would
+    hit the unique index as a raw IntegrityError instead of DuplicateArticle.
+    Moved inside `with transaction(conn)`, so this must be true instead."""
+    seen_in_transaction = []
+    real_find = db.find_by_fingerprint
+
+    def spy(conn_, fingerprint):
+        seen_in_transaction.append(conn_.in_transaction)
+        return real_find(conn_, fingerprint)
+
+    monkeypatch.setattr(db, "find_by_fingerprint", spy)
+    db.save_article(make_article(), conn)
+
+    assert seen_in_transaction == [True]
+
+
 def test_different_articles_with_the_same_title_get_distinct_slugs(conn):
     a = make_article()
     b = make_article()

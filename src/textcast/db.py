@@ -151,11 +151,17 @@ def save_article(
     article.renumber()
     fingerprint = article.fingerprint
 
-    existing = find_by_fingerprint(conn, fingerprint)
-    if existing:
-        raise DuplicateArticle(existing["id"], existing["slug"])
-
     with transaction(conn):
+        # Checked again here, not only before the transaction opened: `BEGIN
+        # IMMEDIATE` takes the write lock a moment later, and two concurrent
+        # ingests of the same content -- the mail poll and a manual add
+        # landing at once -- could otherwise both pass a check made before
+        # either held it, and the second would hit the unique index as a raw
+        # IntegrityError instead of this.
+        existing = find_by_fingerprint(conn, fingerprint)
+        if existing:
+            raise DuplicateArticle(existing["id"], existing["slug"])
+
         # Defensively re-derived if the asked-for one is taken: a caller that
         # has not deleted the old row yet must not fail on the constraint.
         taken = slug and conn.execute(
