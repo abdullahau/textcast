@@ -195,6 +195,26 @@ def test_position_survives_and_feeds_continue_listening(conn):
     assert db.continue_listening(conn) == []
 
 
+def test_save_position_reads_and_writes_in_one_transaction(conn, monkeypatch):
+    """A build finishing between the read and the write -- writing a fresh
+    audio_ms -- could otherwise compute `finished` against an already-stale
+    total. `end_slack` runs between the two, so it is the seam."""
+    article_id = db.save_article(make_article(), conn)
+    conn.execute("UPDATE article SET audio_ms = 100000 WHERE id = ?", (article_id,))
+
+    seen: list[bool] = []
+    real_end_slack = db.end_slack
+
+    def spy(total):
+        seen.append(conn.in_transaction)
+        return real_end_slack(total)
+
+    monkeypatch.setattr(db, "end_slack", spy)
+    db.save_position(article_id, section_idx=0, ms=5000, conn=conn)
+
+    assert seen == [True]
+
+
 def test_a_position_at_the_end_is_finished_even_without_the_flag(conn):
     """The player carries the flag, and a lost one left an article nagging.
 
@@ -382,6 +402,17 @@ def test_a_hyphen_in_a_search_is_not_a_syntax_error(conn):
         db.search(query, conn)  # must not raise
 
     assert [h["slug"] for h in db.search("Drug-Trial", conn)] == ["drug-trial-stock-sale"]
+
+
+def test_a_percent_sign_in_a_search_is_not_a_wildcard(conn):
+    """Unescaped, `%` in a LIKE pattern widens the match: searching for the
+    literal "100%" would also find "100 Reasons", which never mentioned a
+    percent sign, the same trap articles_matching's own LIKE was escaped
+    against."""
+    db.save_article(make_article(title="Up 100% This Year"), conn)
+    db.save_article(make_article(title="100 Reasons to Sell", series=None), conn)
+
+    assert [h["title"] for h in db.search_articles("100%", conn)] == ["Up 100% This Year"]
 
 
 def test_search_covers_the_article_as_well_as_its_blocks(conn):

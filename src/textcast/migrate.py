@@ -70,11 +70,20 @@ def _add_built_at(conn: sqlite3.Connection) -> None:
     """
     if has_column(conn, "article", "built_at"):
         return
-    conn.execute("ALTER TABLE article ADD COLUMN built_at INTEGER NOT NULL DEFAULT 0")
-    stamped = conn.execute(
-        "UPDATE article SET built_at = CAST(strftime('%s','now') AS INTEGER)"
-        " WHERE status = 'ready' OR audio_ms > 0"
-    ).rowcount
+    from . import db
+
+    # One transaction, not two separate statements: a crash between the
+    # ALTER and the UPDATE would leave the column present, so has_column
+    # would treat the migration as already done and the backfill would
+    # never run -- every already-ready article stuck at built_at = 0 until
+    # its next successful build restamps it. SQLite allows DDL inside a
+    # transaction, so there is no reason not to.
+    with db.transaction(conn):
+        conn.execute("ALTER TABLE article ADD COLUMN built_at INTEGER NOT NULL DEFAULT 0")
+        stamped = conn.execute(
+            "UPDATE article SET built_at = CAST(strftime('%s','now') AS INTEGER)"
+            " WHERE status = 'ready' OR audio_ms > 0"
+        ).rowcount
     log.info("added article.built_at and stamped %d built article(s)", stamped)
 
 

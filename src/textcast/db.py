@@ -729,8 +729,11 @@ def search_articles(query: str, conn: sqlite3.Connection | None = None, limit: i
     if not term:
         return []
 
-    like = f"%{term}%"
-    fields = " OR ".join(f"a.{name} LIKE ?" for name in ARTICLE_FIELDS)
+    # Escaped the same way articles_matching's own LIKE is: unescaped, a
+    # literal % or _ in the term -- "50% off" is a title in this library's
+    # own corpus -- widens the match to rows that never mentioned it.
+    like = f"%{_like_literal(term)}%"
+    fields = " OR ".join(f"a.{name} LIKE ? ESCAPE '\\'" for name in ARTICLE_FIELDS)
     rows = conn.execute(
         f"""
         SELECT a.id AS article_id, a.slug, a.title, a.series, a.status,
@@ -739,7 +742,7 @@ def search_articles(query: str, conn: sqlite3.Connection | None = None, limit: i
          WHERE a.archived = 0
            AND ({fields}
                 OR EXISTS (SELECT 1 FROM article_tag t
-                            WHERE t.article_id = a.id AND t.tag LIKE ?))
+                            WHERE t.article_id = a.id AND t.tag LIKE ? ESCAPE '\\'))
          ORDER BY a.added_at DESC
          LIMIT ?
         """,
@@ -853,22 +856,26 @@ def save_position(
     too. Scrubbing back clears it on the next save.
     """
     conn = conn or connect()
-    row = conn.execute("SELECT audio_ms FROM article WHERE id = ?", (article_id,)).fetchone()
-    total = row["audio_ms"] if row else 0
-    if total and ms >= total - end_slack(total):
-        finished = True
-    conn.execute(
-        """
-        INSERT INTO position (article_id, section_idx, ms, finished, updated_at)
-        VALUES (?,?,?,?,?)
-        ON CONFLICT (article_id) DO UPDATE
-            SET section_idx = excluded.section_idx,
-                ms          = excluded.ms,
-                finished    = excluded.finished,
-                updated_at  = excluded.updated_at
-        """,
-        (article_id, section_idx, ms, int(finished), now()),
-    )
+    # Read and write in one transaction: a build finishing between the two
+    # -- writing a fresh audio_ms -- could otherwise compute `finished`
+    # against a total that was already stale by the time it was read.
+    with transaction(conn):
+        row = conn.execute("SELECT audio_ms FROM article WHERE id = ?", (article_id,)).fetchone()
+        total = row["audio_ms"] if row else 0
+        if total and ms >= total - end_slack(total):
+            finished = True
+        conn.execute(
+            """
+            INSERT INTO position (article_id, section_idx, ms, finished, updated_at)
+            VALUES (?,?,?,?,?)
+            ON CONFLICT (article_id) DO UPDATE
+                SET section_idx = excluded.section_idx,
+                    ms          = excluded.ms,
+                    finished    = excluded.finished,
+                    updated_at  = excluded.updated_at
+            """,
+            (article_id, section_idx, ms, int(finished), now()),
+        )
 
 
 def clear_position(article_id: int, conn: sqlite3.Connection | None = None) -> None:
