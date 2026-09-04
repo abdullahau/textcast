@@ -354,6 +354,19 @@ def test_a_failing_endpoint_is_reported_rather_than_raised_raw():
         summarize_text("Anything at all.", Config(api_key="k"), client)
 
 
+def test_a_malformed_reply_is_reported_rather_than_raised_raw():
+    """Some "OpenAI-compatible" gateways answer with `message: null`."""
+
+    class NullMessageClient(FakeClient):
+        def _create(self, model, messages):
+            self.models.append(model)
+            self.prompts.append(messages[0]["content"])
+            return SimpleNamespace(choices=[SimpleNamespace(message=None)])
+
+    with pytest.raises(SummaryError, match="failed"):
+        summarize_text("Anything at all.", Config(api_key="k"), NullMessageClient())
+
+
 def test_input_is_capped_so_one_long_section_cannot_run_away():
     client = FakeClient()
 
@@ -401,6 +414,21 @@ def test_the_heading_is_not_fed_back_as_content():
 
     assert "The body of the section." in client.prompts[0]
     assert client.prompts[0].count("INMB") == 0
+
+
+def test_a_heading_only_section_is_skipped_not_reported_as_a_failure():
+    """Nothing to summarise means nothing sent, not a false model failure."""
+    doc = Article(sections=[
+        Section(title="Explore more", blocks=[Block(kind=BlockKind.HEADING, text="Explore more")]),
+        Section(title="INMB", blocks=[Block(kind=BlockKind.PARA, text="The body of the section.")]),
+    ], title="T").renumber()
+    client = FakeClient()
+
+    run = summarize_article(doc, Config(api_key="k"), client)
+
+    assert run.added == 1 and run.errors == []
+    assert len(client.prompts) == 1, "the model was never asked about the empty section"
+    assert doc.sections[0].blocks[0].kind is BlockKind.HEADING, "left with no summary, not an error"
 
 
 # -- storage and the queue -------------------------------------------------

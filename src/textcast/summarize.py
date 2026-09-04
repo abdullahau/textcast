@@ -417,13 +417,18 @@ def summarize_text(text: str, cfg: Config | None = None, client=None) -> str:
             model=cfg.model,
             messages=[{"role": "user", "content": filled}],
         )
+        choices = getattr(response, "choices", None)
+        if not choices:
+            raise SummaryError(f"{cfg.model} returned nothing")
+        content = choices[0].message.content
+    except SummaryError:
+        raise
     except Exception as exc:
+        # A malformed shape from an "OpenAI-compatible" gateway that isn't --
+        # `message: null` is not rare among them -- raised AttributeError here
+        # and reached the caller as a 500 rather than a reported SummaryError.
         raise SummaryError(f"{cfg.model} failed: {exc}") from exc
-
-    choices = getattr(response, "choices", None)
-    if not choices:
-        raise SummaryError(f"{cfg.model} returned nothing")
-    return (choices[0].message.content or "").strip()
+    return (content or "").strip()
 
 
 @dataclass(frozen=True)
@@ -488,11 +493,21 @@ def summarize_article(
                     break
             section.blocks = [b for b in section.blocks if b.kind is not BlockKind.SUMMARY]
 
+    def has_body_text(section) -> bool:
+        # A section made only of headings -- rare, but it happens -- has
+        # nothing to summarise. Sending it joined nothing, and the model was
+        # never called; `summarize_text` returned "" without asking, and that
+        # came back as "the model returned an empty summary", blaming a call
+        # that was never made. Left out of `sent` instead, so it is skipped
+        # rather than reported as a failure.
+        return any(b.kind is not BlockKind.HEADING and b.text.strip() for b in section.blocks)
+
     sent = [
         (index, section)
         for index, section in enumerate(article.sections)
         if any(b.kind is not BlockKind.SUMMARY for b in section.blocks)
         and not any(b.kind is BlockKind.SUMMARY for b in section.blocks)
+        and has_body_text(section)
     ]
     if not sent:
         return SummaryRun()
