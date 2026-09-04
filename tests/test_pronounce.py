@@ -269,6 +269,57 @@ def test_a_library_with_the_old_case_blind_respelling_is_migrated(conn):
     assert db.seed_pronunciations(conn) == 0, "the migrated row, not a duplicate of it"
 
 
+def test_a_library_holding_both_respellings_is_migrated_and_not_broken(conn):
+    """The state the migration was written for is one it used to die on.
+
+    A seed pass that ran before the migration existed adds the new pattern
+    beside the old one -- both rows, both recorded as offered. Renaming the
+    old row on top of the new one breaks UNIQUE (kind, pattern), and the
+    error comes out of `db.init`, so the app and the worker both refuse to
+    start, on every start. This is that library.
+    """
+    import json
+
+    from textcast import migrate
+
+    new_era = r"(?<!\w)[Ee]ra(s|'s)?(?!\w)"
+    old_era = r"(?<!\w)era(s|'s)?(?!\w)"
+    db.add_pronunciation("regex", old_era, r"eera\1", conn, ignore_case=True, builtin=True)
+
+    stored = {tuple(pair) for pair in json.loads(db.get_setting(db.SEEDED_KEY, "[]", conn))}
+    stored.add(("regex", old_era))
+    db.set_setting(db.SEEDED_KEY, json.dumps(sorted(stored)), conn)
+
+    migrate._fix_case_sensitive_respellings(conn)
+
+    patterns = [r.pattern for r in db.list_pronunciations(conn)]
+    assert old_era not in patterns, "the superseded row goes"
+    assert patterns.count(new_era) == 1
+    assert normalize("his ERA was under 3.00") == "his ERA was under 3.00"
+    assert normalize("a new era of cheap money") == "a new eera of cheap money"
+    assert db.seed_pronunciations(conn) == 0
+
+
+def test_a_respelling_the_reader_has_adopted_survives_the_migration(conn):
+    """`builtin` off means the reader owns the row. Superseded is not a
+    reason to take it from them; the shipped rule is there beside it."""
+    import json
+
+    from textcast import migrate
+
+    old_refund = r"(?<!\w)refund(s|ed|ing)?(?!\w)"
+    db.add_pronunciation(
+        "regex", old_refund, r"reefund\1", conn, ignore_case=True, builtin=False
+    )
+    stored = {tuple(pair) for pair in json.loads(db.get_setting(db.SEEDED_KEY, "[]", conn))}
+    stored.add(("regex", old_refund))
+    db.set_setting(db.SEEDED_KEY, json.dumps(sorted(stored)), conn)
+
+    migrate._fix_case_sensitive_respellings(conn)
+
+    assert old_refund in [r.pattern for r in db.list_pronunciations(conn)]
+
+
 def test_adding_a_rule_takes_effect_immediately(conn):
     assert normalize("Hodlers gonna FOOBAR") == "Hodlers gonna FOOBAR"
     db.add_pronunciation("word", "FOOBAR", "foo bar", conn)

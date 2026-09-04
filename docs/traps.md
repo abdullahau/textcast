@@ -138,6 +138,14 @@ section you are about to touch**, and add to it when something bites you.
   given and answers "misaki" for anything silent.
 - **A respelling cannot be aimed at one engine.** It is ordinary text, so it
   reaches both, and every rule added for one must be measured on the other.
+- **A migration that raises takes the whole deployment down.** `migrate.run` is
+  called from `db.init`, which the app's lifespan and the worker's `start` both
+  await, so an exception there is a crash loop in two containers at once and
+  the site answers Cloudflare 524 rather than anything you can read.
+  `_fix_case_sensitive_respellings` renamed a stored pattern onto one a seed
+  pass had already added beside it, broke `UNIQUE (kind, pattern)`, and did
+  exactly that. Before a migration renames a row into a unique column, look
+  for the row already holding that value.
   The useful cases are where the good engine does not move: "Solamon" leaves
   misaki's `sˈɑləmən` alone and fixes espeak's doubled vowel. When no spelling
   does both, a phoneme rule with two spellings is the tool.

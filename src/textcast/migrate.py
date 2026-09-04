@@ -404,6 +404,13 @@ def _fix_case_sensitive_respellings(conn: sqlite3.Connection) -> None:
     describes, or the next call would see the new pattern as one never
     offered and add it beside the row this just fixed, rather than in
     place of it.
+
+    A library can already hold both rows: a seed pass that ran before this
+    migration existed added the new pattern beside the old one, which is
+    the very thing the paragraph above describes. Renaming the old row on
+    top of it breaks UNIQUE (kind, pattern), and the error comes out of
+    `db.init` -- so the app and the worker both die at startup, on every
+    start, with no way back. The superseded row is dropped instead.
     """
     if not has_table(conn, "pronunciation"):
         return
@@ -413,6 +420,22 @@ def _fix_case_sensitive_respellings(conn: sqlite3.Connection) -> None:
     ]
     fixed = 0
     for old, new in changes:
+        taken = conn.execute(
+            "SELECT 1 FROM pronunciation WHERE kind = 'regex' AND pattern = ?",
+            (new,),
+        ).fetchone()
+        if taken is not None:
+            # Only a row still marked builtin: one the reader has adopted as
+            # their own is theirs to keep, even superseded.
+            fixed += conn.execute(
+                """
+                DELETE FROM pronunciation
+                 WHERE kind = 'regex' AND pattern = ? AND ignore_case = 1
+                   AND builtin = 1
+                """,
+                (old,),
+            ).rowcount
+            continue
         fixed += conn.execute(
             """
             UPDATE pronunciation SET pattern = ?, ignore_case = 0
