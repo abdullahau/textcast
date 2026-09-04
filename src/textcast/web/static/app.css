@@ -1201,6 +1201,18 @@ media-playback-rate-button { font-variant-numeric: tabular-nums; font-weight: 50
 .ctl:hover { background: var(--sunk); opacity: 1; }
 .ctl[aria-pressed="true"] { color: var(--accent); background: var(--sunk); }
 
+/* Locked, everything in the bar but the padlock ignores a pointer, and so
+   do the play handles beside each block. A phone carried in a hand while its
+   owner does something else lands taps wherever a thumb falls, and the scrub
+   bar is the width of the screen. */
+#lock .shut { display: none; }
+#lock[aria-pressed="true"] .open { display: none; }
+#lock[aria-pressed="true"] .shut { display: inline; }
+
+.player.locked { border-top-color: var(--accent); }
+.player.locked media-control-bar > *:not(#lock) { pointer-events: none; opacity: .45; }
+body.locked .b .seek { pointer-events: none; opacity: .12; }
+
 .now { font-size: .76rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 11rem; padding: 0 .4rem; }
 
 @media (max-width: 42rem) { .now, media-duration-display { display: none; } }
@@ -1256,6 +1268,15 @@ body.has-player { padding-bottom: 5.5rem; }
 .chapter span { color: var(--muted); font-size: .78rem; font-variant-numeric: tabular-nums; flex: none; }
 
 .toggles { display: flex; flex-wrap: wrap; gap: .55rem 1.2rem; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border); }
+
+.keep-note { font-size: .78rem; color: var(--muted); margin: .7rem 0 0; line-height: 1.5; }
+
+.tune { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border); }
+.tune > label { display: block; font-size: .82rem; color: var(--fg-soft); margin-bottom: .5rem; }
+.tune-row { display: flex; align-items: center; gap: .8rem; }
+.tune-row input[type="range"] { flex: 1 1 auto; min-width: 0; accent-color: var(--accent); }
+.tune-row output { flex: none; min-width: 4.5rem; text-align: right; font-size: .8rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.tune .note { font-size: .78rem; color: var(--muted); margin: .5rem 0 0; line-height: 1.5; }
 
 .sheet-foot { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border); }
 .sheet-foot .note { font-size: .78rem; color: var(--muted); margin: .45rem 0 0; line-height: 1.5; }

@@ -875,3 +875,214 @@ def test_the_pause_at_a_chart_setting_survives_a_reload(live, browser):
     )
     context.close()
 
+
+
+def test_space_plays_and_pauses_wherever_the_focus_is(still_page):
+    """media-chrome binds keys, but only while something inside the
+    media-controller has focus. So Space did one of two wrong things: pressed
+    the block play button that was last clicked, or scrolled the page."""
+    audio = "document.getElementById('audio')"
+    still_page.evaluate(f"{audio}.pause()")
+
+    still_page.evaluate("document.body.focus()")
+    still_page.keyboard.press("Space")
+    still_page.wait_for_function(f"() => !{audio}.paused", timeout=5000)
+
+    still_page.keyboard.press("Space")
+    still_page.wait_for_function(f"() => {audio}.paused", timeout=5000)
+
+
+def test_space_on_a_block_handle_pauses_instead_of_seeking_again(still_page, live):
+    """The complaint, exactly: click a block's play button, then press Space,
+    and it fired that button again rather than pausing."""
+    _base, _slug, manifest = live
+    target = manifest.sections[0].blocks[2]
+    audio = "document.getElementById('audio')"
+
+    still_page.click(f"#{target.id} [data-seek]")
+    still_page.wait_for_function(f"() => !{audio}.paused", timeout=8000)
+    # The handle gives focus up on the way, so nothing can re-fire it.
+    assert still_page.evaluate("document.activeElement.matches('[data-seek]')") is False
+
+    still_page.keyboard.press("Space")
+    still_page.wait_for_function(f"() => {audio}.paused", timeout=5000)
+    assert still_page.evaluate("(document.querySelector('#doc .b.on') || {}).id") == target.id
+
+
+def test_space_still_types_and_still_ticks_a_box(still_page):
+    """Stealing the key everywhere would break the search field and every
+    checkbox in the sheet, which is what Space is for in both."""
+    audio = "document.getElementById('audio')"
+    still_page.evaluate(f"{audio}.pause()")
+
+    still_page.click(".find input[name=q]")
+    still_page.keyboard.type("a b")
+    assert still_page.input_value(".find input[name=q]") == "a b"
+    assert still_page.evaluate(f"{audio}.paused"), "typing a space started the audio"
+
+    still_page.click("#menu")
+    still_page.focus("#opt-footnotes")
+    before = still_page.evaluate("document.getElementById('opt-footnotes').checked")
+    still_page.keyboard.press("Space")
+    assert still_page.evaluate("document.getElementById('opt-footnotes').checked") is not before
+    assert still_page.evaluate(f"{audio}.paused"), "ticking a box started the audio"
+    still_page.click("#sheet-close")
+
+
+def test_locking_the_bar_stops_a_stray_tap_seeking(still_page):
+    """Listening with the phone in a hand doing something else lands taps
+    wherever a thumb falls, and the scrub bar is the width of the screen."""
+    still_page.click("#lock")
+    assert still_page.evaluate("document.getElementById('player').classList.contains('locked')")
+
+    for selector in ("media-time-range", "#menu", "media-play-button"):
+        assert still_page.evaluate(
+            f"getComputedStyle(document.querySelector('{selector}')).pointerEvents"
+        ) == "none", selector
+    # The handles beside each block are the other thing a thumb finds.
+    assert still_page.evaluate(
+        "getComputedStyle(document.querySelector('#doc .b [data-seek]')).pointerEvents"
+    ) == "none"
+
+    # A tap does not undo it; that is the whole point.
+    still_page.click("#lock")
+    assert still_page.evaluate("document.getElementById('player').classList.contains('locked')")
+
+    still_page.evaluate("document.getElementById('lock').dispatchEvent(new Event('pointerdown'))")
+    still_page.wait_for_timeout(750)
+    still_page.evaluate("document.getElementById('lock').dispatchEvent(new Event('pointerup'))")
+    assert not still_page.evaluate(
+        "document.getElementById('player').classList.contains('locked')"
+    ), "a hold did not unlock it"
+
+
+def to_first_section(page):
+    """Put the page on section 0, paused.
+
+    Every test above this one leaves a saved position on the server, and the
+    reader resumes it — so a `currentTime` taken from `sections[0]` lands in
+    whichever section happens to be loaded.
+    """
+    audio = "document.getElementById('audio')"
+    page.evaluate(f"{audio}.pause()")
+    page.click("#menu")
+    page.locator("#chapters .chapter").first.click()
+    page.wait_for_timeout(400)
+    page.evaluate(f"{audio}.pause()")
+    page.wait_for_timeout(200)
+    page.evaluate(f"{audio}.pause()")
+
+
+def test_the_highlight_timing_offset_holds_the_highlight_back(still_page, live):
+    """`audio.currentTime` is where the decoder is, not where the speaker is.
+    Over Bluetooth the difference is a fifth of a second or more, and no page
+    can measure it — so the reader is given the number to turn."""
+    _base, _slug, manifest = live
+    blocks = manifest.sections[0].blocks
+    audio = "document.getElementById('audio')"
+
+    to_first_section(still_page)
+    # Just inside the third block, by less than the offset about to be set.
+    still_page.evaluate(f"{audio}.currentTime = {blocks[2].start_ms / 1000 + 0.3}")
+    still_page.wait_for_timeout(250)
+    assert active_id(still_page) == blocks[2].id
+
+    still_page.evaluate(
+        "() => { const s = document.getElementById('opt-sync');"
+        " s.value = '1000'; s.dispatchEvent(new Event('input')); }"
+    )
+    still_page.wait_for_timeout(250)
+    assert active_id(still_page) == blocks[1].id, "the highlight did not move back"
+    assert still_page.evaluate("localStorage.getItem('tc:sync-offset')") == "1000"
+
+    still_page.evaluate(
+        "() => { const s = document.getElementById('opt-sync');"
+        " s.value = '0'; s.dispatchEvent(new Event('input')); }"
+    )
+    still_page.wait_for_timeout(250)
+    assert active_id(still_page) == blocks[2].id
+
+
+def test_following_leaves_the_page_alone_while_the_block_is_readable(still_page, live):
+    """It used to call `scrollIntoView` on every block whatever the page was
+    doing, so a thumb-scroll to look ahead was undone by the next paragraph,
+    and the block was centred in a viewport whose top and bottom are covered
+    by two fixed bars."""
+    _base, _slug, manifest = live
+    blocks = manifest.sections[0].blocks
+    audio = "document.getElementById('audio')"
+
+    to_first_section(still_page)
+    # Put the block comfortably on screen by hand, then hand it to the player.
+    still_page.evaluate(f"document.getElementById('{blocks[1].id}')"
+                        ".scrollIntoView({block: 'center'})")
+    still_page.wait_for_timeout(300)
+
+    where = still_page.evaluate("scrollY")
+    still_page.evaluate(f"{audio}.currentTime = {blocks[1].start_ms / 1000 + 0.2}")
+    still_page.wait_for_timeout(700)
+    assert active_id(still_page) == blocks[1].id
+    assert still_page.evaluate("scrollY") == where, "it scrolled to a block already on screen"
+
+
+def test_a_block_below_the_player_is_scrolled_clear_of_it(still_page, live):
+    """The bottom of the window is not the bottom of what you can read: the
+    player sits over it. `block: "center"` knew nothing about that."""
+    _base, _slug, manifest = live
+    blocks = manifest.sections[0].blocks
+    audio = "document.getElementById('audio')"
+
+    to_first_section(still_page)
+    still_page.evaluate("scrollTo(0, 0)")
+    still_page.wait_for_timeout(900)
+    still_page.evaluate(f"{audio}.currentTime = {blocks[-1].start_ms / 1000 + 0.2}")
+    still_page.wait_for_timeout(900)
+
+    clear = still_page.evaluate(
+        "() => { const el = document.querySelector('#doc .b.on');"
+        " const bar = document.getElementById('player').getBoundingClientRect();"
+        " const head = document.querySelector('header.bar').getBoundingClientRect();"
+        " const box = el.getBoundingClientRect();"
+        " return box.top >= head.bottom && box.top < bar.top; }"
+    )
+    assert clear, "the read block was under a bar"
+
+
+def test_an_article_nobody_asked_to_keep_is_not_kept(live, browser):
+    """`mediaResponse` used to store every 200 it saw.
+
+    So the cache grew without limit and "Keep offline" meant nothing — the
+    audio was there either way. Worse, the copy outlived the article:
+    /media/<slug>/section-000.opus is rewritten by every build and the URL does
+    not change, so a rebuilt article played its *old* audio against its *new*
+    timing map, on whichever device happened to have a service worker.
+    """
+    base, slug, manifest = live
+    context = browser.new_context()
+    page = context.new_page()
+    try:
+        page.goto(f"{base}/a/{slug}", wait_until="networkidle")
+        page.wait_for_function(
+            "() => navigator.serviceWorker && navigator.serviceWorker.controller",
+            timeout=20000,
+        )
+
+        audio_url = f"/media/{slug}/{manifest.sections[0].file}"
+        # Fetch it the way the audio element would, without ticking the box.
+        assert page.evaluate("async (url) => (await fetch(url)).ok", audio_url)
+        page.wait_for_timeout(600)
+
+        assert not page.evaluate(
+            "async (url) => !!(await caches.match(new Request(url)))", audio_url
+        ), "an article nobody marked was stored anyway"
+
+        # And ticking the box still keeps it, which is the other half.
+        page.click("#menu")
+        page.check("#opt-offline")
+        page.wait_for_function(
+            "async (url) => !!(await caches.match(new Request(url)))",
+            arg=audio_url,
+            timeout=20000,
+        )
+    finally:
+        context.close()

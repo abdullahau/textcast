@@ -19,6 +19,7 @@
   var audio = document.getElementById("audio");
   var doc = document.getElementById("doc");
   var sheet = document.getElementById("sheet");
+  var header = document.querySelector("header.bar");
   var $ = function (id) { return document.getElementById(id); };
 
   var offsets = [];
@@ -29,6 +30,18 @@
      that two presses is still less than a sentence. Kept in step with the
      seekoffset on the buttons in reader.html. */
   var SKIP_SECONDS = 5;
+
+  /* How far the highlight is held back, in milliseconds, per device.
+     `audio.currentTime` says where the decoder is, not where the speaker is.
+     Everything after the decoder is delay no page can measure and no browser
+     reports: the output buffer, and over Bluetooth the codec and the radio
+     as well. On a laptop that is about 20 ms and nobody sees it. Over
+     Bluetooth on a phone it is 150-300 ms and often more, which is a clause —
+     and that is the whole of why the read-along looks right on a desktop and
+     runs ahead of the voice on a phone. So it is a control and not a
+     constant: the page cannot work the number out, and the person listening
+     hears it in one go. */
+  var syncOffsetMs = parseInt(store("sync-offset", "0"), 10) || 0;
 
   var current = -1;
   var activeEl = null;
@@ -67,7 +80,7 @@
     activeEl = el;
     if (!el) return;
     el.classList.add("on");
-    if (follow) el.scrollIntoView({ block: "center", behavior: "smooth" });
+    keepInView(true);
     stopToLook(el);
   }
 
@@ -99,9 +112,81 @@
   }
 
   function syncHighlight() {
-    var id = blockAt((audio.currentTime || 0) * 1000);
+    var id = blockAt((audio.currentTime || 0) * 1000 - syncOffsetMs);
     if (id) highlight(id);
   }
+
+  // --------------------------------------------------------------- follow
+
+  /* Keeping the block on screen, which is not the same as scrolling to it.
+     `scrollIntoView({block: "center"})` centres in the layout viewport, and
+     on a phone that is not what you can see: the header covers the top, the
+     player covers the bottom, and the URL bar slides in and out under both.
+     It also scrolled on every block whatever the page was doing, so a
+     thumb-scroll to look ahead was undone by the next paragraph, and one
+     smooth scroll across a long article ran for seconds after a seek.
+
+     So: measure the band that is actually visible, do nothing at all while
+     the block is inside it, and let a hand on the page win for a few
+     seconds. */
+  var HOLD_MS = 4000;   // how long a hand-scroll owns the page
+  var NUDGE_MS = 800;   // never issue a second scroll inside this
+  var CHECK_MS = 250;   // how often the frame loop bothers to look
+  var EDGE = 12;        // breathing room against either bar
+  var heldUntil = 0;
+  var nudgedAt = 0;
+  var checkedAt = 0;
+
+  function band() {
+    /* visualViewport, not innerHeight: on a phone they differ by the height
+       of the URL bar, and by the on-screen keyboard when one is open. */
+    var height = (window.visualViewport && window.visualViewport.height) || innerHeight;
+    var player = $("player");
+    return {
+      top: (header ? Math.max(0, header.getBoundingClientRect().bottom) : 0) + EDGE,
+      bottom: height - (player && !player.hidden ? player.getBoundingClientRect().height : 0) - EDGE
+    };
+  }
+
+  function keepInView(smooth, force) {
+    if (!follow || !activeEl) return;
+    var now = Date.now();
+    if (!force && (now < heldUntil || now - nudgedAt < NUDGE_MS)) return;
+
+    var view = band();
+    var height = view.bottom - view.top;
+    if (height <= 0) return;
+    var box = activeEl.getBoundingClientRect();
+    // Readable where it is. Leaving the page alone is the point.
+    if (box.top >= view.top && box.bottom <= view.bottom) return;
+
+    /* A third of the way down the band, not centred: what has not been read
+       yet is what you want to see. A block taller than the band starts at
+       the top instead, because its first line is the one being read. */
+    var wanted = box.height >= height ? view.top : view.top + (height - box.height) / 3;
+    var delta = box.top - wanted;
+    if (Math.abs(delta) < 4) return;
+
+    nudgedAt = now;
+    /* Smooth over a paragraph, instant over an article. A smooth scroll of
+       several thousand pixels runs for seconds on a phone, and the highlight
+       is wrong for every one of them. */
+    scrollBy({ top: delta, behavior: smooth && Math.abs(delta) < 2000 ? "smooth" : "auto" });
+  }
+
+  function maybeKeepInView() {
+    var now = Date.now();
+    if (now - checkedAt < CHECK_MS) return;
+    checkedAt = now;
+    keepInView(true);
+  }
+
+  /* A hand on the page wins for HOLD_MS. `touchmove` and `wheel`, not
+     `touchstart`: a tap is not a scroll, and tapping a block to play from it
+     should still bring the highlight back. */
+  function handOnPage() { heldUntil = Date.now() + HOLD_MS; }
+  addEventListener("wheel", handOnPage, { passive: true });
+  addEventListener("touchmove", handOnPage, { passive: true });
 
   /* Read the clock every frame rather than waiting to be told. `cuechange`
      fires when the browser gets round to it — 10 ms in Chromium, far looser
@@ -111,6 +196,9 @@
 
   function followClock() {
     syncHighlight();
+    /* Not only when the block changes. A block can run for a minute, so a
+       scroll away from it used to leave the reader lost until the next one. */
+    maybeKeepInView();
     frame = requestAnimationFrame(followClock);
   }
 
@@ -311,7 +399,13 @@
       title: cfg.title,
       artist: sections[current] ? sections[current].title : "",
       album: cfg.series || "textcast",
-      artwork: [{ src: "/static/icon.svg", sizes: "any", type: "image/svg+xml" }]
+      /* PNG, not the SVG. Android draws this on the lock screen and in the
+         notification shade, and neither renders an SVG — the notification
+         came up with a blank square where the icon goes. */
+      artwork: [
+        { src: "/static/icon-192.png", sizes: "192x192", type: "image/png" },
+        { src: "/static/icon-512.png", sizes: "512x512", type: "image/png" }
+      ]
     });
   }
 
@@ -373,7 +467,12 @@
   audio.addEventListener("ended", stopFollowing);
   /* Every seek, whoever made it. */
   audio.addEventListener("seeked", syncHighlight);
-  audio.addEventListener("timeupdate", function () { savePosition(false); });
+  audio.addEventListener("timeupdate", function () {
+    savePosition(false);
+    // A hidden tab runs no frames and the audio keeps playing. timeupdate
+    // still fires, coarsely, and coarse beats frozen.
+    if (document.hidden) syncHighlight();
+  });
 
   $("prev").addEventListener("click", function () {
     if (audio.currentTime > 3 || current === 0) audio.currentTime = 0;
@@ -389,7 +488,9 @@
     follow = !follow;
     followBtn.setAttribute("aria-pressed", follow ? "true" : "false");
     store("follow", "", follow ? "1" : "0");
-    if (follow && activeEl) activeEl.scrollIntoView({ block: "center", behavior: "smooth" });
+    // Pressed on purpose, so it overrides a hand-scroll rather than waiting
+    // the four seconds out.
+    if (follow) keepInView(true, true);
   });
 
   $("menu").addEventListener("click", function (event) {
@@ -435,6 +536,9 @@
     var handle = event.target.closest("[data-seek]");
     if (!handle) return;
     event.preventDefault();
+    /* Or the handle keeps focus, and the next Space press fires it again
+       instead of pausing. The document handler below covers the rest. */
+    handle.blur();
     var owner = handle.closest(".b");
     seekToBlock(handle.dataset.seek, Number(owner.dataset.s));
   });
@@ -459,6 +563,71 @@
   });
 
 
+  /* The controls lock.
+     Listening with the phone in a hand doing something else lands taps on
+     whatever is under a thumb, and the scrub bar spans the screen — so the
+     audio jumped to a random place. Locked, everything in the bar but the
+     padlock ignores pointers, and so do the play handles beside each block.
+
+     Tap to lock; hold to unlock. A tap would undo it, and a stray tap is the
+     thing being guarded against. Keys are left alone: this is a lock against
+     a thumb, not against a keyboard. */
+  var lockBtn = $("lock");
+  var locked = false;
+  var holdTimer = null;
+  var unlockedByHold = false;
+  var HOLD_TO_UNLOCK_MS = 550;
+
+  function setLocked(on) {
+    locked = on;
+    $("player").classList.toggle("locked", on);
+    document.body.classList.toggle("locked", on);
+    lockBtn.setAttribute("aria-pressed", on ? "true" : "false");
+    lockBtn.setAttribute("aria-label", on ? "Hold to unlock the controls" : "Lock the controls");
+    lockBtn.title = on ? "Hold to unlock" : "Lock the controls";
+    store("locked:" + cfg.slug, "", on ? "1" : "0");
+  }
+
+  lockBtn.addEventListener("pointerdown", function () {
+    if (!locked) return;
+    holdTimer = setTimeout(function () {
+      holdTimer = null;
+      unlockedByHold = true;
+      setLocked(false);
+      // Says the hold was long enough, without a sound in the reader's ear.
+      if (navigator.vibrate) navigator.vibrate(15);
+    }, HOLD_TO_UNLOCK_MS);
+  });
+  ["pointerup", "pointercancel", "pointerleave"].forEach(function (name) {
+    lockBtn.addEventListener(name, function () {
+      if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
+    });
+  });
+  lockBtn.addEventListener("click", function () {
+    // A hold ends in a click too, and that click must not lock it again.
+    if (unlockedByHold) { unlockedByHold = false; return; }
+    if (!locked) setLocked(true);
+  });
+  setLocked(store("locked:" + cfg.slug, "0") === "1");
+
+  // ------------------------------------------------------ highlight timing
+
+  var syncBox = $("opt-sync");
+  var syncOut = $("sync-value");
+
+  function showOffset() {
+    syncOut.textContent = (syncOffsetMs > 0 ? "+" : "") + syncOffsetMs + " ms";
+  }
+
+  syncBox.value = String(syncOffsetMs);
+  showOffset();
+  syncBox.addEventListener("input", function () {
+    syncOffsetMs = parseInt(this.value, 10) || 0;
+    showOffset();
+    store("sync-offset", "", String(syncOffsetMs));
+    syncHighlight();
+  });
+
   var offlineBox = $("opt-offline");
   offlineBox.checked = store("offline:" + cfg.slug, "0") === "1";
   offlineBox.addEventListener("change", function () { setOffline(this.checked); });
@@ -466,9 +635,40 @@
   document.addEventListener("keydown", function (event) {
     if (event.key === "Escape") closeSheet();
   });
+
+  /* Space plays and pauses, wherever the page's focus happens to be.
+     media-chrome binds its own keys, but only while something inside the
+     media-controller has focus, so in practice Space did one of two wrong
+     things: pressed again whichever block play button was last clicked, or
+     scrolled the page. Both are worse than the obvious behaviour.
+
+     Capture and preventDefault, so a focused button never sees the key at
+     all — a <button> fires its click on keyup, and cancelling the keydown is
+     what stops it. Text fields and the sheet keep Space: typing a space and
+     ticking a checkbox are what the key is for there. */
+  function typing(el) {
+    if (!el) return false;
+    var tag = el.tagName;
+    return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el.isContentEditable;
+  }
+
+  document.addEventListener("keydown", function (event) {
+    if (event.code !== "Space" && event.key !== " " && event.key !== "Spacebar") return;
+    if (event.metaKey || event.ctrlKey || event.altKey) return;
+    if (typing(event.target) || sheet.contains(event.target)) return;
+    event.preventDefault();
+    if (audio.paused) audio.play().catch(function () { /* needs a gesture */ });
+    else audio.pause();
+  }, true);
   addEventListener("pagehide", function () { savePosition(true); });
   document.addEventListener("visibilitychange", function () {
-    if (document.hidden) savePosition(true);
+    if (document.hidden) { savePosition(true); return; }
+    /* Coming back from a locked screen. Put the highlight where the audio
+       actually is before the reader has time to read the wrong paragraph,
+       and override any hand-scroll from before the screen went off. */
+    syncHighlight();
+    keepInView(false, true);
+    if (!audio.paused && frame === null) followClock();
   });
 
   // Resume where this article was left. Saved positions are absolute across

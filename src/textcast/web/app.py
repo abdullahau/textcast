@@ -1971,8 +1971,21 @@ def webmanifest():
             "display": "standalone",
             "background_color": "#12100f",
             "theme_color": "#12100f",
+            # Three entries, not one. Chrome on Android will not install an
+            # app whose only icon is an SVG, and it read "any maskable" on a
+            # square that draws to its own edge as licence to crop the
+            # headband off. So: the SVG for anything that scales, PNGs for
+            # Android's launcher, and a separate padded square for the mask.
             "icons": [
-                {"src": "/static/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable"},
+                {"src": "/static/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any"},
+                {"src": "/static/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+                {"src": "/static/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+                {
+                    "src": "/static/icon-maskable-512.png",
+                    "sizes": "512x512",
+                    "type": "image/png",
+                    "purpose": "maskable",
+                },
             ],
             "share_target": {
                 "action": "/share",
@@ -1982,6 +1995,33 @@ def webmanifest():
             },
         },
         media_type="application/manifest+json",
+    )
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon():
+    """A browser asks for this path whatever the page's <link> tags say.
+
+    Nothing answered it, so every phone got the 404 page and drew no icon at
+    all. Served from the root rather than /static because that is the address
+    that is asked for, and left out of the auth list because the login page
+    needs an icon too.
+    """
+    return FileResponse(
+        STATIC / "favicon.ico",
+        media_type="image/x-icon",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
+@app.get("/apple-touch-icon.png", include_in_schema=False)
+@app.get("/apple-touch-icon-precomposed.png", include_in_schema=False)
+def apple_touch_icon():
+    """iOS asks for these two at the root before it reads the page."""
+    return FileResponse(
+        STATIC / "apple-touch-icon.png",
+        media_type="image/png",
+        headers={"Cache-Control": "public, max-age=86400"},
     )
 
 

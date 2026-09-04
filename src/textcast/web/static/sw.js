@@ -21,6 +21,10 @@ const SHELL_FILES = [
   "/static/lightbox.js",
   "/static/tags.js",
   "/static/icon.svg",
+  /* The lock screen's artwork and the installed app's icon. Both are asked
+     for at moments with no network — a notification raised on a commute. */
+  "/static/icon-192.png",
+  "/static/apple-touch-icon.png",
   /* media-chrome owns the transport: the play button, the scrub bar and the
      skip buttons. It was left to be picked up opportunistically on the first
      reader page, so installing the app and marking an article offline before
@@ -41,17 +45,40 @@ self.addEventListener("activate", (event) => {
   );
 });
 
+/* Which articles the reader actually asked to keep.
+ *
+ * A marker in the cache rather than a variable, because a service worker is
+ * stopped and restarted at the browser's discretion and anything held in
+ * memory is gone by the next play. The URL is never fetched; only its
+ * presence means anything.
+ */
+const wantedMark = (slug) => `/__offline__/${encodeURIComponent(slug)}`;
+const mediaPrefix = (slug) => `/media/${encodeURIComponent(slug)}/`;
+
+async function isWanted(slug) {
+  const cache = await caches.open(OFFLINE);
+  return !!(await cache.match(wantedMark(slug)));
+}
+
 self.addEventListener("message", (event) => {
   const { type, slug, path, files } = event.data || {};
   if (type === "cache-article") {
     event.waitUntil(
-      caches.open(OFFLINE).then((cache) => cache.addAll([path, ...files]).catch(() => {}))
+      caches.open(OFFLINE).then(async (cache) => {
+        await cache.put(wantedMark(slug), new Response("1"));
+        await cache.addAll([path, ...files]).catch(() => {});
+      })
     );
   } else if (type === "drop-article") {
     event.waitUntil(
       caches.open(OFFLINE).then(async (cache) => {
+        await cache.delete(wantedMark(slug));
+        /* Matched on the whole path segment, not on "contains". A slug is a
+           prefix of other slugs — dropping "ai" used to drop "ai-and-the-law"
+           with it, silently, and the reader found out on a train. */
+        const prefix = new URL(mediaPrefix(slug), location.origin).href;
         for (const request of await cache.keys()) {
-          if (request.url.includes(encodeURIComponent(slug)) || request.url.endsWith(path)) {
+          if (request.url.startsWith(prefix) || request.url.endsWith(path)) {
             await cache.delete(request);
           }
         }
@@ -85,7 +112,25 @@ async function mediaResponse(request) {
   if (range) return fetch(request);  // a 206 cannot be stored, so do not try
 
   const response = await fetch(request);
-  if (response.status === 200) cache.put(request, response.clone()).catch(() => {});
+  /* Only what the reader asked to keep.
+   *
+   * This used to store every section of every article anyone ever played.
+   * Two things came of that. The cache grew without limit and "Keep offline"
+   * meant nothing, since the audio was already there either way. Worse, the
+   * copy outlived the article: /media/<slug>/section-000.opus is rewritten by
+   * every build and the URL does not change, so a rebuilt article played its
+   * *old* audio out of this cache against its *new* timing map — the
+   * read-along drifting further behind with every paragraph, on the device
+   * that happened to have a service worker, and nowhere else.
+   *
+   * Marking an article offline still fills the cache here as well as through
+   * `cache.addAll`, which is worth keeping: addAll is all-or-nothing and
+   * swallows its own failures.
+   */
+  if (response.status === 200) {
+    const slug = decodeURIComponent(new URL(request.url).pathname.split("/")[2] || "");
+    if (slug && (await isWanted(slug))) cache.put(request, response.clone()).catch(() => {});
+  }
   return response;
 }
 

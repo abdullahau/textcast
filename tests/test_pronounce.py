@@ -134,14 +134,15 @@ def test_acronyms_said_as_words_are_respelled(written, spoken):
 def test_almost_everything_ships_as_letters_not_ipa():
     """IPA is hard to write, so it is the exception, not the default.
 
-    Two words have earned it. LIBOR, where Kokoro is already right and every
+    Three words have earned it. LIBOR, where Kokoro is already right and every
     respelling was worse. homogeneous, where misaki is right and espeak drops
     a syllable, and no respelling fixed the one without moving the other.
+    Elon, where misaki is right and the respelling that fixes espeak moves it.
     """
     rules = builtin_rules()
     ipa = [r for r in rules if r.is_phonemes]
-    assert len(ipa) <= 2, "respell where a respelling works"
-    assert {r.pattern for r in ipa} == {"LIBOR", "homogeneous"}
+    assert len(ipa) <= 3, "respell where a respelling works"
+    assert {r.pattern for r in ipa} == {"LIBOR", "homogeneous", "Elon"}
 
 
 # --------------------------------------------------------------------------
@@ -602,3 +603,60 @@ def test_editing_a_rule_is_not_answered_from_the_prepared_cache():
 
     assert apply("ROE fell", before, "misaki", True) == "roe fell"
     assert apply("ROE fell", after, "misaki", True) == "R O E fell"
+
+
+def test_a_domain_is_said_and_not_stopped_at(conn):
+    """espeak keeps the dot in "Pets.com" as a clause break — the phonemes are
+    literally pˈɛts.kˈɑːm — so the reader stopped mid-sentence. misaki does the
+    opposite and runs the two together into pˈɛtskˌɑm, "PETS-kom". Spelling
+    the dot out gives pˈɛts dˈɑːt kˈɑːm and pˈɛts dˈɑt kˈɑm.
+    """
+    assert "Pets dot com" in normalize("Pets.com went bust in 2000.")
+    assert "Amazon dot com" in normalize("Amazon.com and Booking.com survived.")
+    assert "Booking dot com" in normalize("Amazon.com and Booking.com survived.")
+    # The endings that appear in prose, not every ending there is.
+    assert "example dot org" in normalize("example.org")
+    assert "github dot io" in normalize("github.io")
+    # The possessive rides along, because the dot is what is replaced.
+    assert "Pets dot com's" in normalize("Pets.com's sock puppet")
+
+
+def test_a_full_stop_before_a_word_is_not_a_domain(conn):
+    """The trailing guard is what makes the rule safe. Without it a missing
+    space after a full stop would be read as a domain: "1999.Companies" is a
+    typo, not a website, and "Com" is followed by a letter."""
+    assert normalize("Trading closed in 1999.Companies rushed in.") == (
+        "Trading closed in 1999.Companies rushed in."
+    )
+    assert normalize("It ended.Commerce moved on.") == "It ended.Commerce moved on."
+
+
+def test_era_lands_on_one_vowel_for_both_engines(conn):
+    """Each engine was wrong in its own direction: misaki ˈɛɹə, "ERR-uh", and
+    espeak ˈiəɹə, a British "EE-uh-ruh" an American voice reads as three
+    syllables. "eera" is ˈɪɹə on both, which is the same answer twice."""
+    assert "eera" in normalize("a new era of cheap money")
+    assert "eera" in normalize("The era ended")
+    assert "eeras" in normalize("across two eras")
+    assert "eera's" in normalize("the era's end")
+
+
+def test_era_does_not_fire_inside_a_longer_word(conn):
+    for text in ("a federal opera house", "she was a general", "the operator called"):
+        assert normalize(text) == text
+
+
+def test_hubris_gets_its_glide_back_without_moving_misaki(conn):
+    """espeak drops the /j/: hʌbɹˈɪstɪk and hˈuːbɹɪs. misaki has both right,
+    and "hewbristic" is hjubɹˈɪstɪk on misaki — character for character its
+    own answer — and hjuːbɹˈɪstɪk on espeak."""
+    assert "hewbristic" in normalize("a hubristic bet")
+    assert "hewbris" in normalize("His hubris undid him.")
+
+
+def test_elon_is_aimed_at_espeak_alone(conn):
+    """espeak stresses the second syllable and reduces the first: ᵻlˈɑːn,
+    "il-ON". misaki already says ˈilɔn, so the rule speaks to espeak only —
+    the respelling that fixes espeak moves misaki off a correct answer."""
+    assert "/ˈiːlɑːn/" in normalize("Elon Musk said", g2p="espeak")
+    assert normalize("Elon Musk said", g2p="misaki") == "Elon Musk said"

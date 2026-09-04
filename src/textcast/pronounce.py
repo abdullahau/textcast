@@ -320,6 +320,12 @@ SAY_AS_WORD = {
 PHONEME_HINTS = {
     "LIBOR": {"misaki": "lˈIbɔɹ", "espeak": "lˈaɪbɔːɹ"},
     "homogeneous": {"espeak": "hˌoʊmoʊdʒˈiːniəs"},
+    # espeak stresses the second syllable and reduces the first: ᵻlˈɑːn,
+    # "il-ON". misaki is already right (ˈilɔn, "EE-lon"), so the hint names
+    # espeak only. "Ealon" was measured as a respelling and does fix espeak,
+    # but it moves misaki off a correct answer (ˈilɔn to ˈilɑn) for nothing,
+    # and this is a person's name.
+    "Elon": {"espeak": "ˈiːlɑːn"},
 }
 
 #: Names and words the phonemisers get wrong, respelled. A respelling is
@@ -356,6 +362,12 @@ SAY_AS_WRITTEN = {
 #:   /j/ behind on both.
 SAY_AS_WRITTEN_ANYCASE = {
     "accretive": "accreetive",
+    # espeak drops the /j/: hʌbɹˈɪstɪk, "huh-BRIS-tik", and hˈuːbɹɪs,
+    # "HOO-bris". misaki has both right. "hewbristic" is hjubɹˈɪstɪk on
+    # misaki — character for character its own answer — and hjuːbɹˈɪstɪk on
+    # espeak. The noun comes with it: it is the same word and the same fault.
+    "hubristic": "hewbristic",
+    "hubris": "hewbris",
     "tokenization": "token-eye-zation",
     "culinary": "cullinary",
     "stochastic": "stokastic",
@@ -423,12 +435,41 @@ RESPELL = {
     # espeak, nˈApɔl on misaki, whose capital A is that same /eɪ/. "Nypaul" is
     # nˈaɪpɔːl / nˈIpɔl, right on both. A regex, so Naipaul's comes too.
     r"(?<!\w)Naipaul(?!\w)": "Nypaul",
+    # Both engines get "era" wrong and each in its own direction: misaki says
+    # ˈɛɹə, "ERR-uh", and espeak ˈiəɹə, a British "EE-uh-ruh" that an American
+    # voice reads as three syllables. "eera" is ˈɪɹə on both — one "EER-uh",
+    # the same phonemes from either phonemiser. A regex, not a word rule, so
+    # the plural and the possessive come too.
+    r"(?<!\w)era(s|'s)?(?!\w)": r"eera\1",
     # The noun's stress on every form. Not a correction: ɹəfˈʌnd / ɹᵻfˈʌnd is
     # the textbook verb, and this is a house preference. Delete it on the
     # Voice page to go back. The inflections are named rather than left to a
     # bare prefix, because "reefundable" wrecks ɹˈifəndəbᵊl.
     r"(?<!\w)refund(s|ed|ing)?(?!\w)": r"reefund\1",
 }
+
+#: A domain name, said the way a person says one.
+#:
+#: The dot in "Pets.com" is not an abbreviation's, and neither engine treats
+#: it as one. espeak keeps it as a clause break — the phonemes are literally
+#: ``pˈɛts.kˈɑːm`` — so the reader stops mid-sentence as though the sentence
+#: had ended. misaki does the opposite and runs the two together into one
+#: word, ``pˈɛtskˌɑm``, "PETS-kom". Spelling the dot out fixes both:
+#: ``pˈɛts dˈɑːt kˈɑːm`` and ``pˈɛts dˈɑt kˈɑm``.
+#:
+#: Only the dot in front of a known ending is touched, and only when a letter
+#: or a digit sits against it, so a full stop that happens to precede a word
+#: is safe: "in 1999.Companies rushed in" does not match, because "Com" is
+#: followed by a letter. The trailing guard is what makes that true, so keep
+#: it if you add an ending on the Voice page.
+#:
+#: The letter either side is captured and written back rather than matched by
+#: a lookaround, because a stored replacement is stripped on its way into the
+#: database — " dot " came back as "dot" and gave "Petsdotcom".
+DOMAINS = {
+    r"([A-Za-z0-9])\.(com|org|net|io)(?![A-Za-z0-9])": r"\1 dot \2",
+}
+
 
 #: Written with dots. "AI" is ˈAˌI, already right; "A.I." is ˌAˈI with the
 #: stress reversed, and "A.I.s" is ˌAˌIˈɛs, "ay-eye-ESS". Dropping the dots
@@ -591,6 +632,18 @@ def builtin_rules() -> list[Rule]:
             replacement=joined,
             note="one name, one stress; two words gave it two and a gap",
             sort_order=26,
+        ))
+
+    for pattern, spoken in DOMAINS.items():
+        add(Rule(
+            kind="regex",
+            pattern=pattern,
+            replacement=spoken,
+            ignore_case=True,
+            note="a domain, not a sentence end: Pets.com is said Pets dot com",
+            # Before anything else that reads a full stop, so the dot is gone
+            # by the time the abbreviation rules look at the line.
+            sort_order=17,
         ))
 
     for pattern, plain in SUFFIXES.items():

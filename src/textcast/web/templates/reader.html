@@ -374,6 +374,12 @@
       <button class="ctl" id="follow" aria-pressed="true" title="Scroll with the audio" aria-label="Scroll with the audio">
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14"/><path d="m6 13 6 6 6-6"/></svg>
       </button>
+      {# Tap to lock, hold to unlock. The one control that stays live when
+         the bar is locked, so it is also the way back out. #}
+      <button class="ctl" id="lock" aria-pressed="false" title="Lock the controls" aria-label="Lock the controls">
+        <svg class="open" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 7.5-2"/></svg>
+        <svg class="shut" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+      </button>
       <button class="ctl" id="menu" title="Sections and settings" aria-label="Sections and settings" aria-expanded="false">
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
       </button>
@@ -399,6 +405,26 @@
       <label class="check"><input type="checkbox" id="opt-pause-visual"> Pause at a chart or table</label>
       <label class="check"><input type="checkbox" id="opt-sleep"> Stop at end of section</label>
       <label class="check"><input type="checkbox" id="opt-offline"> Keep offline</label>
+    </div>
+    {# The one toggle whose effect is invisible until there is no signal. #}
+    <p class="note keep-note">
+      <b>Keep offline</b> downloads this page, its audio and its timing map
+      into the browser, so the whole read-along works with no signal. Untick it
+      to give the space back.
+    </p>
+    <div class="tune">
+      <label for="opt-sync">Highlight timing</label>
+      <div class="tune-row">
+        <input type="range" id="opt-sync" min="-500" max="1500" step="25" value="0"
+               aria-describedby="sync-why">
+        <output id="sync-value" for="opt-sync">0 ms</output>
+      </div>
+      <p class="note" id="sync-why">
+        Slide right if the highlight runs ahead of the voice. Bluetooth
+        headphones delay the sound by a fifth of a second or more, and the
+        browser reports the decoder’s clock, not the speaker’s — so the page
+        cannot work this out on its own. Kept for this browser.
+      </p>
     </div>
     <div class="sheet-foot">
       <button type="button" class="danger sm" id="stop">Stop and forget my place</button>

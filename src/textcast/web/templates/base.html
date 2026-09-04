@@ -9,8 +9,12 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="textcast">
 <link rel="manifest" href="/manifest.webmanifest">
-<link rel="icon" href="/static/icon.svg" type="image/svg+xml">
-<link rel="apple-touch-icon" href="/static/icon.svg">
+{# The SVG first, for anything that takes one. The ICO is what a browser
+   asks for at /favicon.ico whatever the page says, and iOS ignores an SVG
+   apple-touch-icon entirely — so a phone had no icon at all. #}
+<link rel="icon" href="/static/icon.svg?v={{ assets }}" type="image/svg+xml">
+<link rel="icon" href="/favicon.ico" sizes="48x48">
+<link rel="apple-touch-icon" href="/static/apple-touch-icon.png?v={{ assets }}">
 <script>
   /* Inline and before the stylesheet on purpose: set from a file and the page
      paints light first, then flips. */

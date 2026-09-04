@@ -60,6 +60,42 @@ def test_the_worker_caches_every_shell_file_the_pages_ask_for(client):
         assert any(asset in line for line in shell), f"{asset} is loaded but never cached"
 
 
+def test_a_phone_can_find_an_icon(client):
+    """An SVG was the only icon, and a phone has no use for one.
+
+    iOS ignores an SVG `apple-touch-icon` entirely, and every browser asks for
+    /favicon.ico whatever the page's link tags say — that path answered with
+    the 404 page, so mobile drew nothing at all.
+    """
+    for path, kind in (
+        ("/favicon.ico", "image/x-icon"),
+        ("/apple-touch-icon.png", "image/png"),
+        ("/apple-touch-icon-precomposed.png", "image/png"),
+    ):
+        response = client.get(path)
+        assert response.status_code == 200, path
+        assert response.headers["content-type"] == kind, path
+        assert response.content, path
+
+
+def test_the_manifest_offers_a_raster_icon_and_a_padded_maskable_one(client):
+    """Chrome on Android will not install an app whose only icon is an SVG,
+    and it read "any maskable" on a square that draws to its own edge as
+    licence to crop the headband off."""
+    icons = client.get("/manifest.webmanifest").json()["icons"]
+
+    png = [i for i in icons if i["type"] == "image/png"]
+    assert {i["sizes"] for i in png} >= {"192x192", "512x512"}
+
+    maskable = [i for i in icons if "maskable" in i["purpose"]]
+    assert len(maskable) == 1
+    assert maskable[0]["purpose"] == "maskable", "the mark is cropped if it is also 'any'"
+    assert "maskable" in maskable[0]["src"], "the maskable icon needs its own padded art"
+
+    for icon in icons:
+        assert client.get(icon["src"]).status_code == 200, icon["src"]
+
+
 def test_without_auth_the_library_is_simply_open(client):
     assert client.get("/").status_code == 200
 

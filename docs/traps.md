@@ -161,6 +161,23 @@ section you are about to touch**, and add to it when something bites you.
   is the only signal something reached the engine that should not have, and it
   is how the stray emphasis markers were found.
 
+- **A stored replacement is stripped.** `db.add_pronunciation` calls
+  `.strip()` on its way into the table, so a rule whose replacement is `" dot "`
+  comes back as `"dot"` and "Pets.com" is read "Petsdotcom". Capture the
+  characters either side and write them back — `([A-Za-z0-9])\.(com|org)` to
+  `\1 dot \2` — rather than relying on space in the replacement.
+- **espeak keeps a full stop as a clause break, wherever it is.** The phonemes
+  for "Pets.com" are literally `pˈɛts.kˈɑːm`, so the reader stopped
+  mid-sentence as though the sentence had ended. misaki does the opposite and
+  runs the two together into `pˈɛtskˌɑm`, "PETS-kom". Neither is a
+  pronunciation problem in the ordinary sense and no respelling of the *word*
+  reaches it; the dot itself has to go.
+- **A rule that eats a dot must prove it cannot eat a full stop.** The domain
+  rule is safe only because of its trailing `(?![A-Za-z0-9])`: without it,
+  "closed in 1999.Companies rushed in" — a missing space, which is common in
+  scraped text — is read as a website. Keep the guard if you add an ending on
+  the Voice page.
+
 ## The TTS engines
 
 - **The ONNX engine does misaki's job itself.** It phonemises with espeak,
@@ -247,6 +264,46 @@ section you are about to touch**, and add to it when something bites you.
   reload. The two other `store` calls in the file had it right, which is why
   nothing else lost its setting — and why no test caught it: every test that
   touched the box set it and used it in the same page load.
+
+- **`audio.currentTime` is the decoder's clock, not the speaker's.** Whatever
+  sits after the decoder — the output buffer, and over Bluetooth the codec and
+  the radio — is delay the browser does not report and no page can measure. On
+  a laptop it is around 20 ms and invisible; over Bluetooth on a phone it is
+  150–300 ms and often more, which is a clause. That, and not anything in the
+  timing map, is why the read-along looked right on a desktop and ran ahead of
+  the voice on a phone. There is no API for it, so the sheet carries a
+  **Highlight timing** slider, stored per browser and subtracted in
+  `syncHighlight`. Do not try to guess the number from the user agent.
+- **Following the audio is not the same as scrolling to it.**
+  `scrollIntoView({block: "center"})` centres in the *layout* viewport, which
+  on a phone is not what can be seen: the header covers the top, the player the
+  bottom, and the URL bar slides in and out under both. It also ran on every
+  block whatever the reader was doing, so a thumb-scroll to look ahead was
+  undone by the next paragraph. `keepInView` measures the band between the two
+  bars off `visualViewport`, does nothing at all while the block is inside it,
+  and gives the page to a `wheel` or `touchmove` for four seconds. It is also
+  called from the frame loop, not only on a block change — a block can run for
+  a minute, and a scroll away from it used to leave the reader lost until the
+  next one.
+- **Smooth scrolling is not free on a phone.** A smooth scroll of several
+  thousand pixels — one seek across a long article — runs for seconds, and the
+  highlight is wrong for every frame of it. Over 2000 px, jump.
+- **Space belonged to whatever had focus.** media-chrome binds its own keys,
+  but only while something inside the `media-controller` has focus. So Space
+  did one of two wrong things: fired again the block play button that was last
+  clicked, or scrolled the page. A capturing `keydown` on the document takes
+  it, `preventDefault` stops the focused button (a `<button>` fires its click
+  on *keyup*, and cancelling the keydown is what cancels it), and the gutter
+  handle blurs itself on click. Text fields, `<select>`, contenteditable and
+  anything inside the sheet keep the key, because typing a space and ticking a
+  checkbox are what Space is for there.
+- **The transport is the width of the screen, and a pocket is not.** Listening
+  while doing something else on the phone lands taps wherever a thumb falls,
+  and the scrub bar took every one of them. The padlock in the bar sets
+  `pointer-events: none` on everything but itself, and on the play handles
+  beside each block. Tap to lock, **hold** to unlock: a tap would undo it, and
+  a stray tap is the thing being guarded against. A hold also ends in a click,
+  so the click handler has to swallow the one that follows an unlock.
 
 ## The library, search and the pager
 
@@ -355,6 +412,23 @@ Each cost an afternoon once; the incident is in git, the rule is here.
 - **An offline navigation must answer with something.** `respondWith` rejects
   on `undefined`, and `caches.match` resolves to that for anything never
   stored. There is a 503 page that says which it is.
+
+- **"Keep offline" used to keep everything.** `mediaResponse` stored every
+  200 it saw, so every section of every article anyone ever played went into
+  the OFFLINE cache. Two things came of that. The cache grew without limit and
+  the checkbox meant nothing, since the audio was there either way. Worse, the
+  copy outlived the article: `/media/<slug>/section-000.opus` is rewritten by
+  every build and the URL does not change, so a **rebuilt article played its
+  old audio against its new timing map** — the read-along drifting further
+  behind with every paragraph, on whichever device happened to have a service
+  worker and nowhere else. A marker at `/__offline__/<slug>` now records what
+  was actually asked for, and only those are stored. It is deliberately kept
+  as well as `cache.addAll`, because `addAll` is all-or-nothing and swallows
+  its own failures.
+- **A slug is a prefix of other slugs.** `drop-article` matched on
+  `url.includes(slug)`, so unticking "ai" also dropped "ai-and-the-law",
+  silently, and the reader found out on a train. Match the whole path segment:
+  `/media/<slug>/`.
 
 ## Summaries and their keys
 
