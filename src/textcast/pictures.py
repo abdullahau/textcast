@@ -52,7 +52,6 @@ SUFFIXES = {
     "image/webp": ".webp",
     "image/gif": ".gif",
     "image/avif": ".avif",
-    "image/svg+xml": ".svg",
 }
 
 
