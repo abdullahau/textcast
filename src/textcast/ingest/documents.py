@@ -16,9 +16,8 @@ from ..document import Article, Block, BlockKind, Section
 #: A report nobody is skimming has fewer pages than this; a PDF beyond it is
 #: extracted page by page, synchronously, inside the request.
 MAX_PDF_PAGES = 2000
-#: A .docx is a zip. Its own bytes can be small and still declare gigabytes
-#: of XML inside it -- checked from the zip's own directory, before anything
-#: is decompressed.
+#: A .docx is a zip. Its own bytes can be small and still hold gigabytes of
+#: XML -- counted as it decompresses, not taken from the zip's own directory.
 MAX_DOCX_UNCOMPRESSED = 200 * 1024 * 1024
 
 #: A line that is really a heading, in Markdown or in plain prose. Matched
@@ -272,6 +271,23 @@ def _rewrap(text: str) -> str:
     return collapsed.strip()
 
 
+def _unpacks_over(archive: zipfile.ZipFile, cap: int) -> bool:
+    """Whether the archive really unpacks to more than `cap` bytes.
+
+    Counted a chunk at a time and abandoned the moment it goes over, so
+    answering costs `cap` bytes of decompression at the very worst rather
+    than however many the file actually holds.
+    """
+    total = 0
+    for info in archive.infolist():
+        with archive.open(info) as entry:
+            while chunk := entry.read(1024 * 1024):
+                total += len(chunk)
+                if total > cap:
+                    return True
+    return False
+
+
 def text_from_docx(data: bytes) -> tuple[str, str]:
     """Extract text and the document title from a .docx.
 
@@ -285,16 +301,20 @@ def text_from_docx(data: bytes) -> tuple[str, str]:
             "DOCX support needs the documents extra: uv sync --extra documents"
         ) from exc
 
-    # A .docx is a zip, and its central directory declares each entry's
-    # uncompressed size without decompressing anything -- read that first, so
-    # a small file that unpacks into gigabytes is refused before it does.
+    # A .docx is a zip, and a small one can unpack into gigabytes. The
+    # central directory's sizes are the *file's own* numbers and are read
+    # first only because they are free: a bomb that declares itself honestly
+    # is refused without decompressing a byte. What decides it is unpacking
+    # the entries and counting what really comes out, because nothing obliges
+    # that directory to be true.
     try:
         with zipfile.ZipFile(io.BytesIO(data)) as archive:
-            declared = sum(info.file_size for info in archive.infolist())
+            if sum(info.file_size for info in archive.infolist()) > MAX_DOCX_UNCOMPRESSED:
+                raise UnsupportedDocument("that Word file is too large once decompressed")
+            if _unpacks_over(archive, MAX_DOCX_UNCOMPRESSED):
+                raise UnsupportedDocument("that Word file is too large once decompressed")
     except zipfile.BadZipFile as exc:
         raise UnsupportedDocument(f"that Word file could not be read: {exc}") from exc
-    if declared > MAX_DOCX_UNCOMPRESSED:
-        raise UnsupportedDocument("that Word file is too large once decompressed")
 
     try:
         document = docx.Document(io.BytesIO(data))

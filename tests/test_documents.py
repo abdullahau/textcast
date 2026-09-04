@@ -210,3 +210,43 @@ def test_a_file_that_is_not_the_document_it_claims_says_so():
 
     with _pytest.raises(UnsupportedDocument, match="could not be read"):
         article_from_file(b"not a word file", "pretend.docx")
+
+
+def test_a_docx_that_holds_more_than_its_directory_admits_is_refused(monkeypatch):
+    """The declared sizes are the file's own numbers, so they cannot be the
+    whole answer. Rewriting them down to nothing does not buy a way past the
+    cap: what really unpacks is counted, and a directory that disagrees with
+    the stream it describes fails on the way through."""
+    import struct
+
+    monkeypatch.setattr(documents, "MAX_DOCX_UNCOMPRESSED", 100)
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("word/document.xml", "x" * 100_000)
+    raw = bytearray(buffer.getvalue())
+
+    # The uncompressed-size field, in the central directory and in the local
+    # header both, claiming ten bytes for a hundred thousand.
+    for signature, offset in ((b"PK\x01\x02", 24), (b"PK\x03\x04", 22)):
+        at = raw.find(signature)
+        while at != -1:
+            struct.pack_into("<I", raw, at + offset, 10)
+            at = raw.find(signature, at + 1)
+
+    with pytest.raises(UnsupportedDocument):
+        article_from_file(bytes(raw), "liar.docx")
+
+
+def test_a_real_docx_still_opens_with_the_size_counted(monkeypatch):
+    """The counting pass must not cost a legitimate file its ingest."""
+    docx = pytest.importorskip("docx", reason="python-docx not installed")
+
+    document = docx.Document()
+    document.add_heading("The Roll-Up Trade", level=1)
+    document.add_paragraph("A paragraph with enough words in it to be a block.")
+    buffer = io.BytesIO()
+    document.save(buffer)
+
+    article = article_from_file(buffer.getvalue(), "note.docx")
+    assert article.title == "The Roll-Up Trade"
