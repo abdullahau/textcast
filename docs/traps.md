@@ -147,11 +147,17 @@ section you are about to touch**, and add to it when something bites you.
 - **A migration that raises takes the whole deployment down.** `migrate.run` is
   called from `db.init`, which the app's lifespan and the worker's `start` both
   await, so an exception there is a crash loop in two containers at once and
-  the site answers Cloudflare 524 rather than anything you can read.
-  `_fix_case_sensitive_respellings` renamed a stored pattern onto one a seed
-  pass had already added beside it, broke `UNIQUE (kind, pattern)`, and did
-  exactly that. Before a migration renames a row into a unique column, look
-  for the row already holding that value.
+  the site answers Cloudflare 524 rather than anything you can read. That is
+  the shape of the failure: not a broken page, not a 500, but nothing at all
+  from either service, and no log past the traceback.
+  `_fix_case_sensitive_respellings` did it — it renamed a stored pattern onto
+  one a seed pass had already added beside it, and broke
+  `UNIQUE (kind, pattern)`. The library that hit it was a dev box that had run
+  an intermediate tree: the new patterns were seeded at 19:28, the migration
+  written at 19:35. **The migration was deliberately left simple**, and that
+  one database repaired in place instead — a rename that assumes the target is
+  free is right for every library that came from a release. Restart an
+  upgraded system and read the app's log before assuming the network.
   The useful cases are where the good engine does not move: "Solamon" leaves
   misaki's `sˈɑləmən` alone and fixes espeak's doubled vowel. When no spelling
   does both, a phoneme rule with two spellings is the tool.
