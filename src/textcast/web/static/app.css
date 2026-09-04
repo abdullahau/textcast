@@ -100,7 +100,9 @@ body {
 }
 
 a { color: inherit; text-decoration: none; }
-a:hover { text-decoration: underline; text-underline-offset: 2px; }
+@media (hover: hover) {
+  a:hover { text-decoration: underline; text-underline-offset: 2px; }
+}
 
 :focus-visible {
   outline: none;
@@ -133,7 +135,9 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
   letter-spacing: -.02em;
   flex: none;
 }
-.brand:hover { text-decoration: none; }
+@media (hover: hover) {
+  .brand:hover { text-decoration: none; }
+}
 
 /* Beside the wordmark, which already goes home and never said so. Square, so
    it stays a thumb-sized target on a phone. */
@@ -148,7 +152,9 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
 }
-.home:hover { color: var(--fg); border-color: var(--fg); text-decoration: none; }
+@media (hover: hover) {
+  .home:hover { color: var(--fg); border-color: var(--fg); text-decoration: none; }
+}
 
 /* A search field, not a search banner. */
 .find { flex: 0 1 15rem; min-width: 0; margin-left: auto; }
@@ -171,7 +177,9 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
    used to name .cta, which nothing carries, so this rule greyed the button's
    label against its dark fill. */
 .bar-links a:not(.btn) { color: var(--muted); padding: 0 .3rem; }
-.bar-links a:not(.btn):hover { color: var(--fg); text-decoration: none; }
+@media (hover: hover) {
+  .bar-links a:not(.btn):hover { color: var(--fg); text-decoration: none; }
+}
 /* A mark beside each label, so the bar is scannable before it is read. The
    icon inherits the link's colour, so hover moves both together. */
 .bar-links a, .bar-links button.link { display: inline-flex; align-items: center; gap: .35rem; }
@@ -220,7 +228,9 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
    toggle needs that .3rem back on the button side, or it sits visibly nearer
    to Add than to Summaries while every box gap is identical. */
 .bar-links .theme-switch { margin: 0 .35rem; }
-.theme-switch:hover { opacity: 1; border-color: var(--border-hi); }
+@media (hover: hover) {
+  .theme-switch:hover { opacity: 1; border-color: var(--border-hi); }
+}
 /* The track grew to the bar's height; the knob did not, so it is centred
    rather than pinned. Its horizontal geometry is untouched. */
 .theme-switch .knob {
@@ -267,7 +277,9 @@ body.ready .theme-switch .knob {
 /* A form is the only honest way to sign out, so its button has to read as a link,
    mark and all: the rule above gives it the same icon the links carry. */
 button.link { background: none; border: 0; padding: 0 .3rem; font: inherit; color: var(--muted); cursor: pointer; }
-button.link:hover { color: var(--fg); }
+@media (hover: hover) {
+  button.link:hover { color: var(--fg); }
+}
 
 .nav-group { display: flex; align-items: center; gap: .4rem; }
 .nav-toggle {
@@ -275,7 +287,9 @@ button.link:hover { color: var(--fg); }
   width: var(--bar-control); height: var(--bar-control); min-width: var(--bar-control); padding: 0;
   background: transparent; border-color: transparent; color: var(--muted);
 }
-.nav-toggle:hover { color: var(--fg); background: var(--sunk); opacity: 1; }
+@media (hover: hover) {
+  .nav-toggle:hover { color: var(--fg); background: var(--sunk); opacity: 1; }
+}
 
 /* The search field was the thing being squeezed, so the links are what give
    way. Below this the brand is its icon alone as well. */
@@ -309,7 +323,9 @@ button.link:hover { color: var(--fg); }
     padding: .5rem .6rem;
     border-radius: var(--radius-sm);
   }
-  .nav-group a:hover, .nav-group button.link:hover { background: var(--sunk); }
+  @media (hover: hover) {
+    .nav-group a:hover, .nav-group button.link:hover { background: var(--sunk); }
+  }
   /* Its own row, the height of the others, with the pill sitting where
      their icons sit. Left to itself it was 32px in a column of 37px rows,
      indented by a margin rather than by the padding everything else uses —
@@ -384,20 +400,47 @@ button, .btn {
   cursor: pointer;
   transition: background-color .12s ease, border-color .12s ease, opacity .12s ease;
 }
-button:hover, .btn:hover { opacity: .88; text-decoration: none; }
+@media (hover: hover) {
+  button:hover, .btn:hover { opacity: .88; text-decoration: none; }
+}
+
+/* Why the padlock took two taps on a phone and one on a desktop.
+   iOS holds the first tap on anything it thinks may want a hover — the first
+   tap paints the hover state, the second activates — and double-tap-to-zoom
+   can eat it outright. Every `:hover` rule in this file is behind
+   `@media (hover: hover)` for the first half of that; `manipulation` gives up
+   double-tap-to-zoom on the control itself, which is not a gesture any of
+   these wants. The grey tap flash goes with it: on a bar of round buttons it
+   reads as a selection that will not clear.
+
+   Not `media-time-range`: the scrub bar needs its pan gestures, and
+   media-chrome sets its own `touch-action` on it. */
+button, .btn, .ctl, .chapter, .b .seek, .tag, .dismiss,
+.theme-switch, .nav-toggle, .profile-button,
+media-play-button, media-seek-forward-button, media-seek-backward-button,
+media-playback-rate-button {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
 
 button.ghost, .btn.ghost {
   background: transparent;
   color: var(--fg-soft);
   border-color: var(--border);
 }
-button.ghost:hover, .btn.ghost:hover { background: var(--sunk); opacity: 1; color: var(--fg); }
+@media (hover: hover) {
+  button.ghost:hover, .btn.ghost:hover { background: var(--sunk); opacity: 1; color: var(--fg); }
+}
 
 button.subtle { background: transparent; border-color: transparent; color: var(--muted); }
-button.subtle:hover { background: var(--sunk); color: var(--fg); opacity: 1; }
+@media (hover: hover) {
+  button.subtle:hover { background: var(--sunk); color: var(--fg); opacity: 1; }
+}
 
 button.danger { background: transparent; color: var(--bad); border-color: color-mix(in srgb, var(--bad) 35%, transparent); }
-button.danger:hover { background: color-mix(in srgb, var(--bad) 10%, transparent); opacity: 1; }
+@media (hover: hover) {
+  button.danger:hover { background: color-mix(in srgb, var(--bad) 10%, transparent); opacity: 1; }
+}
 
 /* Only the bar's Add button carries this, and it stands beside the search
    field, the home button and the menu. One height for all four. */
@@ -435,7 +478,10 @@ button.q::after {
   inset: -.5rem;
   border-radius: 50%;
 }
-button.q:hover, button.q:focus-visible { color: var(--fg); border-color: var(--fg-soft); opacity: 1; }
+button.q:focus-visible { color: var(--fg); border-color: var(--fg-soft); opacity: 1; }
+@media (hover: hover) {
+  button.q:hover { color: var(--fg); border-color: var(--fg-soft); opacity: 1; }
+}
 
 .tip .tip-body {
   position: absolute;
@@ -458,7 +504,10 @@ button.q:hover, button.q:focus-visible { color: var(--fg); border-color: var(--f
   white-space: normal;
   text-align: left;
 }
-.tip:hover .tip-body, .tip:focus-within .tip-body { display: block; }
+.tip:focus-within .tip-body { display: block; }
+@media (hover: hover) {
+  .tip:hover .tip-body { display: block; }
+}
 
 /* Near the right edge there is no room to open leftwards. */
 .tip.right .tip-body { left: auto; right: 0; }
@@ -534,7 +583,9 @@ button.q:hover, button.q:focus-visible { color: var(--fg); border-color: var(--f
   color: inherit;
 }
 .item:last-child { border-bottom: none; }
-.item:hover { background: var(--raised); text-decoration: none; }
+@media (hover: hover) {
+  .item:hover { background: var(--raised); text-decoration: none; }
+}
 
 .item .t {
   grid-row: 1;
@@ -647,7 +698,9 @@ button.q:hover, button.q:focus-visible { color: var(--fg); border-color: var(--f
   color: var(--fg-soft);
   border: 1px solid var(--border);
 }
-.tag:hover { border-color: var(--border-hi); text-decoration: none; }
+@media (hover: hover) {
+  .tag:hover { border-color: var(--border-hi); text-decoration: none; }
+}
 .tag.on { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
 .tag b { font-weight: 500; opacity: .6; font-variant-numeric: tabular-nums; }
 
@@ -725,7 +778,9 @@ button.q:hover, button.q:focus-visible { color: var(--fg); border-color: var(--f
    names, so the two read as a pair rather than as a line and a heading. */
 .footnotes .what { display: inline-flex; align-items: center; gap: .4rem; color: var(--fg-soft); font-weight: 500; }
 .exports a { color: var(--muted); text-decoration: underline; text-underline-offset: 2px; text-decoration-color: var(--border-hi); }
-.exports a:hover { color: var(--fg); text-decoration-color: currentColor; }
+@media (hover: hover) {
+  .exports a:hover { color: var(--fg); text-decoration-color: currentColor; }
+}
 
 /* ---------- cards and forms ---------- */
 
@@ -809,8 +864,9 @@ input[type=file]::file-selector-button {
   -webkit-appearance: none;
   appearance: none;
 }
-input[type=file]::-webkit-file-upload-button:hover,
-input[type=file]::file-selector-button:hover { background: var(--raised); color: var(--fg); }
+@media (hover: hover) {
+  input[type=file]::-webkit-file-upload-button:hover, input[type=file]::file-selector-button:hover { background: var(--raised); color: var(--fg); }
+}
 
 /* A value meant to be copied, not read: it wraps rather than overflowing a
    phone, and it says it is a control by looking like one. */
@@ -830,7 +886,10 @@ code.copy {
   cursor: pointer;
   overflow-wrap: anywhere;
 }
-code.copy:hover, code.copy:focus { border-color: var(--border-hi); color: var(--fg); }
+code.copy:focus { border-color: var(--border-hi); color: var(--fg); }
+@media (hover: hover) {
+  code.copy:hover { border-color: var(--border-hi); color: var(--fg); }
+}
 
 .row { display: flex; gap: .55rem; flex-wrap: wrap; align-items: flex-end; }
 .row + .row { margin-top: .7rem; }
@@ -880,7 +939,9 @@ code.copy:hover, code.copy:focus { border-color: var(--border-hi); color: var(--
   color: inherit;
   opacity: .55;
 }
-.dismiss:hover { opacity: 1; background: color-mix(in srgb, currentColor 12%, transparent); }
+@media (hover: hover) {
+  .dismiss:hover { opacity: 1; background: color-mix(in srgb, currentColor 12%, transparent); }
+}
 .dismiss svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
 .notice.error { background: color-mix(in srgb, var(--bad) 8%, var(--surface)); color: var(--bad); border-color: color-mix(in srgb, var(--bad) 30%, transparent); }
 .notice.ok { background: color-mix(in srgb, var(--good) 8%, var(--surface)); color: var(--good); border-color: color-mix(in srgb, var(--good) 30%, transparent); }
@@ -925,7 +986,9 @@ code.copy:hover, code.copy:focus { border-color: var(--border-hi); color: var(--
   border: none; background: none; color: var(--muted);
   font-size: .9rem; line-height: 1; cursor: pointer; border-radius: 3px;
 }
-.tag-chip button:hover { color: var(--bad); background: none; opacity: 1; }
+@media (hover: hover) {
+  .tag-chip button:hover { color: var(--bad); background: none; opacity: 1; }
+}
 .tag-suggestions { display: flex; flex-wrap: wrap; gap: .3rem; margin-top: .5rem; }
 
 /* ---------- reader ---------- */
@@ -947,7 +1010,9 @@ button.chip {
   color: var(--fg-soft);
   border-color: var(--border);
 }
-button.chip:hover { background: var(--sunk); color: var(--fg); opacity: 1; }
+@media (hover: hover) {
+  button.chip:hover { background: var(--sunk); color: var(--fg); opacity: 1; }
+}
 button.chip svg { width: 14px; height: 14px; }
 button.chip[aria-pressed="true"] { border-color: var(--border-hi); color: var(--fg); background: var(--sunk); }
 button.chip[aria-pressed="true"] .star { fill: var(--warn); stroke: var(--warn); }
@@ -985,7 +1050,9 @@ button.chip[aria-pressed="true"] .star { fill: var(--warn); stroke: var(--warn);
   transition: background-color .15s ease, border-color .15s ease;
   cursor: text;
 }
-.b:hover { border-left-color: var(--border-hi); }
+@media (hover: hover) {
+  .b:hover { border-left-color: var(--border-hi); }
+}
 /* On black a wash alone disappears. The edge does the work, the wash
    confirms it, and the ring lifts it off the page. */
 .b.on {
@@ -1013,8 +1080,11 @@ button.chip[aria-pressed="true"] .star { fill: var(--warn); stroke: var(--warn);
   cursor: pointer;
   transition: opacity .12s ease;
 }
-.b:hover .seek, .b .seek:focus-visible { opacity: 1; }
-.b .seek:hover { background: var(--sunk); color: var(--fg); opacity: 1; }
+.b .seek:focus-visible { opacity: 1; }
+@media (hover: hover) {
+  .b:hover .seek { opacity: 1; }
+  .b .seek:hover { background: var(--sunk); color: var(--fg); opacity: 1; }
+}
 @media (max-width: 46rem) {
   /* No room for a gutter on a phone: the handle sits inline instead. */
   .b .seek { position: static; opacity: .45; float: right; margin: 0 0 0 .3rem; }
@@ -1075,7 +1145,9 @@ body.lb-open { overflow: hidden; }
   border-radius: 50%;
   cursor: pointer;
 }
-.lightbox button:hover:not(:disabled) { background: rgb(255 255 255 / .22); }
+@media (hover: hover) {
+  .lightbox button:hover:not(:disabled) { background: rgb(255 255 255 / .22); }
+}
 .lightbox button:disabled { opacity: .35; cursor: default; }
 /* The stage clips, so a zoomed picture is moved rather than scrolled. */
 .lb-stage {
@@ -1211,7 +1283,9 @@ media-playback-rate-button { font-variant-numeric: tabular-nums; font-weight: 50
   cursor: pointer;
   flex: none;
 }
-.ctl:hover { background: var(--sunk); opacity: 1; }
+@media (hover: hover) {
+  .ctl:hover { background: var(--sunk); opacity: 1; }
+}
 .ctl[aria-pressed="true"] { color: var(--accent); background: var(--sunk); }
 
 /* Locked, everything in the bar but the padlock ignores a pointer, and so
@@ -1282,7 +1356,9 @@ body.has-player { padding-bottom: 5.5rem; }
 .sheet h3 { font-size: .72rem; text-transform: uppercase; letter-spacing: .09em; color: var(--muted); margin: 0; font-weight: 600; }
 .sheet-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: .6rem; }
 .sheet-head .ctl { width: 2rem; height: 2rem; min-width: 2rem; padding: 0; background: transparent; border-color: transparent; color: var(--muted); }
-.sheet-head .ctl:hover { color: var(--fg); background: var(--sunk); opacity: 1; }
+@media (hover: hover) {
+  .sheet-head .ctl:hover { color: var(--fg); background: var(--sunk); opacity: 1; }
+}
 .sheet-inner { max-width: 54rem; margin: 0 auto; }
 
 .chapter {
@@ -1301,7 +1377,9 @@ body.has-player { padding-bottom: 5.5rem; }
   font-size: .88rem;
   text-align: left;
 }
-.chapter:hover { background: var(--sunk); opacity: 1; }
+@media (hover: hover) {
+  .chapter:hover { background: var(--sunk); opacity: 1; }
+}
 .chapter.on { font-weight: 600; }
 .chapter-title { flex: 1; min-width: 0; text-align: left; }
 .chapter span { color: var(--muted); font-size: .78rem; font-variant-numeric: tabular-nums; flex: none; }
@@ -1325,7 +1403,9 @@ body.has-player { padding-bottom: 5.5rem; }
 
 .hit { display: block; padding: .85rem 1rem; border-bottom: 1px solid var(--border); color: inherit; }
 .hit:last-child { border-bottom: none; }
-.hit:hover { background: var(--raised); text-decoration: none; }
+@media (hover: hover) {
+  .hit:hover { background: var(--raised); text-decoration: none; }
+}
 .hit .t { font-size: .78rem; color: var(--muted); display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; margin-bottom: .3rem; }
 .hit .s { font-family: var(--serif); font-size: .94rem; line-height: 1.55; color: var(--fg-soft); }
 .hit mark { background: color-mix(in srgb, var(--accent) 22%, transparent); color: var(--fg); padding: 0 .12em; border-radius: 2px; }
@@ -1433,7 +1513,9 @@ table.rules form { display: inline; }
   background: none;
   cursor: pointer;
 }
-.profile-button:hover .avatar { border-color: var(--border-hi); color: var(--fg); }
+@media (hover: hover) {
+  .profile-button:hover .avatar { border-color: var(--border-hi); color: var(--fg); }
+}
 .profile-menu {
   position: absolute;
   top: calc(100% + .4rem);
@@ -1468,10 +1550,12 @@ table.rules form { display: inline; }
   color: var(--muted);
   border-radius: var(--radius-sm);
 }
-.bar-links .profile-menu a:hover, .profile-menu button.link:hover {
+@media (hover: hover) {
+  .bar-links .profile-menu a:hover, .profile-menu button.link:hover {
   background: var(--sunk);
   color: var(--fg);
   text-decoration: none;
+}
 }
 .profile-menu svg {
   width: 15px; height: 15px; flex: none;

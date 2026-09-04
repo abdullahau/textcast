@@ -1286,3 +1286,91 @@ def test_the_measured_delay_actually_moves_the_highlight(still_page, live):
         "() => { const s = document.getElementById('opt-sync');"
         " s.value = '0'; s.dispatchEvent(new Event('input')); }"
     )
+
+
+def test_a_touch_screen_never_gets_a_hover_style(live, browser):
+    """iOS paints the hover state on the first tap and activates on the second,
+    so a hover rule is why the padlock took two taps on a phone and one on a
+    desktop — and why "scroll with the audio" looked armed after any tap,
+    since its hover background is the same one its armed state uses.
+
+    Asserted over the whole stylesheet rather than over the two controls that
+    were reported: any hover rule reintroduced without the guard brings both
+    faults straight back.
+    """
+    base, slug, _manifest = live
+    context = browser.new_context(
+        viewport={"width": 400, "height": 780}, is_mobile=True, has_touch=True
+    )
+    page = context.new_page()
+    try:
+        page.goto(f"{base}/a/{slug}")
+        page.wait_for_selector("#doc .b")
+
+        loose = page.evaluate(
+            """() => {
+                const found = [];
+                const walk = (rules, guarded) => {
+                    for (const rule of rules) {
+                        if (rule.type === CSSRule.MEDIA_RULE) {
+                            walk(rule.cssRules,
+                                 guarded || rule.conditionText.includes("hover: hover"));
+                        } else if (rule.type === CSSRule.STYLE_RULE && !guarded
+                                   && rule.selectorText.includes(":hover")) {
+                            found.push(rule.selectorText);
+                        }
+                    }
+                };
+                for (const sheet of document.styleSheets) {
+                    try { walk(sheet.cssRules, false); } catch (e) { /* other origin */ }
+                }
+                return found;
+            }"""
+        )
+        assert loose == [], f"hover rules a phone will apply on tap: {loose}"
+    finally:
+        context.close()
+
+
+def test_scroll_with_the_audio_reads_the_same_armed_on_a_phone(live, browser):
+    """Armed is the accent colour and a filled background; disarmed is
+    nothing. On a phone the sticky hover painted that same background on a
+    disarmed button, so the only difference left was the arrow's brightness.
+    """
+    base, slug, _manifest = live
+    context = browser.new_context(
+        viewport={"width": 400, "height": 780}, is_mobile=True, has_touch=True
+    )
+    page = context.new_page()
+    try:
+        page.goto(f"{base}/a/{slug}")
+        page.wait_for_selector("#player:not([hidden])")
+
+        def look():
+            # After the transition, not during it. `button` moves
+            # background-color over 120 ms, so an immediate read catches the
+            # colour half way out and reports an alpha nobody ever authored.
+            page.wait_for_timeout(300)
+            return page.evaluate(
+                "() => { const s = getComputedStyle(document.getElementById('follow'));"
+                " return {bg: s.backgroundColor, fg: s.color}; }"
+            )
+
+        # It starts armed, and the class of the reader is that it stays put.
+        assert page.get_attribute("#follow", "aria-pressed") == "true"
+        armed = look()
+
+        page.tap("#follow")
+        assert page.get_attribute("#follow", "aria-pressed") == "false"
+        disarmed = look()
+
+        assert armed != disarmed, "the two states look the same"
+        assert armed["bg"] != disarmed["bg"], "only the arrow's brightness changed"
+        # Disarmed is no effect at all, not a lighter effect.
+        assert disarmed["bg"] in ("rgba(0, 0, 0, 0)", "transparent"), disarmed["bg"]
+
+        page.tap("#follow")
+        assert page.get_attribute("#follow", "aria-pressed") == "true"
+        assert look() == armed, "a tap left something behind"
+    finally:
+        context.close()

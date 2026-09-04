@@ -333,6 +333,30 @@ section you are about to touch**, and add to it when something bites you.
   a stray tap is the thing being guarded against. A hold also ends in a click,
   so the click handler has to swallow the one that follows an unlock.
 
+- **A `:hover` rule is a touch bug.** iOS paints the hover state on the first
+  tap and activates on the second, and the hover state then sticks until you
+  tap something else. Two faults from one cause: the padlock took two taps on a
+  phone and one on a desktop, and "scroll with the audio" looked armed after
+  any tap — its hover background is the *same* `--sunk` its armed state uses,
+  so the only difference left was the arrow's brightness. Every `:hover` rule
+  in `app.css` is behind `@media (hover: hover)`; a test walks the live
+  stylesheet and fails on any that is not. Split a selector list that mixes
+  hover with `:focus-visible` — focus has to keep working on a phone with a
+  keyboard. `touch-action: manipulation` on the controls gives up
+  double-tap-to-zoom, which can eat the tap outright.
+- **Reading a computed style straight after a click reads the transition.**
+  `button` moves `background-color` over 120 ms, so an immediate
+  `getComputedStyle` returns an interpolated `rgba(244, 244, 245, 0.53)` —
+  an alpha nobody authored, which reads exactly like a stuck hover and sent an
+  hour after the wrong bug. Wait for the transition, or ask CDP
+  `CSS.getMatchedStylesForNode` which rules actually matched.
+- **A regex that merges adjacent CSS blocks will eat rules.** Merging
+  neighbouring `@media (hover: hover) { … }` blocks with a non-greedy body
+  pattern silently dropped twenty rules whose bodies happened to end at the
+  same indent. Any bulk edit of `app.css` gets checked by loading both copies
+  into a browser and comparing the flattened `selector -> declarations` pairs;
+  `braces balanced` proves nothing.
+
 - **media-chrome gives a button no width.** The height comes from
   `--media-control-height` plus the padding and the width from whatever the
   glyph happens to be, so `border-radius: 50%` drew an oval. Size the host and
