@@ -25,7 +25,7 @@ from urllib.parse import urlparse
 
 import requests
 
-from . import db
+from . import db, netguard
 from .document import VISUAL_KINDS
 from .settings import Settings, get_settings
 
@@ -92,7 +92,7 @@ def _suffix_for(url: str, content_type: str) -> str:
 
 def _download(url: str) -> tuple[bytes, str] | None:
     try:
-        with requests.get(
+        with netguard.get(
             url, timeout=TIMEOUT, headers={"User-Agent": USER_AGENT}, stream=True
         ) as response:
             response.raise_for_status()
@@ -113,7 +113,7 @@ def _download(url: str) -> tuple[bytes, str] | None:
                     return None
                 chunks.append(chunk)
             body = b"".join(chunks)
-    except requests.RequestException as exc:
+    except (requests.RequestException, netguard.UnsafeURL) as exc:
         log.warning("could not fetch %s: %s", url, exc)
         return None
     if not body:

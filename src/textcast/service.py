@@ -14,7 +14,7 @@ from pathlib import Path
 
 import requests
 
-from . import db, pictures
+from . import db, netguard, pictures
 from .document import Article
 from .ingest import parse_html
 from .ingest.newsletter import article_from_eml
@@ -58,9 +58,9 @@ class Ingested:
 
 def fetch(url: str, timeout: float = 30.0) -> str:
     try:
-        response = requests.get(url, timeout=timeout, headers={"User-Agent": USER_AGENT})
+        response = netguard.get(url, timeout=timeout, headers={"User-Agent": USER_AGENT})
         response.raise_for_status()
-    except requests.RequestException as exc:
+    except (requests.RequestException, netguard.UnsafeURL) as exc:
         raise IngestError(f"could not fetch {url}: {exc}") from exc
     return response.text
 
