@@ -467,3 +467,72 @@ def test_two_blocks_with_the_same_words_do_not_share_one_part_file(tmp_path):
 
     assert len(manifest.sections[0].blocks) == 2
     assert not list((tmp_path / "cache").glob("*.part")), "nothing half-written is left"
+
+
+def test_a_section_is_never_joined_into_one_buffer_to_encode_it(tmp_path, monkeypatch):
+    """It was held three times over: joined, copied, and buffered again.
+
+    `np.concatenate` made one array of the whole section, `.tobytes()` copied
+    it, and `subprocess.run` held that copy too. Measured on a 30-minute
+    section (178 MB of float32): the old path grew the process by 339 MB, the
+    new one by 0. An article that parses into a single section is the
+    ordinary case, so this is a build's peak, not a corner.
+
+    Pinned by refusing to concatenate at all: a render that reaches for it is
+    holding the section whole again.
+    """
+    import numpy as np
+
+    def refuse(*args, **kwargs):
+        raise AssertionError("the section was joined into one buffer")
+
+    monkeypatch.setattr(np, "concatenate", refuse)
+    manifest = render_article(sample_article(), FakeEngine(), tmp_path, voice="v1")
+
+    assert len(manifest.sections) == 2
+    assert manifest.total_ms > 0
+    assert (tmp_path / "section-000.opus").stat().st_size > 0
+
+
+def test_the_streamed_encode_decodes_to_the_same_audio(tmp_path):
+    """The files differ whatever you do — Ogg carries a random stream serial,
+    so two encodes of one buffer differ too. The decoded samples must match."""
+    import subprocess
+
+    from textcast.audio import ffmpeg_path
+
+    rng = np.random.default_rng(7)
+    blocks = []
+    for i in range(6):
+        n = int(24000 * (0.4 + rng.random()))
+        blocks.append((0.3 * np.sin(np.linspace(0, 180 + i, n))).astype(np.float32))
+
+    joined_path, streamed_path = tmp_path / "a.opus", tmp_path / "b.opus"
+    encode_opus(np.concatenate(blocks), 24000, joined_path)
+    encode_opus(blocks, 24000, streamed_path)
+
+    def decoded(path):
+        return subprocess.run(
+            [ffmpeg_path(), "-hide_banner", "-loglevel", "error", "-i", str(path),
+             "-f", "f32le", "-ac", "1", "pipe:1"],
+            capture_output=True, check=True,
+        ).stdout
+
+    assert decoded(joined_path) == decoded(streamed_path)
+
+
+def test_a_failing_encode_still_says_why(tmp_path):
+    """stderr goes to a file rather than a pipe, so it has to be read back.
+
+    A pipe would have to be drained while stdin is still being written, and
+    without a second thread a chatty ffmpeg fills the buffer and both
+    processes stop for ever.
+    """
+    from textcast.audio import EncodeError
+
+    with pytest.raises(EncodeError) as failure:
+        encode_opus(
+            np.zeros(2400, dtype=np.float32), 24000, tmp_path / "s.opus",
+            bitrate="not-a-bitrate",
+        )
+    assert str(failure.value).strip(), "the reason was in the pipe nobody read"

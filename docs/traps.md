@@ -522,6 +522,19 @@ Each cost an afternoon once; the incident is in git, the rule is here.
   it, and the second raised `FileNotFoundError` and failed the whole build. The
   name carries the pid and the thread now.
 
+- **A section was held whole three times to encode it.** `np.concatenate`
+  joined the block list, `.tobytes()` copied that, and `subprocess.run` held
+  the copy as well. Measured on a 30-minute section, 178 MB of float32: the
+  process grew **339 MB** on the old path and **0 MB** streaming the blocks to
+  ffmpeg one at a time. An article that parses into a single section is the
+  ordinary case, so this was a build's peak and not a corner. The decoded audio
+  is byte-identical either way — the *files* never are, because Ogg carries a
+  random stream serial, so two encodes of one buffer differ too.
+- **ffmpeg's stderr goes to a file, not a pipe.** Draining a pipe while still
+  writing to stdin needs a second thread or a select loop; without one a chatty
+  ffmpeg fills the 64 KB buffer and both processes stop for ever. A file has no
+  such limit and is read back after the exit code.
+
 ## Data, time and export
 
 - **A title is not a file name.** Two articles sharing one — a newsletter that
@@ -547,6 +560,20 @@ Each cost an afternoon once; the incident is in git, the rule is here.
 - **A migration must delete what it consumed.** Left behind it is a second
   answer to the same question. The summary-key steps run in a fixed order and
   the tests run them in that order too.
+
+## Mail
+
+- **A newsletter that will not parse was fetched whole on every poll, for
+  ever.** `mark_seen` ran only after a successful ingest, so a message that
+  parsed to nothing stayed unread and was downloaded again every cycle. An
+  `IngestError` is a verdict on the *message* — it parsed to nothing, or to
+  less than `MIN_WORDS` — so the next attempt fails identically; it is marked
+  seen and its subject named in the log. Anything else that can be raised
+  there is transient, says nothing about the newsletter, and deliberately
+  leaves it unread for the next poll.
+- **A failure that names no message leaves you with a mailbox.** "could not
+  ingest a message" was the whole of it. `_subject` reads the header that was
+  already peeked at.
 
 ## Web, auth and the bookmarklet
 
@@ -616,6 +643,12 @@ Each cost an afternoon once; the incident is in git, the rule is here.
   pulls the whole body regardless — so a host answering with a gigabyte put a
   gigabyte in memory before `MAX_BYTES` was consulted, inside the ingest
   request. It reads in 64 KB chunks and stops at the cap.
+- **Signing out reached one browser, and there was no way to reach the rest.**
+  `/logout` deletes the cookie and leaves `account.session` alone, which is
+  right — a phone should not be signed out because a laptop was — but a cookie
+  copied off a machine went on working and only changing the password stopped
+  it. `/settings/sign-out-everywhere` rotates the session on its own and writes
+  the browser that asked a fresh cookie, as changing the password already did.
 
 ## Docker and the image
 

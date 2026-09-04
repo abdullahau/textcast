@@ -436,9 +436,35 @@ def avatar(name: str):
 
 @app.post("/logout", include_in_schema=False)
 def logout():
+    """Sign this browser out, and only this one.
+
+    The session in `account` is left alone on purpose: rotating it here would
+    sign the phone out because the laptop was, which is not what the button
+    says. A cookie that has left the machine is what
+    `/settings/sign-out-everywhere` is for.
+    """
     response = RedirectResponse("/login", status_code=303)
     response.delete_cookie(COOKIE)
     return response
+
+
+@app.post("/settings/sign-out-everywhere", dependencies=[Auth])
+def sign_out_everywhere(request: Request):
+    """End every session, and keep this one.
+
+    Deleting the cookie only reaches the browser doing it, so a cookie copied
+    off a machine — a shared laptop, a borrowed phone — went on working, and
+    the only way to stop it was to change the password. This rotates the
+    session on its own. The browser asking is written a fresh cookie, exactly
+    as changing the password does, because signing yourself out of the page
+    you are on is not what was asked for.
+    """
+    from .. import accounts
+
+    updated = accounts.rotate_session(db.connect(settings.db_path))
+    return _write_session(
+        request, RedirectResponse("/settings?saved=sessions", status_code=303), updated.session
+    )
 
 
 def _safe_next(target: str) -> str:

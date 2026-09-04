@@ -12,6 +12,7 @@
     {% if what == 'password' %}Password changed. Every other browser has been signed out.
     {% elif what == 'key' %}New ingest key. Rebuild your bookmarklet and update the Shortcut.
     {% elif what == 'photo' %}Picture saved.
+    {% elif what == 'sessions' %}Every other browser has been signed out. This one is still signed in.
     {% else %}Saved.{% endif %}
   </p>
 {% endif %}
@@ -90,5 +91,19 @@
     After regenerating, take the bookmarklet again from <a href="/add">Add</a> and
     paste the new key into the Shortcut.
   </p>
+</div>
+
+<div class="card">
+  <h2>Sessions</h2>
+  <p class="hint">
+    Signing out clears the cookie in that browser and nothing else, so a phone
+    stays signed in when a laptop signs out. This ends every session at once —
+    for a machine you no longer have, or a cookie you think has been copied.
+    The browser you are using now stays signed in.
+  </p>
+  <form method="post" action="/settings/sign-out-everywhere"
+        onsubmit="return confirm('Sign out every other browser? You will stay signed in here.')">
+    <button class="ghost narrow" type="submit">Sign out everywhere</button>
+  </form>
 </div>
 {% endblock %}

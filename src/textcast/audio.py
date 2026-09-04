@@ -14,6 +14,7 @@ import json
 import os
 import shutil
 import subprocess
+import tempfile
 import threading
 from collections.abc import Callable, Iterable, Sequence
 from concurrent.futures import ThreadPoolExecutor
@@ -79,9 +80,28 @@ def ffmpeg_path() -> str:
     return path
 
 
-def encode_opus(samples: np.ndarray, sample_rate: int, out: Path, bitrate: str = "32k") -> None:
-    """Encode mono float32 to Opus in an Ogg container, via a pipe."""
+def encode_opus(
+    samples: np.ndarray | Sequence[np.ndarray],
+    sample_rate: int,
+    out: Path,
+    bitrate: str = "32k",
+) -> None:
+    """Encode mono float32 to Opus in an Ogg container, via a pipe.
+
+    Takes either one array or the *list* of a section's blocks, and prefers
+    the list: it writes them to ffmpeg one at a time, so the whole section
+    never has to exist as a single buffer. It used to, three times over —
+    `np.concatenate` joined it, `.tobytes()` copied that, and `subprocess.run`
+    held the copy as well. On a 30-minute section that is three times 173 MB
+    on top of the model, and an article that parses into one section is the
+    ordinary case.
+
+    stderr goes to a file rather than a pipe. Draining a pipe while also
+    writing to stdin needs a second thread or a select loop, and without one a
+    chatty ffmpeg fills the 64 KB buffer and both processes stop for ever.
+    """
     out.parent.mkdir(parents=True, exist_ok=True)
+    blocks = [samples] if isinstance(samples, np.ndarray) else list(samples)
     cmd = [
         ffmpeg_path(), "-hide_banner", "-loglevel", "error", "-y",
         "-f", "f32le", "-ar", str(sample_rate), "-ac", "1", "-i", "pipe:0",
@@ -89,9 +109,26 @@ def encode_opus(samples: np.ndarray, sample_rate: int, out: Path, bitrate: str =
         "-application", "audio", "-frame_duration", "60",
         str(out),
     ]
-    proc = subprocess.run(cmd, input=np.ascontiguousarray(samples, dtype=np.float32).tobytes(), capture_output=True)
-    if proc.returncode != 0:
-        raise EncodeError(proc.stderr.decode(errors="replace").strip() or "ffmpeg failed")
+    with tempfile.TemporaryFile() as errors:
+        proc = subprocess.Popen(
+            cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=errors
+        )
+        try:
+            for block in blocks:
+                # A dead ffmpeg closes the pipe; the reason is in `errors`, so
+                # stop writing and go and read it rather than raising here.
+                proc.stdin.write(np.ascontiguousarray(block, dtype=np.float32).tobytes())
+        except BrokenPipeError:
+            pass
+        finally:
+            try:
+                proc.stdin.close()
+            except BrokenPipeError:
+                pass
+            proc.wait()
+        if proc.returncode != 0:
+            errors.seek(0)
+            raise EncodeError(errors.read().decode(errors="replace").strip() or "ffmpeg failed")
 
 
 def _cache_key(text: str, engine: str, voice: str, speed: float = 1.0) -> str:
@@ -374,9 +411,11 @@ def render_article(
                 )
             )
 
-        audio = np.concatenate(chunks) if chunks else np.zeros(0, dtype=np.float32)
+        # The list, not a joined buffer: `encode_opus` writes it to ffmpeg a
+        # block at a time, so a long section is never held whole. `cursor` is
+        # already the sample count, laid out above.
         stem = f"section-{section.idx:03d}"
-        encode_opus(audio, sample_rate, out_dir / f"{stem}.opus", bitrate=bitrate)
+        encode_opus(chunks, sample_rate, out_dir / f"{stem}.opus", bitrate=bitrate)
         write_vtt(timings, out_dir / f"{stem}.vtt")
 
         manifest.sections.append(
@@ -385,7 +424,7 @@ def render_article(
                 title=section.title,
                 file=f"{stem}.opus",
                 track=f"{stem}.vtt",
-                duration_ms=round(len(audio) / sample_rate * 1000),
+                duration_ms=round(sum(len(c) for c in chunks) / sample_rate * 1000),
                 blocks=timings,
             )
         )

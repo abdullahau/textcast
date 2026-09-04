@@ -1603,3 +1603,44 @@ def test_the_old_avatar_address_still_answers(client, settings):
     assert hop.status_code == 302
     assert hop.headers["location"] == f"/avatar/{name}"
     assert hop.headers["cache-control"] == "no-cache"
+
+
+def test_signing_out_everywhere_ends_other_sessions_and_keeps_this_one(client, settings):
+    """Signing out only clears the cookie in the browser doing it.
+
+    That is right — a phone should not be signed out because a laptop was —
+    but it left a cookie copied off a machine working, and the only way to
+    stop it was to change the password. This ends every session on its own,
+    and writes the browser that asked a fresh one, because signing yourself
+    out of the page you are on is not what the button says.
+    """
+    from textcast import accounts
+
+    account = sign_in_required(settings)
+    stolen = account.session
+
+    client.post(
+        "/login",
+        data={"username": "reader", "password": PASSWORD, "next": "/"},
+        follow_redirects=False,
+    )
+    client.post("/settings/sign-out-everywhere", follow_redirects=False)
+
+    current = accounts.get(db.connect(settings.db_path))
+    assert current.session != stolen, "the old session still opens the library"
+    assert current.password_hash == account.password_hash, "the password was not touched"
+    assert client.cookies[web.COOKIE] == current.session
+    assert client.get("/", headers={"accept": "text/html"}).status_code == 200
+
+
+def test_a_session_that_was_signed_out_everywhere_no_longer_opens_the_library(client, settings):
+    from textcast import accounts
+
+    account = sign_in_required(settings)
+    accounts.rotate_session(db.connect(settings.db_path))
+
+    client.cookies.set(web.COOKIE, account.session)
+
+    assert client.get(
+        "/", headers={"accept": "text/html"}, follow_redirects=False
+    ).status_code == 303

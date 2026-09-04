@@ -78,6 +78,17 @@ def looks_like_newsletter(headers: bytes) -> bool:
     return any(re.search(rf"^{h}:", text, re.I | re.M) for h in NEWSLETTER_HEADERS)
 
 
+def _subject(headers: bytes) -> str:
+    """Enough of a name to find the message by, for a line in the log.
+
+    A failure that says only "could not ingest a message" leaves you with a
+    mailbox and no idea which one.
+    """
+    text = headers.decode("utf-8", errors="replace")
+    found = re.search(r"^Subject:\s*(.+)$", text, re.I | re.M)
+    return found.group(1).strip()[:80] if found else "a message with no subject"
+
+
 def _since(days: int) -> str:
     return (datetime.now(UTC) - timedelta(days=days)).strftime("%d-%b-%Y")
 
@@ -128,8 +139,17 @@ def fetch(config: MailConfig | None = None, settings: Settings | None = None, li
             try:
                 outcome = ingest(eml=raw, settings=settings)
             except IngestError as exc:
-                log.warning("could not ingest a message: %s", exc)
+                # Marked seen even though it failed, and only for this error.
+                # An `IngestError` is a verdict on the message itself — it
+                # parsed to nothing, or to less than `MIN_WORDS` — so it will
+                # fail exactly the same way next time. Left unread, one broken
+                # issue was fetched whole on every poll for ever. Anything
+                # else that can be raised here is transient, and is left
+                # unread on purpose so the next poll tries again.
+                log.warning("could not ingest %s: %s", _subject(head[0][1]), exc)
                 result.failed += 1
+                if config.mark_seen:
+                    imap.store(message_id, "+FLAGS", "\\Seen")
                 continue
 
             if outcome.duplicate:

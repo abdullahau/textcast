@@ -154,3 +154,15 @@ def set_avatar(conn: sqlite3.Connection, filename: str) -> Account:
 
 def rotate_ingest_key(conn: sqlite3.Connection) -> Account:
     return _update(conn, ingest_key=new_secret("tci"))
+
+
+def rotate_session(conn: sqlite3.Connection) -> Account:
+    """End every session, without changing the password.
+
+    Signing out only deletes the cookie in the browser doing it, which is
+    right: the phone should not be signed out because the laptop was. But it
+    means a cookie copied off a machine goes on working, and until this the
+    only way to stop it was to change the password. The caller writes a fresh
+    cookie from the account it gets back if it wants to stay signed in.
+    """
+    return _update(conn, session=new_secret("tcs"))
