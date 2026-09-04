@@ -37,6 +37,9 @@ SINGULAR = {
     "yen": "yen",
     "rupees": "rupee",
     "reais": "real",
+    "Australian dollars": "Australian dollar",
+    "Canadian dollars": "Canadian dollar",
+    "Hong Kong dollars": "Hong Kong dollar",
 }
 
 #: Suffixes as finance writes them. ``mm`` is millions, not millimetres.
@@ -107,7 +110,12 @@ EMPHASIS = [
 
 #: A footnote the parser inlined. Matched whole, so the closing bracket goes
 #: too and the aside is bounded by pauses on both sides.
-FOOTNOTE = re.compile(r"\[Footnote (\d+):\s*(.*?)\]", re.S)
+#:
+#: The body allows one level of bracket nesting -- `[2]`, a citation the
+#: footnote itself cites -- so a `.*?` closing at that inner `]` instead of
+#: the footnote's own does not cut the aside short and leave a stray `]` in
+#: the spoken output.
+FOOTNOTE = re.compile(r"\[Footnote (\d+):\s*((?:[^\[\]]|\[[^\[\]]*\])*)\]", re.S)
 
 
 def _strip_commas(number: str) -> str:

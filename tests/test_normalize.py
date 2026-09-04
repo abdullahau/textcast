@@ -24,8 +24,11 @@ from textcast.normalize import normalize
         ("HK$40mm", "40 million Hong Kong dollars"),
         # An already-spelled scale must reorder, not strand the currency.
         ("about $19 million of cash", "about 19 million dollars of cash"),
-        # Singular where it matters.
+        # Singular where it matters, including a multi-word currency.
         ("worth $1 today", "worth 1 dollar today"),
+        ("worth A$1 today", "worth 1 Australian dollar today"),
+        ("worth C$1 today", "worth 1 Canadian dollar today"),
+        ("worth HK$1 today", "worth 1 Hong Kong dollar today"),
         # Commas are removed so the number is read as one figure.
         ("$1,250 each", "1250 dollars each"),
         # Finance shorthand.
@@ -160,6 +163,15 @@ def test_a_footnote_gets_a_pause_before_it():
     out = normalize("a claim [Footnote 3: the caveat] and on we go")
     assert out.startswith("a claim ...")
     assert "Footnote 3." in out
+
+
+def test_a_footnote_citing_a_bracket_of_its_own_is_not_cut_short():
+    """A non-greedy close at the citation's own `]` left the rest of the
+    body -- "for detail]" here -- as ordinary text with a stray `]` in it,
+    instead of inside the footnote's own aside."""
+    out = normalize("a claim [Footnote 3: see note [2] for detail] and on we go")
+    assert "] and on we go" not in out, "the footnote's own body was cut short"
+    assert "for detail" in out
 
 
 def test_normalisation_is_idempotent():
