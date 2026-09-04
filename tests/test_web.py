@@ -1586,3 +1586,20 @@ def test_the_profile_mark_returns_once_signed_in(client, settings):
 
     assert 'id="profile-toggle"' in body
     assert "reader" in body
+
+
+def test_the_old_avatar_address_still_answers(client, settings):
+    """A page held offline carries the markup it was saved with."""
+    from textcast import accounts
+
+    signed_in_client(client, settings)
+    client.post("/settings/avatar",
+                files={"photo": ("me.png", b"\x89PNG\r\n\x1a\n" + b"0" * 32, "image/png")},
+                follow_redirects=False)
+    name = accounts.get(db.connect(settings.db_path)).avatar
+
+    hop = client.get("/avatar", follow_redirects=False)
+
+    assert hop.status_code == 302
+    assert hop.headers["location"] == f"/avatar/{name}"
+    assert hop.headers["cache-control"] == "no-cache"

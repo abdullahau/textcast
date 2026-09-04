@@ -390,6 +390,23 @@ def new_ingest_key(request: Request):
     return RedirectResponse("/settings?saved=key", status_code=303)
 
 
+@app.get("/avatar", include_in_schema=False, dependencies=[Auth])
+def avatar_current():
+    """Where the picture used to live, for markup that still points here.
+
+    A page held offline carries the HTML it was saved with, so an article kept
+    for a commute still asks for the bare `/avatar` and would draw a broken
+    image until it was next opened online. This answers, and says `no-cache`
+    rather than `immutable`: the whole reason the name moved into the URL is
+    that the bytes behind this one change.
+    """
+    current = account()
+    if current is None or not current.avatar:
+        raise HTTPException(status_code=404, detail="no picture")
+    return RedirectResponse(f"/avatar/{current.avatar}", status_code=302,
+                            headers={"Cache-Control": "no-cache"})
+
+
 @app.get("/avatar/{name}", include_in_schema=False, dependencies=[Auth])
 def avatar(name: str):
     """The stored picture, under the name its own bytes gave it.
