@@ -77,6 +77,11 @@ def already_stored(directory: Path, url: str) -> str | None:
     if not directory.is_dir():
         return None
     for path in directory.glob(_key(url) + ".*"):
+        # An `.svg` left by a build that predates the refusal above is not a
+        # file to reuse; ignored here, a re-parse drops the block back to the
+        # remote address and the sweep collects it.
+        if path.suffix.lower() == ".svg":
+            continue
         if path.is_file() and path.stat().st_size:
             return path.name
     return None
@@ -99,6 +104,16 @@ def _download(url: str) -> tuple[bytes, str] | None:
             content_type = response.headers.get("Content-Type", "")
             if not content_type.lower().startswith("image/"):
                 log.info("not a picture, skipped: %s (%s)", url, content_type or "no type")
+                return None
+            # SVG is a document that can carry script, so it is not served
+            # from this origin at all -- see IMAGE_TYPES in web/app.py.
+            # Stored anyway it would land as `.img` and come back as
+            # `application/octet-stream`, which is a broken picture taking up
+            # room. Refused instead: the block keeps its remote address and
+            # the reader hotlinks it, which renders it in the publication's
+            # own origin rather than in this one.
+            if content_type.split(";")[0].strip().lower() == "image/svg+xml":
+                log.info("svg not stored, left hotlinked: %s", url)
                 return None
             # Read up to the cap and stop there, rather than buying the whole
             # body and measuring it afterwards. `stream=True` bought nothing
