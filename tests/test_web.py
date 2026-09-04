@@ -111,6 +111,20 @@ def test_a_browser_is_sent_to_sign_in_and_an_api_call_is_refused(client, setting
     assert api.status_code == 401
 
 
+def test_health_stays_open_but_says_nothing_about_the_deployment(client, settings):
+    """Orchestration and monitoring reach this unauthenticated by
+    convention, so it must stay open on a locked-down instance too -- what
+    it must not do is say what engine is in use or how big the library is
+    to whoever asks, which it used to, to anyone."""
+    body = client.get("/health").json()
+    assert body == {"ok": True}
+
+    sign_in_required(settings)
+    locked_down = client.get("/health", headers={"accept": "application/json"})
+    assert locked_down.status_code == 200
+    assert locked_down.json() == {"ok": True}
+
+
 def test_signing_in_opens_the_library_and_signing_out_closes_it(client, settings):
     sign_in_required(settings)
     browser = {"accept": "text/html"}

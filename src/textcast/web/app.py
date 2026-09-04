@@ -2174,7 +2174,16 @@ def service_worker():
 
 @app.get("/health", include_in_schema=False)
 def health():
-    return {"ok": True, "engine": settings.engine, "articles": db.stats()["articles"]}
+    """A liveness probe, and only that.
+
+    Orchestration and monitoring reach this unauthenticated by convention --
+    gating it behind Auth broke the very startup checks in this test suite
+    that poll it before a session exists. What it must not do instead is say
+    anything about the deployment to whoever asks: the engine in use and the
+    library's size used to come back to anyone, on an internet-facing
+    instance same as a private one.
+    """
+    return {"ok": True}
 
 
 @app.get("/api/blocks/{article_id}", dependencies=[Auth])
