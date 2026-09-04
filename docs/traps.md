@@ -251,6 +251,11 @@ section you are about to touch**, and add to it when something bites you.
 - **Never resume playback on a bare `seeked` event.** It is asynchronous, so an
   armed listener fires on whatever seek happens next, including the user's.
   `seekWithin` checks the playhead landed where it asked.
+- **Removing a `<track>` does not cancel its pending `load`.** Two quick taps
+  on next leave the first section's handler still queued; it fires afterwards
+  and binds `track` to a TextTrack no longer on the element, so the next
+  section's cleanup can never reach it and the `cuechange` backstop dies for a
+  background tab. `loadSection` checks `el.isConnected` before it binds.
 - **A section's place in the payload is not its index.** `build_payload` drops
   a section with no audio, so the array position and `section.idx` diverge.
 - **The player must not stop on a block you asked it to jump to.** Seeking to a

@@ -305,6 +305,11 @@
       el.default = true;
       el.src = base + section.track;
       el.addEventListener("load", function () {
+        /* A section change before this fires removes `el` from the audio
+           element, but does not cancel the pending event. Landing anyway
+           would overwrite `track` with a detached TextTrack the next
+           section's own cleanup can no longer reach. */
+        if (!el.isConnected) return;
         track = el.track;
         track.mode = "hidden";
         track.addEventListener("cuechange", onCueChange);
