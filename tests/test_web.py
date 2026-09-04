@@ -810,6 +810,36 @@ def test_one_unreadable_file_is_a_bad_request_not_a_crash(client, conn):
     assert "could not be read" in response.json()["error"]
 
 
+def test_an_oversized_upload_is_refused_before_it_is_parsed(client, conn, monkeypatch):
+    monkeypatch.setattr(web, "UPLOAD_MAX", 10)
+    response = client.post(
+        "/api/ingest",
+        data={"kind": "file"},
+        files={"files": ("note.md", b"# far more than ten bytes of markdown", "text/markdown")},
+    )
+
+    assert response.status_code == 400
+    assert "40 MB" in response.json()["error"]
+
+
+def test_an_oversized_file_in_a_batch_is_skipped_not_a_crash(client, conn, monkeypatch):
+    good_body = b"# A note\n\nA paragraph of prose, long enough to parse.\n"
+    monkeypatch.setattr(web, "UPLOAD_MAX", len(good_body) + 10)
+    good = ("note.md", good_body, "text/markdown")
+    big = ("big.md", good_body + b"x" * 1000, "text/markdown")
+
+    response = client.post(
+        "/api/ingest",
+        data={"kind": "file"},
+        files=[("files", good), ("files", big)],
+    )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["added"] == ["a-note"]
+    assert len(body["failed"]) == 1 and "big.md" in body["failed"][0]
+
+
 def test_the_text_can_be_edited_by_hand(client, conn, monkeypatch):
     """The parser keeps things it should not, and gets things wrong. Ids do not
     move, so the audio and its timings stay valid — only out of date."""

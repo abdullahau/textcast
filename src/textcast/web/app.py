@@ -126,6 +126,11 @@ COOKIE = "textcast_token"
 #: with the run of the whole app.
 INGEST_PATH = "/api/ingest"
 
+#: An uploaded article. Generous for a real report or a saved page; a PDF or
+#: DOCX beyond this is parsed synchronously inside the request, and pictures.py
+#: caps a single picture at 12 MB for the same reason.
+UPLOAD_MAX = 40 * 1024 * 1024
+
 
 def account():
     """The one account, or None before anything has been seeded."""
@@ -1476,6 +1481,8 @@ async def api_ingest(
     if chosen:
         file = chosen[0]
         data = await file.read()
+        if len(data) > UPLOAD_MAX:
+            return _ingest_error(request, "That file is over the 40 MB upload limit.")
         name = file.filename.lower()
         if name.endswith((".eml", ".mbox", ".msg")):
             eml = data
@@ -1544,6 +1551,8 @@ async def _ingest_many(request: Request, files: list[UploadFile], tags: list[str
         try:
             data = await upload.read()
             filename = upload.filename or "upload"
+            if len(data) > UPLOAD_MAX:
+                raise IngestError("over the 40 MB upload limit")
             name = filename.lower()
             kwargs: dict = {"tags": tags, "build": False}
             if name.endswith((".eml", ".mbox", ".msg")):

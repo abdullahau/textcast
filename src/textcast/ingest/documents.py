@@ -8,9 +8,18 @@ from __future__ import annotations
 
 import io
 import re
+import zipfile
 from pathlib import Path
 
 from ..document import Article, Block, BlockKind, Section
+
+#: A report nobody is skimming has fewer pages than this; a PDF beyond it is
+#: extracted page by page, synchronously, inside the request.
+MAX_PDF_PAGES = 2000
+#: A .docx is a zip. Its own bytes can be small and still declare gigabytes
+#: of XML inside it -- checked from the zip's own directory, before anything
+#: is decompressed.
+MAX_DOCX_UNCOMPRESSED = 200 * 1024 * 1024
 
 #: A line that is really a heading, in Markdown or in plain prose. Matched
 #: against one line at a time, so it needs no MULTILINE.
@@ -215,6 +224,11 @@ def text_from_pdf(data: bytes) -> str:
     except Exception as exc:
         raise UnsupportedDocument(f"that PDF could not be read: {exc}") from exc
 
+    if len(reader.pages) > MAX_PDF_PAGES:
+        raise UnsupportedDocument(
+            f"that PDF has {len(reader.pages)} pages, over the {MAX_PDF_PAGES} limit"
+        )
+
     pages = []
     for page in reader.pages:
         try:
@@ -270,6 +284,17 @@ def text_from_docx(data: bytes) -> tuple[str, str]:
         raise UnsupportedDocument(
             "DOCX support needs the documents extra: uv sync --extra documents"
         ) from exc
+
+    # A .docx is a zip, and its central directory declares each entry's
+    # uncompressed size without decompressing anything -- read that first, so
+    # a small file that unpacks into gigabytes is refused before it does.
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            declared = sum(info.file_size for info in archive.infolist())
+    except zipfile.BadZipFile as exc:
+        raise UnsupportedDocument(f"that Word file could not be read: {exc}") from exc
+    if declared > MAX_DOCX_UNCOMPRESSED:
+        raise UnsupportedDocument("that Word file is too large once decompressed")
 
     try:
         document = docx.Document(io.BytesIO(data))

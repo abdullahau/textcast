@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import io
+import zipfile
 
 import pytest
 
 from textcast.document import BlockKind
+from textcast.ingest import documents
 from textcast.ingest.documents import (
     UnsupportedDocument,
     _rewrap,
@@ -106,6 +108,31 @@ def test_docx_headings_and_title():
     assert article.title == "The Roll-Up Trade", "a heading beats the filename"
     assert [s.title for s in article.sections] == ["The Roll-Up Trade", "Why now"]
     assert article.source == "Word document"
+
+
+def test_a_pdf_with_too_many_pages_is_refused(monkeypatch):
+    pypdf = pytest.importorskip("pypdf", reason="pypdf not installed")
+    monkeypatch.setattr(documents, "MAX_PDF_PAGES", 1)
+
+    writer = pypdf.PdfWriter()
+    writer.add_blank_page(width=72, height=72)
+    writer.add_blank_page(width=72, height=72)
+    buffer = io.BytesIO()
+    writer.write(buffer)
+
+    with pytest.raises(UnsupportedDocument, match="pages"):
+        article_from_file(buffer.getvalue(), "big.pdf")
+
+
+def test_a_docx_declaring_far_more_than_it_holds_is_refused(monkeypatch):
+    monkeypatch.setattr(documents, "MAX_DOCX_UNCOMPRESSED", 100)
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("word/document.xml", "x" * 1000)
+
+    with pytest.raises(UnsupportedDocument, match="too large"):
+        article_from_file(buffer.getvalue(), "bomb.docx")
 
 
 def test_rewrap_rejoins_hard_wrapped_lines():
