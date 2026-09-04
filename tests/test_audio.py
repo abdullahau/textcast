@@ -352,6 +352,46 @@ def test_misaki_ipa_markup_never_reaches_the_onnx_engine():
     assert strip_ipa_markup("[a](/x/) and [b](/y/)") == "a and b"
 
 
+def test_onnx_phonemes_is_locked_like_synthesize_is():
+    """`phonemes()` and `synthesize()` share the same instance's tokenizer,
+    which keeps state through a batch -- a web request looking up a
+    pronunciation must not overlap a build running on the same shared
+    engine."""
+    import threading
+    import time
+
+    from textcast.tts.kokoro_onnx import KokoroOnnxEngine
+
+    engine = object.__new__(KokoroOnnxEngine)
+    engine.language = "en-us"
+    engine._lock = threading.Lock()
+
+    active = 0
+    max_active = 0
+    counts_lock = threading.Lock()
+
+    class FakeTokenizer:
+        def phonemize(self, text, lang):
+            nonlocal active, max_active
+            with counts_lock:
+                active += 1
+                max_active = max(max_active, active)
+            time.sleep(0.05)
+            with counts_lock:
+                active -= 1
+            return "ph"
+
+    engine._tok = FakeTokenizer()
+
+    threads = [threading.Thread(target=engine.phonemes, args=("hello",)) for _ in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert max_active == 1, "concurrent phonemes() calls reached the tokenizer at once"
+
+
 def test_the_onnx_engine_says_what_is_missing_rather_than_failing_late(tmp_path):
     from textcast.tts.kokoro_onnx import KokoroOnnxEngine
 

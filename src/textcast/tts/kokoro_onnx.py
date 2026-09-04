@@ -239,8 +239,13 @@ class KokoroOnnxEngine:
         Not the same answer the PyTorch engine gives: that one asks misaki,
         which has its own dictionaries in front of espeak. A phoneme rule's
         own IPA passes through untouched, exactly as it will at synthesis.
+
+        Locked, like `synthesize`: the tokenizer this calls into keeps state
+        through a batch, so a pronunciation lookup from a web request and a
+        build running on the same shared instance must not overlap it.
         """
-        return self._phonemise(text)
+        with self._lock:
+            return self._phonemise(text)
 
     def _phonemise(self, text: str) -> str:
         """espeak for the prose, the rule's own phonemes where a rule fired.
