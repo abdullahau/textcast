@@ -9,6 +9,12 @@ section you are about to touch**, and add to it when something bites you.
 
 ## Parsing: the DOM, the adapters and the visuals
 
+- **`zipfile` never hands back more than the directory declared.** A `.docx`
+  is a zip, and the plan against a bomb was to sum `info.file_size` — the
+  file's own numbers. Rewriting them down does not buy a way past the cap:
+  `ZipExtFile` stops at the declared size and then fails the CRC, so a lying
+  directory is refused rather than believed. `_unpacks_over` counts what
+  really comes out anyway, so the guarantee is the code's and not CPython's.
 - **`node.css()` searches the node *and* its subtree.** So a `<table>` asked
   whether it holds another table says yes about itself, and `blocks_from_dom`
   turned a whole article into one figure the moment
@@ -837,6 +843,17 @@ Each cost an afternoon once; the incident is in git, the rule is here.
   copied off a machine went on working and only changing the password stopped
   it. `/settings/sign-out-everywhere` rotates the session on its own and writes
   the browser that asked a fresh cookie, as changing the password already did.
+- **A size checked off `UploadFile` bounds what is stored, not what saying no
+  costs.** By the time the endpoint runs, the multipart parser has spooled the
+  whole part to a temp file, and `await upload.read()` then puts all of it in
+  memory to measure it — so a 2 GB post was fully received and fully bought
+  before the 40 MB limit was consulted. `BodySizeLimit` reads Content-Length
+  off the scope instead, which is known before the body is streamed and before
+  `Auth` runs. `_read_capped` counts as it reads, for a chunked body that
+  declared no length at all.
+- **It is plain ASGI, not `@app.middleware("http")`.** That decorator is
+  `BaseHTTPMiddleware`, which wraps every response in a stream; `/media` serves
+  range requests straight off disk and should not be wrapped to check a header.
 
 ## Docker and the image
 

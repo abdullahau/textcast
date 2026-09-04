@@ -1938,3 +1938,54 @@ def test_a_running_build_answers_409_whichever_route_asked(client, conn, monkeyp
 
     assert reply.status_code == 409
     assert "running" in reply.json()["detail"]
+
+
+def test_an_oversized_body_is_refused_before_the_app_ever_sees_it():
+    """The cap has to land before the multipart parser spools the part.
+
+    Read out of `UploadFile` instead, it bounds what is *stored* and not what
+    saying no costs: the bytes are already on disk by then, and
+    `await read()` puts the whole of them in memory to measure them.
+    """
+    seen = []
+
+    async def inner(scope, receive, send):
+        seen.append(scope["path"])
+
+    guard = web.BodySizeLimit(inner, max_bytes=100)
+    scope = {
+        "type": "http",
+        "path": "/api/ingest",
+        "headers": [(b"content-length", b"9999"), (b"accept", b"application/json")],
+    }
+    sent = []
+
+    async def send(message):
+        sent.append(message)
+
+    import asyncio
+
+    asyncio.run(guard(scope, None, send))
+
+    assert not seen, "the request never reached the app"
+    assert sent[0]["status"] == 413
+
+
+def test_an_upload_that_never_declared_its_size_is_still_capped(monkeypatch):
+    """A chunked body carries no Content-Length, so the guard above has
+    nothing to check and the count has to happen while it is read."""
+    import asyncio
+    import io
+
+    from fastapi import UploadFile
+
+    from textcast.service import IngestError
+
+    monkeypatch.setattr(web, "UPLOAD_MAX", 1024)
+
+    upload = UploadFile(filename="big.pdf", file=io.BytesIO(b"x" * 5000))
+    with pytest.raises(IngestError, match="upload limit"):
+        asyncio.run(web._read_capped(upload))
+
+    small = UploadFile(filename="small.pdf", file=io.BytesIO(b"x" * 10))
+    assert asyncio.run(web._read_capped(small)) == b"x" * 10

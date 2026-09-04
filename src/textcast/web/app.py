@@ -23,6 +23,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from markupsafe import Markup
+from starlette.datastructures import Headers
 
 from .. import __version__, db
 from ..document import VISUAL_KINDS, BlockKind, to_markdown
@@ -139,6 +140,13 @@ INGEST_PATH = "/api/ingest"
 #: DOCX beyond this is parsed synchronously inside the request, and pictures.py
 #: caps a single picture at 12 MB for the same reason.
 UPLOAD_MAX = 40 * 1024 * 1024
+
+#: What the multipart envelope adds on top of the file: the boundaries, the
+#: part headers and the other fields on the Add page. The body limit has to
+#: allow for them, or a file of exactly UPLOAD_MAX is refused for its wrapper.
+BODY_SLACK = 1024 * 1024
+
+TOO_LARGE = f"That file is over the {UPLOAD_MAX // (1024 * 1024)} MB upload limit."
 
 
 def account():
@@ -295,6 +303,65 @@ def login_page(request: Request, next: str = "/"):
         next=_safe_next(next),
         unconfigured=account() is None,
     )
+
+
+class BodySizeLimit:
+    """Refuse an oversized body before anything has read it.
+
+    `await UploadFile.read()` is where the bytes become one object in memory,
+    and by then the multipart parser has already spooled the whole part to a
+    temp file -- so a cap applied there bounds what is stored, not what it
+    costs to say no. Content-Length is sent by every browser that posts a
+    file and is known before the body is streamed at all, which is the only
+    point where refusing is free.
+
+    Plain ASGI rather than `@app.middleware("http")`: that one wraps every
+    response in a stream, and the media route serves range requests straight
+    off disk.
+    """
+
+    def __init__(self, app, max_bytes: int):
+        self.app = app
+        self.max_bytes = max_bytes
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            declared = Headers(scope=scope).get("content-length", "")
+            if declared.isdigit() and int(declared) > self.max_bytes:
+                await self._refuse(scope, receive, send)
+                return
+        await self.app(scope, receive, send)
+
+    async def _refuse(self, scope, receive, send):
+        accept = Headers(scope=scope).get("accept", "")
+        if "text/html" in accept:
+            response = HTMLResponse(
+                f"<h1>Too large</h1><p>{TOO_LARGE}</p><p><a href=\"/add\">Back</a></p>",
+                status_code=413,
+            )
+        else:
+            response = JSONResponse({"error": TOO_LARGE}, status_code=413)
+        await response(scope, receive, send)
+
+
+app.add_middleware(BodySizeLimit, max_bytes=UPLOAD_MAX + BODY_SLACK)
+
+
+async def _read_capped(upload: UploadFile) -> bytes:
+    """Read an upload in chunks, stopping at the cap rather than past it.
+
+    `await upload.read()` with no argument buys the whole part at once. The
+    middleware above has already turned away anything that declared its size,
+    so what is left here is a body that did not -- a chunked one -- where the
+    length is only knowable by counting it.
+    """
+    chunks, size = [], 0
+    while chunk := await upload.read(64 * 1024):
+        size += len(chunk)
+        if size > UPLOAD_MAX:
+            raise IngestError(TOO_LARGE)
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 @lru_cache(maxsize=1)
@@ -1524,9 +1591,10 @@ async def api_ingest(
     eml = None
     if chosen:
         file = chosen[0]
-        data = await file.read()
-        if len(data) > UPLOAD_MAX:
-            return _ingest_error(request, "That file is over the 40 MB upload limit.")
+        try:
+            data = await _read_capped(file)
+        except IngestError as exc:
+            return _ingest_error(request, str(exc))
         name = file.filename.lower()
         if name.endswith((".eml", ".mbox", ".msg")):
             eml = data
@@ -1593,10 +1661,8 @@ async def _ingest_many(request: Request, files: list[UploadFile], tags: list[str
         # unhandled 500 that cost the whole batch -- the one thing a batch
         # promises not to do.
         try:
-            data = await upload.read()
+            data = await _read_capped(upload)
             filename = upload.filename or "upload"
-            if len(data) > UPLOAD_MAX:
-                raise IngestError("over the 40 MB upload limit")
             name = filename.lower()
             kwargs: dict = {"tags": tags, "build": False}
             if name.endswith((".eml", ".mbox", ".msg")):
