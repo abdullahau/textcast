@@ -298,6 +298,14 @@ def login(
     from .. import accounts
 
     target = _safe_next(next)
+    who = limits.client_key(request)
+    # Checked before the password is compared, the same as the ingest key's
+    # own budget and for the same reason: this grants the whole account, not
+    # one scoped route, and only scrypt's own cost stood in the way before.
+    waiting = limits.LOGIN_ATTEMPTS.check(who)
+    if waiting:
+        raise _too_many(waiting, "Too many sign-in attempts from this address.")
+
     current = account()
     # One message for both halves, so a wrong username cannot be told from a
     # wrong password by trying.
@@ -307,7 +315,9 @@ def login(
     if username.strip() != current.username or not accounts.verify_password(
         password, current.password_hash
     ):
+        limits.LOGIN_ATTEMPTS.spend(who)
         return render(request, "login.html", next=target, error=wrong)
+    limits.LOGIN_ATTEMPTS.forget(who)
     return _write_session(request, RedirectResponse(target, status_code=303), current.session)
 
 

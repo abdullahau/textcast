@@ -118,6 +118,13 @@ INGEST_ATTEMPTS = RateLimiter(allowed=10, per_seconds=900)
 #: work per five minutes only in the worst case.
 INGEST_WORK = RateLimiter(allowed=20, per_seconds=300)
 
+#: Wrong sign-in attempts. `/login` grants the whole account, not one scoped
+#: route, and had no budget at all -- only scrypt's own cost stood between an
+#: internet-facing instance and unlimited password guessing. Same numbers as
+#: the ingest key's, for the same reason: someone who mistypes their own
+#: password ten times in a quarter of an hour has a different problem.
+LOGIN_ATTEMPTS = RateLimiter(allowed=10, per_seconds=900)
+
 
 def client_key(request) -> str:
     """Who is asking. Falls back to a single shared bucket, not to no limit."""
@@ -129,3 +136,4 @@ def reset_all() -> None:
     """Empty every budget. For tests, and for nothing else."""
     INGEST_ATTEMPTS.forget_all()
     INGEST_WORK.forget_all()
+    LOGIN_ATTEMPTS.forget_all()

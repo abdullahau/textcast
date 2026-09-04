@@ -146,6 +146,37 @@ def test_a_wrong_username_reads_exactly_like_a_wrong_password(client, settings):
     assert wrong_name.text == wrong_word.text
 
 
+def test_guessing_the_password_stops_being_free(client, settings):
+    """/login grants the whole account, and only scrypt's own cost stood
+    between an internet-facing instance and unlimited guessing before."""
+    from textcast.web import limits
+
+    sign_in_required(settings)
+    limits.reset_all()
+
+    codes = []
+    for _ in range(limits.LOGIN_ATTEMPTS.allowed + 3):
+        codes.append(
+            client.post("/login", data={"username": "reader", "password": "guess"}).status_code
+        )
+
+    assert codes[0] == 200, "a wrong password still just shows the form"
+    assert 429 in codes, "guessing was never refused"
+    assert codes.count(200) == limits.LOGIN_ATTEMPTS.allowed
+
+
+def test_a_correct_sign_in_does_not_spend_the_failure_budget(client, settings):
+    from textcast.web import limits
+
+    sign_in_required(settings)
+    limits.reset_all()
+
+    client.post("/login", data={"username": "reader", "password": "guess"})
+    client.post("/login", data={"username": "reader", "password": PASSWORD})
+
+    assert limits.LOGIN_ATTEMPTS.check("testclient") == 0.0
+
+
 def test_the_cookie_carries_a_session_and_never_the_password(client, settings):
     """It used to carry the credential itself, on every request."""
     account = sign_in_required(settings)
