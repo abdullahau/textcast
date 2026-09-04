@@ -492,3 +492,53 @@ def test_small_capitals_do_not_split_the_word_they_are_inside():
     assert "ChatGPT" in text
     assert "Chat GPT" not in text
     assert "N VIDIA" not in text
+
+
+def test_a_kept_picture_survives_a_drop_rule_aimed_at_its_wrapper():
+    """`keep` is the authority, and it used to lose.
+
+    `drop` ran first, over the whole container, as CSS with no depth limit,
+    and decomposed what it matched — so `keep`, asked per node afterwards,
+    had nothing left to rescue. Substack showed it: `.pencraft img` was
+    written for an author's face, and Substack now wraps the whole post body
+    in a `pencraft` layout div, so that one selector took every picture in
+    the article and the post came out as unbroken prose.
+    """
+    from textcast.ingest.base import blocks_from_dom
+    from textcast.ingest.visuals import VisualRules
+
+    rules = VisualRules(keep=(".captioned-image-container",), drop=(".pencraft img",))
+    html = (
+        "<article><div class='pencraft'>"
+        "<p>A paragraph of the argument, long enough to be kept as one.</p>"
+        "<div class='captioned-image-container'><figure>"
+        "<img src='https://cdn.example.com/chart.png' width='800' height='500'>"
+        "<figcaption>Revenue by segment</figcaption>"
+        "</figure></div>"
+        "</div></article>"
+    )
+    section = blocks_from_dom(
+        parse_tree(html).css_first("article"), visuals=rules, base_url="https://example.com"
+    )[0]
+
+    assert [b.kind for b in section.blocks] == [BlockKind.PARA, BlockKind.FIGURE]
+
+
+def test_a_drop_rule_still_takes_furniture_no_keep_rule_claims():
+    """The rescue must not turn `drop` off — an avatar under the same
+    wrapper has no keep rule over it and still goes."""
+    from textcast.ingest.base import blocks_from_dom
+    from textcast.ingest.visuals import VisualRules
+
+    rules = VisualRules(keep=(".captioned-image-container",), drop=(".pencraft img",))
+    html = (
+        "<article><div class='pencraft'>"
+        "<p>A paragraph of the argument, long enough to be kept as one.</p>"
+        "<img src='https://cdn.example.com/face.png' width='800' height='500'>"
+        "</div></article>"
+    )
+    section = blocks_from_dom(
+        parse_tree(html).css_first("article"), visuals=rules, base_url="https://example.com"
+    )[0]
+
+    assert [b.kind for b in section.blocks] == [BlockKind.PARA]

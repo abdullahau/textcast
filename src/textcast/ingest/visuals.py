@@ -184,6 +184,32 @@ def _marked_keep(node: Node, rules: VisualRules, stop: Node | None) -> bool:
     return any(_ancestor_matches(node, selector, stop) for selector in rules.keep)
 
 
+def drop_furniture(container: Node, rules: VisualRules) -> None:
+    """Remove the furniture, but never a picture the keep list claims.
+
+    `keep` is asked per node, late, and only reaches six ancestors. `drop` was
+    a plain `dom.drop` over the whole container: CSS, no depth limit, and it
+    decomposes the node — so by the time `keep` was consulted the picture was
+    already off the tree and could not be rescued. Drop silently won, which is
+    backwards. Every adapter writes a short keep list and a long drop one
+    precisely because keep is meant to be the authority.
+
+    Substack is what showed it. `.pencraft img` was written for an author's
+    face and a button glyph; Substack now wraps the whole post body in a
+    `pencraft` layout div, ten levels above every picture in the article, so
+    that one selector took all of them and every post came out as prose.
+    """
+    for selector in rules.drop:
+        try:
+            found = container.css(selector)
+        except Exception:
+            continue
+        for node in found:
+            if _marked_keep(node, rules, container):
+                continue
+            node.decompose()
+
+
 def _matches_self(node: Node, selector: str) -> bool:
     """Does this node itself match, ignoring its descendants?
 
@@ -530,5 +556,6 @@ __all__ = [
     "NO_VISUALS",
     "TABLE_SELECTORS",
     "VisualRules",
+    "drop_furniture",
     "visual_block",
 ]

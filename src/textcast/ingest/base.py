@@ -11,8 +11,8 @@ import re
 from typing import Protocol
 
 from ..document import Article, Block, BlockKind, Section
-from .dom import Node, Tree, ancestor_tags, children, clean, drop, parse, text_of
-from .visuals import NO_VISUALS, VisualRules, visual_block
+from .dom import Node, Tree, ancestor_tags, children, clean, parse, text_of
+from .visuals import NO_VISUALS, VisualRules, drop_furniture, visual_block
 
 BLOCK_SELECTOR = "h1, h2, h3, h4, blockquote, p, ol, ul"
 
@@ -58,7 +58,7 @@ def blocks_from_dom(
     headings = set(heading_tags) | {"h1"}
 
     if visuals.enabled and visuals.drop:
-        drop(container, list(visuals.drop))
+        drop_furniture(container, visuals)
     selector = f"{BLOCK_SELECTOR}, {visuals.selector}" if visuals.enabled else BLOCK_SELECTOR
 
     #: Visual containers that already produced a block. Their contents belong

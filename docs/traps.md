@@ -9,6 +9,28 @@ section you are about to touch**, and add to it when something bites you.
 
 ## Parsing: the DOM, the adapters and the visuals
 
+- **`drop` used to beat `keep`, and beat it destructively.** The drop rules ran
+  first, as CSS over the whole container, with no depth limit, and
+  `decompose()`d what they matched. `keep` is asked per node afterwards and
+  only reaches six ancestors — so by then the picture was off the tree and
+  could not be rescued. Every adapter writes a short keep list and a long drop
+  one *because* keep is meant to be the authority. Substack showed it:
+  `.pencraft img` was written for an author's face, Substack now wraps the
+  whole post body in a `pencraft` layout div ten levels above every picture,
+  and so every post came out as unbroken prose. `visuals.drop_furniture` skips
+  a node any keep rule claims. Changing it moved nothing in `tests/corpus` —
+  check that before touching it again.
+- **A corpus file does not prove the live page still parses.** The one fixture
+  carrying `pencraft` keeps its figures, because it was saved before Substack
+  moved the class up the tree. The fixtures are a guard against regression,
+  not evidence that a publication's markup has held.
+- **`requests` reads a page as ISO-8859-1 whenever the server names no
+  charset.** That is the old HTTP/1.1 default and it is almost never true;
+  Semafor sends a bare `text/html`, so every curly quote arrived as the three
+  characters its UTF-8 bytes spell in Latin-1 — an opening quote read back as
+  "a-circumflex, euro, oe". `service.fetch` asks the body instead, and only
+  where the server declined to say: a charset that *was* declared is believed,
+  or a page of real Latin-1 would be re-read as UTF-8.
 - **`zipfile` never hands back more than the directory declared.** A `.docx`
   is a zip, and the plan against a bomb was to sum `info.file_size` — the
   file's own numbers. Rewriting them down does not buy a way past the cap:
