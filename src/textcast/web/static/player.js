@@ -444,7 +444,10 @@
     var body = JSON.stringify({ section: current, ms: Math.round(elapsed()), finished: finishedNow });
     var url = "/api/articles/" + cfg.articleId + "/position";
     if (navigator.sendBeacon) navigator.sendBeacon(url, new Blob([body], { type: "application/json" }));
-    else fetch(url, { method: "POST", body: body, headers: { "Content-Type": "application/json" }, keepalive: true });
+    else {
+      fetch(url, { method: "POST", body: body, headers: { "Content-Type": "application/json" }, keepalive: true })
+        .catch(function () { /* offline; the next save tries again */ });
+    }
   }
 
   /* Stop, go back to the top, and delete the saved position. The three go
@@ -483,7 +486,7 @@
   function wireMediaSession() {
     if (!("mediaSession" in navigator)) return;
     var handlers = {
-      play: function () { audio.play(); },
+      play: function () { audio.play().catch(function () { /* needs a gesture */ }); },
       pause: function () { audio.pause(); },
       /* Same step as the buttons, so the lock screen and the page agree. */
       seekbackward: function (details) {

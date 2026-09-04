@@ -356,7 +356,9 @@ self.addEventListener("fetch", (event) => {
              Only a page already held offline is refreshed — this is the copy
              the user asked to keep, not every page they happen to open. */
           const copy = response.clone();
-          caches.open(OFFLINE).then((c) => c.match(request).then((existing) => existing && c.put(request, copy)));
+          caches.open(OFFLINE)
+            .then((c) => c.match(request).then((existing) => existing && c.put(request, copy)))
+            .catch(() => {});
         }
         return response;
       })
