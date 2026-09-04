@@ -209,6 +209,18 @@ def active_id(page):
     return page.evaluate("(document.querySelector('#doc .b.on') || {}).id || null")
 
 
+def first_audio_url(page, slug):
+    """The address the player really uses, `?b=<built_at>` and all.
+
+    The cache is keyed on the whole URL, so a test that asks for the bare path
+    is asking for something that was never stored.
+    """
+    name = page.evaluate(
+        "() => JSON.parse(document.getElementById('payload').textContent).sections[0].file"
+    )
+    return f"/media/{slug}/{name}"
+
+
 def test_media_chrome_upgrades(page):
     assert page.evaluate("!!customElements.get('media-play-button')")
     assert page.locator("#player").is_visible()
@@ -425,7 +437,7 @@ def test_keeping_an_article_offline_survives_losing_the_network(live, browser):
         page.click("#menu")
         page.check("#opt-offline")
 
-        audio_url = f"/media/{slug}/{manifest.sections[0].file}"
+        audio_url = first_audio_url(page, slug)
         page.wait_for_function(
             "async (url) => !!(await caches.match(new Request(url)))",
             arg=audio_url,
@@ -473,7 +485,7 @@ def test_cached_audio_still_answers_a_byte_range(live, browser):
         page.click("#menu")
         page.check("#opt-offline")
 
-        audio_url = f"/media/{slug}/{manifest.sections[0].file}"
+        audio_url = first_audio_url(page, slug)
         page.wait_for_function(
             "async (url) => !!(await caches.match(new Request(url)))",
             arg=audio_url,
@@ -517,7 +529,7 @@ def test_a_suffix_range_and_a_malformed_one_are_both_answered(live, browser):
         page.click("#menu")
         page.check("#opt-offline")
 
-        audio_url = f"/media/{slug}/{manifest.sections[0].file}"
+        audio_url = first_audio_url(page, slug)
         page.wait_for_function(
             "async (url) => !!(await caches.match(new Request(url)))",
             arg=audio_url,
@@ -717,7 +729,8 @@ def test_stopping_returns_to_the_start_and_forgets_the_position(still_page, quie
     assert still_page.locator("#sheet").is_hidden(), "the sheet closes behind it"
     still_page.wait_for_function(
         "() => { const a = document.getElementById('audio');"
-        " return a.paused && a.currentTime < 1 && a.currentSrc.endsWith('section-000.opus'); }",
+        " return a.paused && a.currentTime < 1"
+        " && a.currentSrc.includes('section-000.opus'); }",
         timeout=15000,
     )
 
@@ -1067,7 +1080,7 @@ def test_an_article_nobody_asked_to_keep_is_not_kept(live, browser):
             timeout=20000,
         )
 
-        audio_url = f"/media/{slug}/{manifest.sections[0].file}"
+        audio_url = first_audio_url(page, slug)
         # Fetch it the way the audio element would, without ticking the box.
         assert page.evaluate("async (url) => (await fetch(url)).ok", audio_url)
         page.wait_for_timeout(600)
@@ -1086,3 +1099,190 @@ def test_an_article_nobody_asked_to_keep_is_not_kept(live, browser):
         )
     finally:
         context.close()
+
+
+def test_unticking_removes_every_file_it_stored(live, browser):
+    """"Untick it and the space comes back" has to be true of all of it: the
+    page, the audio, the timing map and the marker."""
+    base, slug, _manifest = live
+    context = browser.new_context()
+    page = context.new_page()
+    try:
+        page.goto(f"{base}/a/{slug}", wait_until="networkidle")
+        page.wait_for_function(
+            "() => navigator.serviceWorker && navigator.serviceWorker.controller",
+            timeout=20000,
+        )
+        page.click("#menu")
+        page.check("#opt-offline")
+        audio_url = first_audio_url(page, slug)
+        page.wait_for_function(
+            "async (url) => !!(await caches.match(new Request(url)))",
+            arg=audio_url, timeout=20000,
+        )
+
+        page.uncheck("#opt-offline")
+        page.wait_for_function(
+            """async (slug) => {
+                const cache = await caches.open("textcast-offline");
+                const keys = await cache.keys();
+                return keys.every(r => !r.url.includes("/media/" + slug + "/")
+                                       && !r.url.includes("__offline__"));
+            }""",
+            arg=slug, timeout=20000,
+        )
+        assert page.evaluate("localStorage.getItem('tc:offline:' + arguments[0])"
+                             .replace("arguments[0]", f"'{slug}'")) == "0"
+    finally:
+        context.close()
+
+
+def test_a_page_load_collects_what_nothing_points_at_any_more(live, browser):
+    """The boxes are the only record of what was asked for, so the worker is
+    told them on every page. Without it the cache only ever grew: an article
+    deleted from the library, or unticked in another tab, had no way to be
+    heard about."""
+    base, slug, _manifest = live
+    context = browser.new_context()
+    page = context.new_page()
+    try:
+        page.goto(f"{base}/a/{slug}", wait_until="networkidle")
+        page.wait_for_function(
+            "() => navigator.serviceWorker && navigator.serviceWorker.controller",
+            timeout=20000,
+        )
+        page.click("#menu")
+        page.check("#opt-offline")
+        audio_url = first_audio_url(page, slug)
+        page.wait_for_function(
+            "async (url) => !!(await caches.match(new Request(url)))",
+            arg=audio_url, timeout=20000,
+        )
+
+        # The box goes without the worker being told — which is exactly the
+        # shape of "deleted in another tab".
+        page.evaluate("(slug) => localStorage.removeItem('tc:offline:' + slug)", slug)
+        page.reload(wait_until="networkidle")
+
+        page.wait_for_function(
+            "async (url) => !(await caches.match(new Request(url)))",
+            arg=audio_url, timeout=20000,
+        )
+    finally:
+        context.close()
+
+
+def test_the_play_button_is_round_and_not_an_oval(still_page):
+    """media-chrome sizes a button from the glyph and the padding, so the
+    height came from --media-control-height and the width from whatever the
+    play mark happened to be."""
+    box = still_page.evaluate(
+        "() => { const r = document.querySelector('media-play-button')"
+        ".getBoundingClientRect(); return {w: r.width, h: r.height}; }"
+    )
+    assert abs(box["w"] - box["h"]) < 1.5, f"{box['w']}x{box['h']} is not a circle"
+
+
+def test_the_hold_to_unlock_says_how_long_to_hold(still_page):
+    """Holding for an unmarked length of time is a guess, and a guess that has
+    to be repeated is worse than a second tap."""
+    still_page.click("#lock")
+    hint = still_page.locator("#lock-hint")
+    assert hint.is_hidden(), "nothing to say until something is held"
+
+    still_page.evaluate(
+        "() => document.getElementById('lock')"
+        ".dispatchEvent(new PointerEvent('pointerdown', {pointerId: 1}))"
+    )
+    assert hint.is_visible(), "the hold showed no sign of being a hold"
+    assert "hold" in still_page.locator("#lock-hint-text").inner_text().lower()
+    assert still_page.evaluate(
+        "() => document.getElementById('lock-fill').classList.contains('filling')"
+    ), "the bar does not fill, so the hold still has no length"
+
+    still_page.wait_for_timeout(800)
+    assert not still_page.evaluate(
+        "document.getElementById('player').classList.contains('locked')"
+    )
+
+
+def test_letting_go_early_says_so_rather_than_doing_nothing(still_page):
+    still_page.click("#lock")
+    still_page.evaluate(
+        "() => document.getElementById('lock')"
+        ".dispatchEvent(new PointerEvent('pointerdown', {pointerId: 2}))"
+    )
+    still_page.wait_for_timeout(120)
+    still_page.evaluate(
+        "() => document.getElementById('lock')"
+        ".dispatchEvent(new PointerEvent('pointerup', {pointerId: 2}))"
+    )
+
+    assert still_page.evaluate(
+        "document.getElementById('player').classList.contains('locked')"
+    ), "a short hold unlocked it"
+    assert "longer" in still_page.locator("#lock-hint-text").inner_text()
+
+
+def test_a_tap_on_a_dead_control_says_why_nothing_happened(still_page):
+    """The controls are `pointer-events: none`, so the tap falls through to the
+    bar. Saying why is the difference between a lock and a broken player."""
+    still_page.click("#lock")
+    still_page.evaluate(
+        "() => document.getElementById('player')"
+        ".dispatchEvent(new PointerEvent('pointerdown', {pointerId: 3, bubbles: true}))"
+    )
+
+    assert still_page.locator("#lock-hint").is_visible()
+    assert "Locked" in still_page.locator("#lock-hint-text").inner_text()
+
+
+def test_the_output_delay_is_measured_and_not_asked_for(still_page):
+    """The slider was the whole answer once, and a control for something the
+    browser already knows is a control that should not exist.
+
+    `AudioContext.outputLatency` is the output *device's* latency, so a
+    context with nothing connected to it reports the number while the audio
+    element keeps its own path to the speaker. It reads 0 until the device's
+    stream is open, which is why it is asked after play and not at load.
+    """
+    said = still_page.locator("#sync-detected")
+    assert "press play" in said.inner_text(), "it claimed to have measured before playing"
+
+    still_page.evaluate("document.getElementById('audio').play()")
+    still_page.wait_for_function(
+        "() => /reports \\d+ ms|will not say/.test("
+        "document.getElementById('sync-detected').textContent)",
+        timeout=20000,
+    )
+    text = said.inner_text()
+    assert "press play" not in text
+
+    # Whatever it found is applied, and the slider is only the leftover.
+    assert still_page.evaluate("document.getElementById('opt-sync').value") == "0"
+    still_page.evaluate("document.getElementById('audio').pause()")
+
+
+def test_the_measured_delay_actually_moves_the_highlight(still_page, live):
+    """Detected and trimmed are added together, so a device that reports 200 ms
+    holds the highlight back by 200 ms with the slider still at zero."""
+    _base, _slug, manifest = live
+    blocks = manifest.sections[0].blocks
+    audio = "document.getElementById('audio')"
+
+    to_first_section(still_page)
+    still_page.evaluate(f"{audio}.currentTime = {blocks[2].start_ms / 1000 + 0.3}")
+    still_page.wait_for_timeout(250)
+    assert active_id(still_page) == blocks[2].id
+
+    # The trim is the same arithmetic the detected number goes through.
+    still_page.evaluate(
+        "() => { const s = document.getElementById('opt-sync');"
+        " s.value = '1000'; s.dispatchEvent(new Event('input')); }"
+    )
+    still_page.wait_for_timeout(250)
+    assert active_id(still_page) == blocks[1].id
+    still_page.evaluate(
+        "() => { const s = document.getElementById('opt-sync');"
+        " s.value = '0'; s.dispatchEvent(new Event('input')); }"
+    )

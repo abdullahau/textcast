@@ -31,17 +31,28 @@
      seekoffset on the buttons in reader.html. */
   var SKIP_SECONDS = 5;
 
-  /* How far the highlight is held back, in milliseconds, per device.
+  /* How far the highlight is held back, in milliseconds.
      `audio.currentTime` says where the decoder is, not where the speaker is.
-     Everything after the decoder is delay no page can measure and no browser
-     reports: the output buffer, and over Bluetooth the codec and the radio
-     as well. On a laptop that is about 20 ms and nobody sees it. Over
-     Bluetooth on a phone it is 150-300 ms and often more, which is a clause —
-     and that is the whole of why the read-along looks right on a desktop and
-     runs ahead of the voice on a phone. So it is a control and not a
-     constant: the page cannot work the number out, and the person listening
-     hears it in one go. */
-  var syncOffsetMs = parseInt(store("sync-offset", "0"), 10) || 0;
+     Everything after it is delay: the output buffer, and over Bluetooth the
+     codec and the radio as well. About 25 ms on a laptop, which nobody sees,
+     and 150-300 ms over Bluetooth, which is a clause — the whole of why the
+     read-along looked right on a desktop and ran ahead of the voice on a
+     phone.
+
+     The browser will say. `AudioContext.outputLatency` is the *output
+     device's* latency, not any graph's, so a context with nothing connected
+     to it reports the number and the audio element keeps its own path to the
+     speaker. See measureLatency: it reads 0 until the device's stream is
+     open, so it is asked after playback starts and again when the device
+     changes.
+
+     `trimMs` is what is left after that — a browser that does not implement
+     the property, or a pair of earbuds that lies about itself. It is zero
+     for almost everybody and the slider says so. */
+  var detectedMs = 0;
+  var trimMs = parseInt(store("sync-offset", "0"), 10) || 0;
+
+  function offsetMs() { return detectedMs + trimMs; }
 
   var current = -1;
   var activeEl = null;
@@ -112,8 +123,68 @@
   }
 
   function syncHighlight() {
-    var id = blockAt((audio.currentTime || 0) * 1000 - syncOffsetMs);
+    var id = blockAt((audio.currentTime || 0) * 1000 - offsetMs());
     if (id) highlight(id);
+  }
+
+  /* Ask the browser what the output device costs.
+   *
+   * The context is opened, polled until it admits a number, and closed again.
+   * Held open it would keep a second output stream alive for the whole
+   * article — on iOS that means owning the audio session, which is not
+   * something a read-along should take from the element that is playing.
+   *
+   * Reading 0 is the ordinary state before the stream is up, not an answer,
+   * so a zero is waited out rather than believed. Chrome 102, Firefox 70 and
+   * Safari 18.4 implement it; anything older falls through to the trim. */
+  var measuring = false;
+  var asked = false;
+
+  function measureLatency() {
+    var Ctor = window.AudioContext || window.webkitAudioContext;
+    if (!Ctor) { asked = true; showOffset(); return; }
+    if (measuring) return;
+    measuring = true;
+
+    var ctx;
+    try {
+      ctx = new Ctor();
+    } catch (e) {
+      measuring = false;
+      asked = true;
+      showOffset();
+      return;
+    }
+    if (ctx.state === "suspended") ctx.resume().catch(function () {});
+
+    var tries = 0;
+    var done = function () {
+      measuring = false;
+      try { ctx.close(); } catch (e) { /* already closed */ }
+    };
+
+    var look = function () {
+      var seconds = ctx.outputLatency;
+      var ok = typeof seconds === "number" && isFinite(seconds) && seconds > 0
+               // A second and a half is not a headphone, it is a bug.
+               && seconds < 1.5;
+      if (ok) {
+        var ms = Math.round(seconds * 1000);
+        asked = true;
+        if (ms !== detectedMs) { detectedMs = ms; syncHighlight(); }
+        showOffset();
+        done();
+        return;
+      }
+      if (++tries > 12) {                     // ~1.2 s, then give up quietly
+        asked = true;
+        showOffset();
+        done();
+        return;
+      }
+      setTimeout(look, 100);
+    };
+    setTimeout(look, 100);
   }
 
   // --------------------------------------------------------------- follow
@@ -437,16 +508,65 @@
 
   // -------------------------------------------------------------- offline
 
+  /* Ask the worker something and wait for the answer.
+     `postMessage` on its own is a shout into a room: the download either
+     happened or it did not and the page had no way to know, so a failed
+     `addAll` left the box ticked over a cache holding nothing. */
+  function tell(message) {
+    return new Promise(function (resolve) {
+      var worker = navigator.serviceWorker && navigator.serviceWorker.controller;
+      if (!worker || !window.MessageChannel) { resolve(null); return; }
+      var channel = new MessageChannel();
+      var settled = false;
+      var finish = function (value) { if (!settled) { settled = true; resolve(value); } };
+      channel.port1.onmessage = function (event) { finish(event.data); };
+      // A worker being replaced never answers. Do not wait on it for ever.
+      setTimeout(function () { finish(null); }, 20000);
+      worker.postMessage(message, [channel.port2]);
+    });
+  }
+
+  function readable(bytes) {
+    if (bytes < 1024 * 1024) return Math.max(1, Math.round(bytes / 1024)) + " KB";
+    return (bytes / 1048576).toFixed(bytes < 10485760 ? 1 : 0) + " MB";
+  }
+
+  function showKept() {
+    tell({ type: "usage" }).then(function (answer) {
+      if (!answer || !answer.bytes) { offlineNote.textContent = ""; return; }
+      var mine = answer.bytes[cfg.slug] || 0;
+      var total = Object.keys(answer.bytes).reduce(
+        function (sum, slug) { return sum + answer.bytes[slug]; }, 0);
+      var others = Object.keys(answer.bytes).length - (mine ? 1 : 0);
+      offlineNote.textContent = mine
+        ? "This article takes " + readable(mine) + " on this device"
+          + (others > 0 ? ", " + readable(total) + " across " + (others + 1) + " articles." : ".")
+        : (total ? readable(total) + " kept on this device." : "");
+    });
+  }
+
   function setOffline(on) {
     store("offline:" + cfg.slug, "", on ? "1" : "0");
-    var worker = navigator.serviceWorker && navigator.serviceWorker.controller;
-    if (!worker) return;
     var base = "/media/" + encodeURIComponent(cfg.slug) + "/";
-    worker.postMessage({
+    var files = sections.reduce(
+      function (all, s) { return all.concat(base + s.file, base + s.track); }, []);
+
+    offlineNote.textContent = on ? "Downloading…" : "Removing…";
+    tell({
       type: on ? "cache-article" : "drop-article",
       slug: cfg.slug,
       path: location.pathname,
-      files: sections.reduce(function (all, s) { return all.concat(base + s.file, base + s.track); }, [])
+      files: files
+    }).then(function (answer) {
+      if (on && answer && answer.ok === false) {
+        // Say so, and untick it. A ticked box over an empty cache is a
+        // promise the commute finds out about.
+        store("offline:" + cfg.slug, "", "0");
+        offlineBox.checked = false;
+        offlineNote.textContent = "The download did not finish — try again on a better connection.";
+        return;
+      }
+      showKept();
     });
   }
 
@@ -462,7 +582,19 @@
     forgotten = false;
     finishedNow = false;   // listening again, so it is no longer finished
     if (frame === null) followClock();
+    /* Here and not at load: the property reads 0 until the output stream is
+       open, and pressing play is what opens it. It is also the gesture iOS
+       wants before it will let an AudioContext run at all. */
+    measureLatency();
   });
+
+  /* Headphones plugged in halfway through an article change the answer by
+     200 ms, and a reload is not a reasonable thing to ask for. */
+  if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) {
+    navigator.mediaDevices.addEventListener("devicechange", function () {
+      if (!audio.paused) measureLatency();
+    });
+  }
   audio.addEventListener("pause", function () { stopFollowing(); savePosition(true); });
   audio.addEventListener("ended", stopFollowing);
   /* Every seek, whoever made it. */
@@ -586,22 +718,78 @@
     lockBtn.setAttribute("aria-label", on ? "Hold to unlock the controls" : "Lock the controls");
     lockBtn.title = on ? "Hold to unlock" : "Lock the controls";
     store("locked:" + cfg.slug, "", on ? "1" : "0");
+    if (!on && hint && !hint.hidden && hintText.textContent !== "Unlocked") hideHint(0);
   }
 
-  lockBtn.addEventListener("pointerdown", function () {
+  /* What a hold looks like while it is happening.
+     Holding for an unmarked length of time is a guess, and a guess that has
+     to be repeated is worse than a second tap. The bar fills over exactly the
+     time the timer below waits, because the script writes both. */
+  var hint = $("lock-hint");
+  var hintText = $("lock-hint-text");
+  var fill = $("lock-fill");
+  var hintTimer = null;
+
+  function showHint(text, filling) {
+    clearTimeout(hintTimer);
+    hintText.textContent = text;
+    hint.hidden = false;
+    fill.classList.remove("filling");
+    fill.style.transition = "none";
+    // Forced, so the width really goes back to 0 before the fill starts.
+    void fill.offsetWidth;
+    if (filling) {
+      fill.style.transition = "width " + HOLD_TO_UNLOCK_MS + "ms linear";
+      fill.classList.add("filling");
+    }
+  }
+
+  function hideHint(after) {
+    clearTimeout(hintTimer);
+    hintTimer = setTimeout(function () {
+      hint.hidden = true;
+      fill.classList.remove("filling");
+    }, after || 0);
+  }
+
+  lockBtn.addEventListener("pointerdown", function (event) {
     if (!locked) return;
+    /* Capture the pointer, so a thumb that drifts a few pixels off a 2 rem
+       button does not silently cancel the hold. That, and not the length of
+       the hold, is why it took several goes. */
+    try { lockBtn.setPointerCapture(event.pointerId); } catch (e) { /* mouse */ }
+    showHint("Keep holding to unlock", true);
     holdTimer = setTimeout(function () {
       holdTimer = null;
       unlockedByHold = true;
       setLocked(false);
+      showHint("Unlocked", false);
+      hideHint(900);
       // Says the hold was long enough, without a sound in the reader's ear.
       if (navigator.vibrate) navigator.vibrate(15);
     }, HOLD_TO_UNLOCK_MS);
   });
-  ["pointerup", "pointercancel", "pointerleave"].forEach(function (name) {
-    lockBtn.addEventListener(name, function () {
-      if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
+  // No `pointerleave`: the capture above means the release comes back here
+  // wherever the thumb ended up, and leaving is no longer a cancellation.
+  ["pointerup", "pointercancel"].forEach(function (name) {
+    lockBtn.addEventListener(name, function (event) {
+      try { lockBtn.releasePointerCapture(event.pointerId); } catch (e) { /* mouse */ }
+      if (!holdTimer) return;
+      clearTimeout(holdTimer);
+      holdTimer = null;
+      // Let go early: say what went wrong rather than simply doing nothing.
+      showHint("Hold the padlock a moment longer", false);
+      hideHint(1600);
     });
+  });
+
+  /* A tap on a dead control falls through to the bar itself, because the
+     controls are `pointer-events: none` and the bar is not. Saying why
+     nothing happened is the difference between a lock and a broken player. */
+  $("player").addEventListener("pointerdown", function (event) {
+    if (!locked || lockBtn.contains(event.target)) return;
+    showHint("Locked — hold the padlock to unlock", false);
+    hideHint(1600);
   });
   lockBtn.addEventListener("click", function () {
     // A hold ends in a click too, and that click must not lock it again.
@@ -614,23 +802,40 @@
 
   var syncBox = $("opt-sync");
   var syncOut = $("sync-value");
+  var syncSaid = $("sync-detected");
 
   function showOffset() {
-    syncOut.textContent = (syncOffsetMs > 0 ? "+" : "") + syncOffsetMs + " ms";
+    syncOut.textContent = (trimMs > 0 ? "+" : "") + trimMs + " ms";
+    /* Three states, not two. Before the first play nothing has been asked,
+       and saying "this browser will not say" then is simply wrong — it reads
+       as a missing feature rather than as a measurement not yet taken. */
+    syncSaid.textContent = detectedMs
+      ? "This device reports " + detectedMs + " ms of output delay, and the "
+        + "highlight is already held back by that much."
+      : (asked
+         ? "This browser will not say what the output delay is, so set it by ear."
+         : "Measured from the output device the moment you press play.");
   }
 
-  syncBox.value = String(syncOffsetMs);
+  syncBox.value = String(trimMs);
   showOffset();
   syncBox.addEventListener("input", function () {
-    syncOffsetMs = parseInt(this.value, 10) || 0;
+    trimMs = parseInt(this.value, 10) || 0;
     showOffset();
-    store("sync-offset", "", String(syncOffsetMs));
+    store("sync-offset", "", String(trimMs));
     syncHighlight();
   });
 
   var offlineBox = $("opt-offline");
+  var offlineNote = $("offline-size");
   offlineBox.checked = store("offline:" + cfg.slug, "0") === "1";
   offlineBox.addEventListener("change", function () { setOffline(this.checked); });
+  // What it costs, once, when the sheet is first opened rather than on load:
+  // it wakes the worker and walks the cache.
+  $("menu").addEventListener("click", function once() {
+    $("menu").removeEventListener("click", once);
+    showKept();
+  });
 
   document.addEventListener("keydown", function (event) {
     if (event.key === "Escape") closeSheet();
@@ -669,6 +874,8 @@
     syncHighlight();
     keepInView(false, true);
     if (!audio.paused && frame === null) followClock();
+    // The earbuds went in while the screen was off, more often than not.
+    if (!audio.paused) measureLatency();
   });
 
   // Resume where this article was left. Saved positions are absolute across

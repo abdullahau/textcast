@@ -33,3 +33,18 @@ def settings(tmp_path, monkeypatch) -> Settings:
 def conn(settings):
     """An initialised database at the path the app itself would use."""
     return db.init(settings.db_path)
+
+
+@pytest.fixture(autouse=True)
+def _fresh_budgets():
+    """Give every test the whole rate limit.
+
+    The ingest budgets live in the process and outlive a test, so without this
+    the twenty-first ingest in a run fails wherever it happens to fall — and
+    which test that is depends on the order they ran in.
+    """
+    from textcast.web import limits
+
+    limits.reset_all()
+    yield
+    limits.reset_all()

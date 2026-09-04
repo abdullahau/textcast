@@ -163,18 +163,20 @@ def store(
     build: bool = True,
     options: dict | None = None,
     tags: list[str] | None = None,
+    slug: str | None = None,
     settings: Settings | None = None,
 ) -> Ingested:
     """Write a parsed article to the library and queue its build.
 
     Split out of ``ingest`` so ``reparse`` can parse first and only then
-    replace what is stored.
+    replace what is stored. ``slug`` is what a re-parse passes back, so a
+    changed title does not move the article's files out from under it.
     """
     settings = settings or get_settings()
     conn = db.connect(settings.db_path)
 
     try:
-        article_id = db.save_article(article, conn)
+        article_id = db.save_article(article, conn, slug=slug)
     except db.DuplicateArticle as dup:
         log.info("already stored: %s", dup.slug)
         row = db.get_article(dup.article_id, conn)
@@ -610,6 +612,17 @@ def reparse(
             unchanged=True,
         )
 
+    # The audio belongs to the block ids that just moved, so it is wrong now.
+    # It used to be orphaned instead — a directory under the old slug that
+    # nothing could reach. Keeping the slug means these files stay reachable,
+    # which is only an improvement if they also go.
+    dropped = _drop_media(row["slug"], settings)
+    for path in cached_renders(article_id, conn, settings):
+        path.unlink(missing_ok=True)
+        dropped += 1
+    if dropped:
+        log.info("%s: dropped %d stale audio file(s) before re-parsing", row["slug"], dropped)
+
     db.delete_article(article_id, conn)
     result = store(
         article,
@@ -617,6 +630,12 @@ def reparse(
         tags=tags,
         options=options,
         build=build,
+        # The address it already has. A re-parse that finds a better title
+        # would otherwise move it, and `media/<old-slug>/`, its pictures and
+        # `sources/<old-slug>.*` would be left with nothing able to reach
+        # them — nothing sweeps by slug. What the slug reads is of no interest
+        # to anyone; what it points at is.
+        slug=row["slug"],
         settings=settings,
     )
     return replace(result, summaries_kept=kept, summaries_lost=lost)

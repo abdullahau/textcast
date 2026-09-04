@@ -1680,3 +1680,131 @@ def test_a_session_that_was_signed_out_everywhere_no_longer_opens_the_library(cl
     assert client.get(
         "/", headers={"accept": "text/html"}, follow_redirects=False
     ).status_code == 303
+
+
+def test_guessing_the_ingest_key_stops_being_free(client, settings):
+    """It is the one route that takes a credential in a body from anywhere on
+    the internet, and it used to cost a wrong guess nothing at all."""
+    from textcast.web import limits
+
+    sign_in_required(settings)
+    limits.reset_all()
+
+    codes = []
+    for _ in range(limits.INGEST_ATTEMPTS.allowed + 3):
+        codes.append(client.post("/api/ingest", data={
+            "kind": "text", "title": "Guess", "text": "A body.", "token": "wrong",
+        }).status_code)
+
+    assert codes[0] == 401, "a wrong key is still a wrong key"
+    assert 429 in codes, "guessing was never refused"
+    assert codes.count(401) == limits.INGEST_ATTEMPTS.allowed
+
+
+def test_the_refusal_says_what_to_do_and_when(client, settings):
+    from textcast.web import limits
+
+    sign_in_required(settings)
+    limits.reset_all()
+    for _ in range(limits.INGEST_ATTEMPTS.allowed):
+        client.post("/api/ingest", data={"kind": "text", "text": "x", "token": "wrong"})
+
+    refused = client.post("/api/ingest", data={"kind": "text", "text": "x", "token": "wrong"})
+
+    assert refused.status_code == 429
+    assert int(refused.headers["retry-after"]) > 0
+    # A sentence. The Shortcut has no screen, and `{"detail": "unauthorised"}`
+    # is what it reported success over nine times running.
+    assert refused.json()["detail"].endswith(".")
+    assert "Try again in" in refused.json()["detail"]
+
+
+def test_a_key_that_works_does_not_spend_the_failure_budget(client, settings):
+    """Otherwise a run of real adds would lock the owner out of their own
+    bookmarklet, which is a worse fault than the one being fixed."""
+    from textcast.web import limits
+
+    account = sign_in_required(settings)
+    limits.reset_all()
+
+    client.post("/api/ingest", data={"kind": "text", "text": "x", "token": "wrong"})
+    for i in range(3):
+        client.post("/api/ingest", data={
+            "kind": "text", "title": f"Real {i}", "text": "A paragraph of it.",
+            "token": account.ingest_key,
+        })
+
+    assert limits.INGEST_ATTEMPTS.check("testclient") == 0.0
+
+
+def test_accepted_calls_are_bounded_too(client, settings):
+    """A leaked key must not be able to make the server fetch and parse for
+    ever. This is a different budget from the one guarding the door."""
+    from textcast.web import limits
+
+    account = sign_in_required(settings)
+    limits.reset_all()
+
+    codes = []
+    for i in range(limits.INGEST_WORK.allowed + 2):
+        codes.append(client.post("/api/ingest", data={
+            "kind": "text", "title": f"Piece {i}", "text": "A paragraph of it.",
+            "token": account.ingest_key,
+        }).status_code)
+
+    assert codes[-1] == 429
+    assert codes.count(429) == 2
+
+
+def test_the_offline_cache_is_not_named_after_the_release(client):
+    """Naming it after the build made `activate` throw away everything the
+    reader had marked to keep, on every deploy, silently. It is safe to keep
+    across releases only because every media URL carries `?b=<built_at>`."""
+    body = client.get("/sw.js").text
+
+    assert 'const OFFLINE = "textcast-offline"' in body
+    assert f"textcast-offline-{__version__}" not in body
+    # The shell is the opposite case and must still move with the release.
+    assert "const SHELL = `textcast-shell-${BUILD}`" in body
+
+
+def test_every_audio_address_carries_the_build_it_belongs_to(client, settings, conn):
+    """`section-000.opus` is rewritten by every build and the path does not
+    change, so `immutable` was a lie: a browser holding the old file played it
+    against the new timing map."""
+    from textcast.audio import AudioManifest, BlockTiming, SectionAudio
+    from textcast.document import Article, Block, BlockKind, Section
+
+    doc = Article(title="Stamped", sections=[Section(title="One", blocks=[
+        Block(kind=BlockKind.PARA, text="The body of it."),
+    ])]).renumber()
+    article_id = db.save_article(doc, conn)
+    db.save_manifest(
+        article_id,
+        AudioManifest(engine="tone", voice="t1", sample_rate=24000, bitrate="48k",
+                      total_ms=1000,
+                      sections=[SectionAudio(
+                          idx=0, title="One", file="section-000.opus",
+                          track="section-000.vtt", duration_ms=1000,
+                          blocks=[BlockTiming(id="b0-0", kind="para", start_ms=0,
+                                              dur_ms=1000, speech_ms=900)])]),
+        audio_bytes=10,
+        conn=conn,
+    )
+
+    payload = client.get(f"/api/articles/{article_id}/manifest").json()
+    section = payload["sections"][0]
+
+    assert "?b=" in section["file"], "the audio address has no build in it"
+    assert "?b=" in section["track"], "the timing map moves with the audio"
+    assert section["file"].split("?b=")[1] == section["track"].split("?b=")[1]
+    assert int(section["file"].split("?b=")[1]) > 0
+
+    # And the route itself still answers, because the query names a version
+    # rather than selecting one.
+    media = settings.media_dir / db.get_article(article_id, conn)["slug"]
+    media.mkdir(parents=True, exist_ok=True)
+    (media / "section-000.opus").write_bytes(b"OggS")
+    served = client.get(f"/media/{db.get_article(article_id, conn)['slug']}/{section['file']}")
+    assert served.status_code == 200
+    assert served.content == b"OggS"

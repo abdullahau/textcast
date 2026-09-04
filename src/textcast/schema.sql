@@ -26,6 +26,9 @@ CREATE TABLE IF NOT EXISTS article (
     voice         TEXT    NOT NULL DEFAULT '',
     starred       INTEGER NOT NULL DEFAULT 0,
     archived      INTEGER NOT NULL DEFAULT 0,
+    -- Epoch seconds of the last audio build. It goes in the media URL,
+    -- so a rebuilt article is a new address and `immutable` is honest.
+    built_at      INTEGER NOT NULL DEFAULT 0,
     -- How to build THIS article. Chosen when it is added, editable after.
     build_options TEXT    NOT NULL DEFAULT '{}'
 );

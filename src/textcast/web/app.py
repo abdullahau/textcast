@@ -45,6 +45,7 @@ from ..tts import (
     loaded_engine,
     shared_engine,
 )
+from . import limits
 
 log = logging.getLogger("textcast.web")
 
@@ -179,23 +180,58 @@ async def _ingest_key_in_request(request: Request) -> bool:
     return isinstance(offered, str) and secrets.compare_digest(offered, current.ingest_key)
 
 
+def _too_many(seconds: float, what: str) -> HTTPException:
+    """429, with a sentence and a header a client can act on.
+
+    `{"detail": "unauthorised"}` is not a sentence, and the Shortcut spent an
+    hour reporting success over nine straight 401s. Whatever is on the other
+    end of this route has no screen, so the wording has to carry.
+    """
+    wait = max(1, round(seconds))
+    return HTTPException(
+        status_code=429,
+        detail=f"{what} Try again in about {wait} second{'' if wait == 1 else 's'}.",
+        headers={"Retry-After": str(wait)},
+    )
+
+
 async def require_auth(request: Request) -> None:
     """Off by default, which suits a private network.
 
     Set TEXTCAST_REQUIRE_AUTH=1 and a token for anything internet-facing.
     A browser is sent to the sign-in page; anything else gets a plain 401.
+
+    The ingest route is counted whether or not auth is on. It is the one route
+    that takes a credential in a body from anywhere on the internet and does
+    real work per call, so a wrong key used to cost nothing and guessing was
+    free. See `limits.py` for the budgets and why they live in the process.
     """
+    who = limits.client_key(request)
+    ingesting = request.url.path == INGEST_PATH
+
+    if ingesting:
+        # Checked before the secret is compared, so a spender cannot use the
+        # comparison itself as an oracle, and refused early enough that a
+        # body is never parsed for a client that has run out.
+        waiting = limits.INGEST_ATTEMPTS.check(who)
+        if waiting:
+            raise _too_many(waiting, "Too many failed attempts from this address.")
+
     if not settings.require_auth:
         return
     if signed_in(request):
         return
     # Scoped, and the scope is checked here rather than trusted to the caller:
     # a key that can add an article must not be able to delete one.
-    if request.url.path == INGEST_PATH and await _ingest_key_in_request(request):
+    if ingesting and await _ingest_key_in_request(request):
         # Say so downstream, so the response can hand back a cookie and the
         # redirect to the new article is not bounced to /login.
         request.state.token_auth = True
+        # A key that worked is not an attempt against the door.
+        limits.INGEST_ATTEMPTS.forget(who)
         return
+    if ingesting:
+        limits.INGEST_ATTEMPTS.spend(who)
     if _wants_html(request):
         target = request.url.path
         if request.url.query:
@@ -607,15 +643,26 @@ def article_or_404(slug: str):
 
 
 def build_payload(article_id: int) -> dict:
-    """Sections and block timings, as the player consumes them."""
+    """Sections and block timings, as the player consumes them.
+
+    Every audio address carries `?b=<built_at>`. `section-000.opus` is
+    rewritten by every build and the path does not change, so a browser or a
+    service worker holding the old file played it against the new timing map.
+    The stamp makes the `immutable` header honest, and it is what lets the
+    offline cache stop being thrown away on every release.
+    """
     conn = db.connect()
+    built_at = conn.execute(
+        "SELECT built_at FROM article WHERE id = ?", (article_id,)
+    ).fetchone()
+    stamp = f"?b={built_at['built_at'] if built_at else 0}"
     sections = conn.execute(
         "SELECT idx, title, file, duration_ms FROM section WHERE article_id = ? ORDER BY idx",
         (article_id,),
     ).fetchall()
     # The WebVTT track sits beside its Opus file with the same stem.
     def track_for(file: str) -> str:
-        return file.rsplit(".", 1)[0] + ".vtt"
+        return file.rsplit(".", 1)[0] + ".vtt" + stamp
     blocks = conn.execute(
         """
         SELECT block_id, section_idx, start_ms, dur_ms
@@ -637,7 +684,7 @@ def build_payload(article_id: int) -> dict:
             {
                 "idx": s["idx"],
                 "title": s["title"],
-                "file": s["file"],
+                "file": s["file"] + stamp,
                 "track": track_for(s["file"]),
                 "ms": s["duration_ms"],
                 "blocks": by_section.get(s["idx"], []),
@@ -1407,7 +1454,16 @@ async def api_ingest(
     before you had seen the first.
 
     The bookmarklet and the share target both post here.
+
+    Counted twice over, and for two different reasons: `require_auth` limits
+    *failed* attempts, because guessing the key was free, and the budget spent
+    here limits accepted ones, because a key that has leaked should not be
+    able to make the server fetch and parse for ever.
     """
+    waiting = limits.INGEST_WORK.retry_after(limits.client_key(request))
+    if waiting:
+        raise _too_many(waiting, "That is more articles at once than this accepts.")
+
     chosen = [f for f in (files or []) if f is not None and f.filename]
 
     # More than one file is a batch: each is its own article, and the browser
@@ -1815,17 +1871,21 @@ def media(slug: str, name: str):
     in front to keep a copy of the library's audio and hand it to anyone who
     asks for the same address.
 
-    `immutable` is kept, and it is not yet true: a picture's name is a hash of
-    its address, but `section-000.opus` is rewritten by every build of the
-    article. Weakening it to `no-cache` was tried and reverted, because it
-    breaks the offline cache outright: the audio element asks for byte ranges,
-    so the browser's HTTP cache holds a *partial* entry for the file, and
-    without a long-lived header Chromium satisfies the service worker's own
-    plain GET as a ranged one. `Cache.addAll` then refuses the lot —
-    "Partial response (status code 206) is unsupported" — and an article
-    marked for offline stored nothing at all. The honest fix is to put the
-    build in the URL, so the promise becomes true rather than being dropped;
-    see `PLAN.md`.
+    `immutable` is true now, and it was not before. `section-000.opus` is
+    rewritten by every build and the path does not change, so the promise used
+    to be a lie: a browser or a service worker holding the old file played it
+    against the new timing map. Every address the player builds now carries
+    `?b=<built_at>`, so a rebuilt article is a new URL.
+
+    Weakening the header instead was tried and reverted. The audio element asks
+    for byte ranges, so the browser's HTTP cache holds a *partial* entry for
+    the file, and without a long-lived header Chromium satisfies the service
+    worker's own plain GET as a ranged one. `Cache.addAll` then refuses the
+    lot — "Partial response (status code 206) is unsupported" — and an article
+    marked for offline stored nothing at all.
+
+    The query itself is ignored here; the file on disk is the answer either
+    way. It exists to name a version, not to select one.
     """
     if "/" in name or ".." in name or ".." in slug:
         raise HTTPException(status_code=400, detail="bad path")

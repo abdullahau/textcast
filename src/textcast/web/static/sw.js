@@ -10,7 +10,16 @@
    what you get if you open this file directly from /static/. */
 const BUILD = "dev";
 const SHELL = `textcast-shell-${BUILD}`;
-const OFFLINE = `textcast-offline-${BUILD}`;
+/* Not versioned, and that is the point.
+ *
+ * The shell is this release's own files and has to go with it. The offline
+ * cache is what the reader asked to keep — and naming it after the build made
+ * `activate` throw all of it away on every deploy, silently, which is the
+ * feature not working. It is only safe to keep across releases because every
+ * media URL now carries `?b=<built_at>`: a rebuilt article is a new address,
+ * so an old entry can never be served against a new timing map. It is swept
+ * instead, by `pruneSlug` and by the reconcile below. */
+const OFFLINE = "textcast-offline";
 
 /* No query strings here: the pages decide their own cache-busting suffix, and
    a hardcoded one here would pin an old version forever. */
@@ -54,34 +63,133 @@ self.addEventListener("activate", (event) => {
  */
 const wantedMark = (slug) => `/__offline__/${encodeURIComponent(slug)}`;
 const mediaPrefix = (slug) => `/media/${encodeURIComponent(slug)}/`;
+const absolute = (path) => new URL(path, location.origin).href;
 
 async function isWanted(slug) {
   const cache = await caches.open(OFFLINE);
   return !!(await cache.match(wantedMark(slug)));
 }
 
+/* Every stored slug, read back off the marker keys. The worker's own memory
+   does not survive being stopped, so this is the only honest answer. */
+async function keptSlugs(cache) {
+  const mark = absolute("/__offline__/");
+  const slugs = new Set();
+  for (const request of await cache.keys()) {
+    if (request.url.startsWith(mark)) {
+      slugs.add(decodeURIComponent(request.url.slice(mark.length)));
+    }
+  }
+  return slugs;
+}
+
+/* Everything held for one slug: its page, its marker, its media. Matched on
+   the whole path segment and not on "contains" — a slug is a prefix of other
+   slugs, and dropping "ai" used to drop "ai-and-the-law" with it, silently,
+   and the reader found out on a train. */
+async function forget(cache, slug, path) {
+  const prefix = absolute(mediaPrefix(slug));
+  await cache.delete(wantedMark(slug));
+  if (path) await cache.delete(path);
+  let gone = 0;
+  for (const request of await cache.keys()) {
+    if (request.url.startsWith(prefix)) {
+      await cache.delete(request);
+      gone += 1;
+    }
+  }
+  return gone;
+}
+
+/* Drop this slug's files that the current build no longer names.
+   A rebuilt article has a new `?b=` on every URL, so without this the
+   previous build's audio would sit in the cache for ever — kept, unreachable
+   and counted against the reader's storage. */
+async function pruneSlug(cache, slug, keep) {
+  const prefix = absolute(mediaPrefix(slug));
+  const wanted = new Set(keep.map(absolute));
+  for (const request of await cache.keys()) {
+    if (request.url.startsWith(prefix) && !wanted.has(request.url)) {
+      await cache.delete(request);
+    }
+  }
+}
+
+/* What each kept article costs, from Content-Length rather than from the
+   bodies: reading a body to measure it would pull every section into memory
+   to learn a number the header already carries. */
+async function usage(cache) {
+  const rows = {};
+  for (const request of await cache.keys()) {
+    const url = new URL(request.url);
+    if (!url.pathname.startsWith("/media/")) continue;
+    const slug = decodeURIComponent(url.pathname.split("/")[2] || "");
+    if (!slug) continue;
+    const response = await cache.match(request);
+    const bytes = Number(response && response.headers.get("content-length")) || 0;
+    rows[slug] = (rows[slug] || 0) + bytes;
+  }
+  return rows;
+}
+
+function reply(event, message) {
+  if (event.ports && event.ports[0]) event.ports[0].postMessage(message);
+}
+
 self.addEventListener("message", (event) => {
-  const { type, slug, path, files } = event.data || {};
+  const { type, slug, path, files, wanted } = event.data || {};
+
   if (type === "cache-article") {
     event.waitUntil(
       caches.open(OFFLINE).then(async (cache) => {
         await cache.put(wantedMark(slug), new Response("1"));
-        await cache.addAll([path, ...files]).catch(() => {});
+        let ok = true;
+        await cache.addAll([path, ...files]).catch(() => { ok = false; });
+        // Whatever the last build left behind at a different `?b=`.
+        await pruneSlug(cache, slug, files);
+        // `addAll` is all-or-nothing and used to swallow its own failure, so
+        // the box stayed ticked over a cache holding nothing.
+        reply(event, { ok });
       })
     );
   } else if (type === "drop-article") {
     event.waitUntil(
       caches.open(OFFLINE).then(async (cache) => {
-        await cache.delete(wantedMark(slug));
-        /* Matched on the whole path segment, not on "contains". A slug is a
-           prefix of other slugs — dropping "ai" used to drop "ai-and-the-law"
-           with it, silently, and the reader found out on a train. */
-        const prefix = new URL(mediaPrefix(slug), location.origin).href;
-        for (const request of await cache.keys()) {
-          if (request.url.startsWith(prefix) || request.url.endsWith(path)) {
-            await cache.delete(request);
-          }
+        const gone = await forget(cache, slug, path);
+        reply(event, { ok: true, dropped: gone });
+      })
+    );
+  } else if (type === "reconcile") {
+    /* The page says what is still ticked; anything else goes.
+       This is what collects an article deleted from the library, one unticked
+       in another tab, and everything a browser that lost its localStorage no
+       longer has any way to reach. */
+    event.waitUntil(
+      caches.open(OFFLINE).then(async (cache) => {
+        const keep = new Set(wanted || []);
+        let dropped = 0;
+        for (const stored of await keptSlugs(cache)) {
+          if (!keep.has(stored)) dropped += await forget(cache, stored, null);
         }
+        reply(event, { ok: true, dropped });
+      })
+    );
+  } else if (type === "usage") {
+    event.waitUntil(
+      caches.open(OFFLINE).then(async (cache) => {
+        reply(event, { ok: true, bytes: await usage(cache) });
+      })
+    );
+  } else if (type === "drop-all") {
+    event.waitUntil(
+      caches.open(OFFLINE).then(async (cache) => {
+        let dropped = 0;
+        for (const stored of await keptSlugs(cache)) {
+          dropped += await forget(cache, stored, null);
+        }
+        // Pages have no marker of their own; take what is left.
+        for (const request of await cache.keys()) await cache.delete(request);
+        reply(event, { ok: true, dropped });
       })
     );
   }

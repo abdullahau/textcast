@@ -126,6 +126,26 @@
 <script>
 if ("serviceWorker" in navigator) {
   addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));
+
+  /* Tell the worker what is still ticked, on every page.
+     The boxes are the only record of what the reader asked to keep, and the
+     cache had no way to hear about an article deleted from the library, one
+     unticked in another tab, or a build that moved. Without this the offline
+     cache only ever grew. */
+  navigator.serviceWorker.ready.then((registration) => {
+    const worker = registration.active;
+    if (!worker) return;
+    const wanted = [];
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith("tc:offline:") && localStorage.getItem(key) === "1") {
+          wanted.push(key.slice("tc:offline:".length));
+        }
+      }
+    } catch (e) { return; }   // no storage, so no opinion; keep what is there
+    worker.postMessage({ type: "reconcile", wanted });
+  }).catch(() => {});
 }
 
 /* The nav folds into a button on a phone. It closes on an outside tap and on

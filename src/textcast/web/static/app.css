@@ -1172,11 +1172,24 @@ media-controller.player-inner {
 
 media-controller.player-inner media-control-bar { display: flex; align-items: center; gap: .1rem; width: 100%; }
 
+/* A circle needs equal sides, and media-chrome does not give it any: the
+   height came from --media-control-height plus the padding, and the width
+   from whatever the play glyph happened to be. On a phone that read as an
+   oval. Size the host and take the padding out from under it. */
 media-play-button {
   --media-control-background: var(--accent);
   --media-control-hover-background: var(--accent);
   --media-primary-color: var(--accent-fg);
-  --media-control-height: 1.25rem;
+  --media-control-height: 1.15rem;
+  --media-control-padding: 0;
+  width: 2.4rem;
+  height: 2.4rem;
+  min-width: 2.4rem;
+  padding: 0;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border-radius: 50%;
   margin: 0 .2rem;
 }
@@ -1209,9 +1222,35 @@ media-playback-rate-button { font-variant-numeric: tabular-nums; font-weight: 50
 #lock[aria-pressed="true"] .open { display: none; }
 #lock[aria-pressed="true"] .shut { display: inline; }
 
+.player { position: fixed; }   /* restated: .lock-hint anchors to it */
 .player.locked { border-top-color: var(--accent); }
 .player.locked media-control-bar > *:not(#lock) { pointer-events: none; opacity: .45; }
 body.locked .b .seek { pointer-events: none; opacity: .12; }
+
+/* Sits above the bar, so a thumb on the padlock cannot cover it. */
+.lock-hint {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% - 2px);
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  padding: .4rem .7rem;
+  border: 1px solid var(--border-hi);
+  border-bottom: none;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  background: var(--raised);
+  color: var(--fg-soft);
+  font-size: .76rem;
+  white-space: nowrap;
+  box-shadow: 0 -8px 24px -12px rgb(0 0 0 / .5);
+}
+.lock-bar { width: 3rem; height: 3px; border-radius: 2px; background: var(--border-hi); overflow: hidden; }
+.lock-bar i { display: block; width: 0; height: 100%; background: var(--accent); }
+/* The duration is written from the script, so the bar and the timer that
+   actually unlocks cannot disagree about how long a hold is. */
+.lock-bar i.filling { width: 100%; }
 
 .now { font-size: .76rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 11rem; padding: 0 .4rem; }
 
@@ -1276,6 +1315,7 @@ body.has-player { padding-bottom: 5.5rem; }
 .tune-row { display: flex; align-items: center; gap: .8rem; }
 .tune-row input[type="range"] { flex: 1 1 auto; min-width: 0; accent-color: var(--accent); }
 .tune-row output { flex: none; min-width: 4.5rem; text-align: right; font-size: .8rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+#sync-detected { color: var(--fg-soft); }
 .tune .note { font-size: .78rem; color: var(--muted); margin: .5rem 0 0; line-height: 1.5; }
 
 .sheet-foot { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border); }

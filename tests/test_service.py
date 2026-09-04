@@ -519,3 +519,56 @@ def test_a_sweep_collects_a_part_file_nothing_will_ever_finish(conn, settings):
 
     assert not abandoned.exists(), "an hour-old part file is nobody's"
     assert in_flight.exists(), "a build may still be writing this one"
+
+
+def test_a_retitled_reparse_keeps_its_address(conn, settings):
+    """The slug comes from the title, so a re-parse that found a better title
+    deleted the row and stored a new one at a new address — and
+    `media/<old-slug>/`, its `images/` and `sources/<old-slug>.*` were left
+    with nothing able to reach them. Nothing sweeps by slug.
+    """
+    def page(title: str) -> str:
+        # Enough words that the parser does not read it as a login wall.
+        body = " ".join(f"Sentence number {n} of the article." for n in range(40))
+        return f"<html><head><title>{title}</title></head><body><article>" \
+               f"<h1>{title}</h1><p>{body}</p></article></body></html>"
+
+    stored = ingest(html=page("The first title"), build=False)
+    slug = stored.slug
+
+    # A picture is the case that matters: audio can be built again and a
+    # picture cannot, because the page it came from may be gone.
+    images = settings.media_dir / slug / "images"
+    images.mkdir(parents=True, exist_ok=True)
+    (images / "abc123.jpg").write_bytes(b"JPEG")
+
+    # The stored source is what Re-parse replays, so a better title in it is
+    # exactly the case that used to move the article.
+    (settings.source_dir / f"{slug}.html").write_text(page("A far better title"))
+    again = reparse(stored.article_id)
+
+    assert again.slug == slug, "the article moved out from under its own files"
+    assert again.title != stored.title, "the new title was not taken"
+    assert (images / "abc123.jpg").exists(), "the picture was orphaned"
+    assert (settings.source_dir / f"{slug}.html").exists()
+    assert not list(settings.media_dir.glob("a-far-better-title*")), "a second directory"
+
+
+def test_a_reparse_that_changes_the_text_drops_the_audio_it_invalidated(conn, settings):
+    """The audio belongs to the block ids that just moved. It used to be
+    orphaned under the old slug instead, which hid the problem rather than
+    solving it; keeping the slug means these files stay reachable, which is
+    only an improvement if they also go."""
+    stored = add_note(text="A paragraph.\n\nAnd another.\n", title="Keeps its place")
+    media = settings.media_dir / stored.slug
+    media.mkdir(parents=True, exist_ok=True)
+    (media / "section-000.opus").write_bytes(b"OggS")
+    (media / "section-000.vtt").write_text("WEBVTT\n")
+
+    (settings.source_dir / f"{stored.slug}.txt").write_text(
+        "A paragraph.\n\nAnd another.\n\nAnd a third that was not there.\n"
+    )
+    reparse(stored.article_id)
+
+    assert not (media / "section-000.opus").exists(), "stale audio survived"
+    assert not (media / "section-000.vtt").exists(), "a stale timing map survived"

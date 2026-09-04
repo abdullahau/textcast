@@ -133,8 +133,20 @@ def find_by_fingerprint(conn: sqlite3.Connection, fingerprint: str) -> sqlite3.R
     return conn.execute("SELECT * FROM article WHERE fingerprint = ?", (fingerprint,)).fetchone()
 
 
-def save_article(article: Article, conn: sqlite3.Connection | None = None) -> int:
-    """Insert an article with its sections and blocks. Raises on a re-ingest."""
+def save_article(
+    article: Article,
+    conn: sqlite3.Connection | None = None,
+    *,
+    slug: str | None = None,
+) -> int:
+    """Insert an article with its sections and blocks. Raises on a re-ingest.
+
+    ``slug`` keeps an address a re-parse would otherwise move. The slug is
+    derived from the title, and a re-parse that finds a better title deletes
+    the row and stores a new one — so `media/<old-slug>/`, its `images/` and
+    `sources/<old-slug>.*` were left with nothing able to reach them, and
+    nothing sweeps by slug. The reader never sees the slug; the files do.
+    """
     conn = conn or connect()
     article.renumber()
     fingerprint = article.fingerprint
@@ -144,7 +156,12 @@ def save_article(article: Article, conn: sqlite3.Connection | None = None) -> in
         raise DuplicateArticle(existing["id"], existing["slug"])
 
     with transaction(conn):
-        slug = unique_slug(conn, article.title)
+        # Defensively re-derived if the asked-for one is taken: a caller that
+        # has not deleted the old row yet must not fail on the constraint.
+        taken = slug and conn.execute(
+            "SELECT 1 FROM article WHERE slug = ?", (slug,)
+        ).fetchone()
+        slug = slug if (slug and not taken) else unique_slug(conn, article.title)
         cursor = conn.execute(
             """
             INSERT INTO article
@@ -354,7 +371,8 @@ def save_manifest(
         conn.execute(
             """
             UPDATE article
-               SET status = 'ready', audio_ms = ?, audio_bytes = ?, engine = ?, voice = ?
+               SET status = 'ready', audio_ms = ?, audio_bytes = ?, engine = ?, voice = ?,
+                   built_at = CAST(strftime('%s','now') AS INTEGER)
              WHERE id = ?
             """,
             (manifest.total_ms, audio_bytes, manifest.engine, manifest.voice, article_id),

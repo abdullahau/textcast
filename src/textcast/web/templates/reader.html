@@ -354,6 +354,13 @@
 
 {% if row.status == 'ready' %}
 <div class="player" id="player" hidden>
+  {# Above the bar, never under it: while you are holding the padlock your
+     thumb covers the padlock, so the thing that says how long to hold has to
+     be somewhere else. #}
+  <div class="lock-hint" id="lock-hint" hidden aria-live="polite">
+    <span id="lock-hint-text">Hold the padlock to unlock</span>
+    <span class="lock-bar" aria-hidden="true"><i id="lock-fill"></i></span>
+  </div>
   <media-controller audio class="player-inner">
     <audio slot="media" id="audio" preload="metadata" crossorigin="anonymous"></audio>
     <media-control-bar>
@@ -404,14 +411,16 @@
       <label class="check"><input type="checkbox" id="opt-summaries" checked> Show summaries</label>
       <label class="check"><input type="checkbox" id="opt-pause-visual"> Pause at a chart or table</label>
       <label class="check"><input type="checkbox" id="opt-sleep"> Stop at end of section</label>
-      <label class="check"><input type="checkbox" id="opt-offline"> Keep offline</label>
+      {# Named for what it does. It is a download into this browser and
+         nothing else — no server-side state, no other device. #}
+      <label class="check"><input type="checkbox" id="opt-offline"> Download to this device</label>
     </div>
-    {# The one toggle whose effect is invisible until there is no signal. #}
     <p class="note keep-note">
-      <b>Keep offline</b> downloads this page, its audio and its timing map
-      into the browser, so the whole read-along works with no signal. Untick it
-      to give the space back.
+      Stores this page, its audio and its timing map in this browser, so the
+      whole read-along works with no signal. It lives on this device only, and
+      unticking gives the space straight back.
     </p>
+    <p class="note keep-note" id="offline-size"></p>
     <div class="tune">
       <label for="opt-sync">Highlight timing</label>
       <div class="tune-row">
@@ -419,11 +428,12 @@
                aria-describedby="sync-why">
         <output id="sync-value" for="opt-sync">0 ms</output>
       </div>
+      <p class="note" id="sync-detected"></p>
       <p class="note" id="sync-why">
-        Slide right if the highlight runs ahead of the voice. Bluetooth
-        headphones delay the sound by a fifth of a second or more, and the
-        browser reports the decoder’s clock, not the speaker’s — so the page
-        cannot work this out on its own. Kept for this browser.
+        The player’s clock is the decoder’s, not the speaker’s, and Bluetooth
+        sits between the two — a fifth of a second, often more. The browser
+        reports what the output device costs and that is taken off already;
+        the slider is only for what is left over. Kept for this browser.
       </p>
     </div>
     <div class="sheet-foot">

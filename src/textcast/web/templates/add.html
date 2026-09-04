@@ -110,6 +110,49 @@
 </div>
 
 <div class="card">
+  <h2>From the iPhone, past a paywall</h2>
+  <p class="hint">
+    The shortcut above sends the <b>link</b>, and the server then fetches it as a
+    stranger — so a paywall wins on a phone and loses on a laptop, where the
+    bookmarklet sends the page instead. This second shortcut sends the page:
+    Safari reads it while you are signed in, and the HTML it already has is what
+    is posted. Build it once, as a second shortcut:
+  </p>
+  <ol class="hint" style="padding-left:1.1rem;line-height:1.7">
+    <li>New shortcut. Add <b>Run JavaScript on Web Page</b> — it appears only when
+        the shortcut accepts <b>Safari web pages</b>, so set that first in the
+        shortcut details.</li>
+    <li>Replace the sample script with exactly this:
+        <br><code class="copy" data-copy="completion(document.documentElement.outerHTML)"
+           tabindex="0" role="button" title="Tap to copy"
+           >completion(document.documentElement.outerHTML)</code></li>
+    <li>Add <b>Get Contents of URL</b> with the URL
+        <code>{{ origin }}/api/ingest</code>, Method <b>POST</b>, Request Body
+        <b>Form</b>.</li>
+    <li>Add a field <code>kind</code> with the value <code>html</code>.</li>
+    <li>Add a field <code>html</code> and set its value to the result of
+        <b>Run JavaScript on Web Page</b>.</li>
+    <li>Add a field <code>url</code> and set its value to <b>Shortcut Input</b>.
+        The page carries the words; the link is what says where they came from,
+        which publication parsed it, and what “original” points at.</li>
+{% if token %}    <li>Add a field <code>token</code> and paste this as its value:
+        <br><code class="copy" data-copy="{{ token }}" tabindex="0"
+           role="button" title="Tap to copy">{{ token }}</code></li>
+{% endif %}    <li>Add <b>Show Result</b> at the end, with <b>Contents of URL</b> as
+        its input.</li>
+    <li>In the shortcut details, turn on <b>Show in Share Sheet</b> and accept
+        <b>Safari web pages</b> — not URLs. That is the whole difference: a URL
+        is a link, a Safari web page is the page.</li>
+  </ol>
+  <p class="hint">
+    Share from Safari’s own share button, not from a link. Some sites load the
+    article after the page, so if a share comes back short, let it finish
+    rendering and share again. Keep both shortcuts: this one needs Safari, and the
+    first one takes a link from anywhere.
+  </p>
+</div>
+
+<div class="card">
   <h2>One click from any page</h2>
   <p class="hint">
     Drag this to your bookmarks bar. It posts the page <b>your browser</b> has, already

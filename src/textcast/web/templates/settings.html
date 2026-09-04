@@ -106,4 +106,81 @@
     <button class="ghost narrow" type="submit">Sign out everywhere</button>
   </form>
 </div>
+
+{# Nothing here reaches the server: a download lives in this browser and is
+   the only copy of itself. So the card is written by script and says so. #}
+<div class="card">
+  <h2>Downloads on this device</h2>
+  <p class="hint" id="downloads-note">Counting…</p>
+  <div class="row" style="margin:.9rem 0 0">
+    <button class="ghost narrow" type="button" id="drop-downloads" hidden>Remove all downloads</button>
+  </div>
+</div>
+
+<script>
+(function () {
+  var note = document.getElementById("downloads-note");
+  var button = document.getElementById("drop-downloads");
+
+  function readable(bytes) {
+    if (bytes < 1024 * 1024) return Math.max(1, Math.round(bytes / 1024)) + " KB";
+    return (bytes / 1048576).toFixed(bytes < 10485760 ? 1 : 0) + " MB";
+  }
+
+  function tell(message) {
+    return new Promise(function (resolve) {
+      if (!navigator.serviceWorker || !window.MessageChannel) { resolve(null); return; }
+      navigator.serviceWorker.ready.then(function (registration) {
+        var worker = registration.active;
+        if (!worker) { resolve(null); return; }
+        var channel = new MessageChannel();
+        var settled = false;
+        var finish = function (v) { if (!settled) { settled = true; resolve(v); } };
+        channel.port1.onmessage = function (event) { finish(event.data); };
+        setTimeout(function () { finish(null); }, 20000);
+        worker.postMessage(message, [channel.port2]);
+      }).catch(function () { resolve(null); });
+    });
+  }
+
+  function show() {
+    tell({ type: "usage" }).then(function (answer) {
+      if (!answer || !answer.bytes) {
+        note.textContent = "This browser is not keeping anything offline.";
+        button.hidden = true;
+        return;
+      }
+      var slugs = Object.keys(answer.bytes);
+      var total = slugs.reduce(function (sum, slug) { return sum + answer.bytes[slug]; }, 0);
+      if (!slugs.length || !total) {
+        note.textContent = "This browser is not keeping anything offline.";
+        button.hidden = true;
+        return;
+      }
+      note.textContent = slugs.length + (slugs.length === 1 ? " article" : " articles")
+        + ", " + readable(total)
+        + ". Ticking “Download to this device” on an article puts it here; it is"
+        + " never on the server and never on your other devices.";
+      button.hidden = false;
+    });
+  }
+
+  button.addEventListener("click", function () {
+    if (!confirm("Remove every downloaded article from this browser? The articles stay in the library.")) return;
+    // The boxes are the record the worker reconciles against, so they go too.
+    try {
+      var keys = [];
+      for (var i = 0; i < localStorage.length; i++) {
+        var key = localStorage.key(i);
+        if (key && key.indexOf("tc:offline:") === 0) keys.push(key);
+      }
+      keys.forEach(function (key) { localStorage.removeItem(key); });
+    } catch (e) { /* no storage; the worker is still asked */ }
+    note.textContent = "Removing…";
+    tell({ type: "drop-all" }).then(show);
+  });
+
+  show();
+})();
+</script>
 {% endblock %}

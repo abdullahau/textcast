@@ -37,6 +37,7 @@ def has_column(conn: sqlite3.Connection, table: str, name: str) -> bool:
 def run(conn: sqlite3.Connection) -> None:
     _seed_account(conn)
     _add_block_media(conn)
+    _add_built_at(conn)
     _retire_embed_blocks(conn)
     _add_phoneme_columns(conn)
     _drop_is_phonemes(conn)
@@ -48,6 +49,32 @@ def run(conn: sqlite3.Connection) -> None:
     _scope_summary_key(conn)
     _adopt_env_summary_key(conn)
     _name_summary_keys(conn)
+
+
+def _add_built_at(conn: sqlite3.Connection) -> None:
+    """When this article's audio was last written, as epoch seconds.
+
+    It goes in the media URL. `/media/<slug>/section-000.opus` promised
+    `immutable` for a year and was rewritten by every build, so a browser or a
+    service worker holding the old file played it against the *new* timing map
+    and the read-along drifted further behind with every paragraph. A stamp in
+    the query makes the promise true instead of dropping it, which was tried
+    and does not work: the audio element asks for byte ranges, so without a
+    long-lived header Chromium answers the worker's own plain GET as a ranged
+    one and `Cache.addAll` refuses the batch.
+
+    Everything already built is stamped once, now. That is not when it was
+    built, but it is a value that changes exactly when the file does from here
+    on, and the one wrong stamp costs a single re-download.
+    """
+    if has_column(conn, "article", "built_at"):
+        return
+    conn.execute("ALTER TABLE article ADD COLUMN built_at INTEGER NOT NULL DEFAULT 0")
+    stamped = conn.execute(
+        "UPDATE article SET built_at = CAST(strftime('%s','now') AS INTEGER)"
+        " WHERE status = 'ready' OR audio_ms > 0"
+    ).rowcount
+    log.info("added article.built_at and stamped %d built article(s)", stamped)
 
 
 def _adopt_env_summary_key(conn: sqlite3.Connection) -> None:

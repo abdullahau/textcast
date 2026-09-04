@@ -71,6 +71,14 @@ section you are about to touch**, and add to it when something bites you.
 
 ## Re-parsing, and editing an article
 
+- **The slug is an address, and a re-parse must not move it.** It is derived
+  from the title, and `reparse` deletes the row and stores a new one — so a
+  better title meant a new slug, and `media/<old-slug>/`, its `images/` and
+  `sources/<old-slug>.*` were left with nothing able to reach them. Nothing
+  sweeps by slug. `save_article` takes the old slug back, and the audio that
+  the moved block ids invalidated is dropped rather than orphaned. What a slug
+  *reads* is of no interest to anyone; what it points at is.
+
 - **Re-parse used to delete every summary in the library.** A summary is a
   block and no source ever held one — 35 of them, seven articles, each a call
   to a model, and the only sign was ~500 words vanishing per article. They are
@@ -267,13 +275,25 @@ section you are about to touch**, and add to it when something bites you.
 
 - **`audio.currentTime` is the decoder's clock, not the speaker's.** Whatever
   sits after the decoder — the output buffer, and over Bluetooth the codec and
-  the radio — is delay the browser does not report and no page can measure. On
-  a laptop it is around 20 ms and invisible; over Bluetooth on a phone it is
-  150–300 ms and often more, which is a clause. That, and not anything in the
-  timing map, is why the read-along looked right on a desktop and ran ahead of
-  the voice on a phone. There is no API for it, so the sheet carries a
-  **Highlight timing** slider, stored per browser and subtracted in
-  `syncHighlight`. Do not try to guess the number from the user agent.
+  the radio — is delay. On a laptop it is around 25 ms and invisible; over
+  Bluetooth on a phone it is 150–300 ms, which is a clause. That, and not
+  anything in the timing map, is why the read-along looked right on a desktop
+  and ran ahead of the voice on a phone. **The timing map was measured and it
+  is not the fault**: over a nine-minute section, cue starts matched the
+  decoded audio to within the measurement's own resolution, and the total to
+  the millisecond. Do not go looking there again.
+- **The browser will tell you the output delay: `AudioContext.outputLatency`.**
+  It is a property of the output *device*, not of any graph, so a context with
+  nothing connected to it reports the number and the audio element keeps its
+  own path to the speaker. Three things it will catch you on. It reads **0**
+  until the device's stream is open, so ask after playback has started and
+  treat a zero as "not yet" rather than as an answer. It moves when the device
+  moves, so re-ask on `devicechange` and when the page comes back from hidden —
+  earbuds go in mid-article. And the context is opened, read and **closed
+  again**: held open it keeps a second output stream alive for the whole
+  article, which on iOS means owning the audio session the element is playing
+  through. Chrome 102, Firefox 70 and Safari 18.4; older browsers fall through
+  to the manual trim, which is what the slider in the sheet now is.
 - **Following the audio is not the same as scrolling to it.**
   `scrollIntoView({block: "center"})` centres in the *layout* viewport, which
   on a phone is not what can be seen: the header covers the top, the player the
@@ -297,6 +317,14 @@ section you are about to touch**, and add to it when something bites you.
   handle blurs itself on click. Text fields, `<select>`, contenteditable and
   anything inside the sheet keep the key, because typing a space and ticking a
   checkbox are what Space is for there.
+- **A hold with no length is a guess.** Hold-to-unlock was 550 ms and looked
+  broken: it took several goes. Two reasons, and the second is the real one.
+  Nothing on screen said a hold was happening or how long it had to last — so
+  the bar above the player fills over exactly the time the timer waits, and the
+  script writes both durations so they cannot disagree. And a thumb that drifts
+  a few pixels off a 2 rem button fires `pointerleave`, which silently
+  cancelled it: `setPointerCapture` on `pointerdown` is what fixed that.
+  A hold ends in a `click` too, and that click must not re-lock.
 - **The transport is the width of the screen, and a pocket is not.** Listening
   while doing something else on the phone lands taps wherever a thumb falls,
   and the scrub bar took every one of them. The padlock in the bar sets
@@ -304,6 +332,11 @@ section you are about to touch**, and add to it when something bites you.
   beside each block. Tap to lock, **hold** to unlock: a tap would undo it, and
   a stray tap is the thing being guarded against. A hold also ends in a click,
   so the click handler has to swallow the one that follows an unlock.
+
+- **media-chrome gives a button no width.** The height comes from
+  `--media-control-height` plus the padding and the width from whatever the
+  glyph happens to be, so `border-radius: 50%` drew an oval. Size the host and
+  zero `--media-control-padding` under it.
 
 ## The library, search and the pager
 
@@ -413,6 +446,35 @@ Each cost an afternoon once; the incident is in git, the rule is here.
   on `undefined`, and `caches.match` resolves to that for anything never
   stored. There is a 503 page that says which it is.
 
+- **Do not name the offline cache after the build.** `SHELL` must be
+  versioned — it is this release's own files. `OFFLINE` must not: `activate`
+  deletes every cache that is not the current build's, so a versioned name
+  threw away everything the reader had marked to keep, on every deploy,
+  silently, and they found out on a train. It is only safe to keep across
+  releases because every media URL now carries `?b=<built_at>`.
+- **The build has to be in the media URL, or `immutable` is a lie.**
+  `/media/<slug>/section-000.opus` is rewritten by every build and the path
+  does not change. Weakening the header instead was tried and reverted: the
+  audio element asks for byte ranges, so the browser's HTTP cache holds a
+  *partial* entry, and without a long-lived header Chromium answers the
+  worker's own plain GET as a ranged one — `Cache.addAll` refuses the batch
+  with "Partial response (status code 206) is unsupported" and marking an
+  article offline stores nothing at all. `article.built_at` is the stamp,
+  written by `save_manifest` and appended by `build_payload`. Anything that
+  builds a media address by hand needs it too, and a test that asserts on a
+  bare `/media/<slug>/section-000.opus` is asserting on an address nothing
+  uses.
+- **`postMessage` to a worker is a shout into a room.** The download either
+  happened or it did not, and the page had no way to know: `cache.addAll` is
+  all-or-nothing and swallowed its own failure, so the box stayed ticked over
+  a cache holding nothing. Every message carries a `MessagePort` now and the
+  worker answers on it.
+- **Nothing else can collect the cache, so the page has to.** The tick boxes
+  in `localStorage` are the only record of what was asked for; the worker's
+  own memory does not survive being stopped. Every page load sends
+  `reconcile` with that list, which is what finally collects an article
+  deleted from the library, one unticked in another tab, and every file left
+  at a previous build's `?b=`.
 - **"Keep offline" used to keep everything.** `mediaResponse` stored every
   200 it saw, so every section of every article anyone ever played went into
   the OFFLINE cache. Two things came of that. The cache grew without limit and
@@ -650,6 +712,21 @@ Each cost an afternoon once; the incident is in git, the rule is here.
   already peeked at.
 
 ## Web, auth and the bookmarklet
+
+- **Two ports are cross-origin and same-*site*.** Same-site is decided by the
+  registrable domain and ignores the port entirely, so a test that posts from
+  `127.0.0.1:9000` to `127.0.0.1:8000` proves nothing about `SameSite=Lax` —
+  the cookie is sent, and the assertion that it was refused passes for a
+  different reason or fails for a confusing one. `tests/test_crosssite.py`
+  starts Chromium with `--host-resolver-rules=MAP *.test 127.0.0.1` and uses
+  `app.test` and `reader.test`, which are two registrable domains.
+- **`/api/ingest` is the only route the internet can reach with a credential
+  in a body, and it does real work per call.** Two budgets, and they exist for
+  different reasons: failed attempts (guessing the key was free) and accepted
+  calls (a leaked key should not be an open tap). The failure budget is
+  checked *before* the secret is compared, so the comparison cannot be used as
+  a timing oracle, and a key that works clears it — otherwise a run of real
+  adds would lock the owner out of their own bookmarklet.
 
 - **A refused Shortcut looks exactly like a success.** iOS Shortcuts' "Get
   Contents of URL" gets a 401 and carries on: nine identical 401s sat in the
