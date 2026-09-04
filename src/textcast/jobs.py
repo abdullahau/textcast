@@ -124,6 +124,14 @@ class Worker:
             # and go on writing to the job it no longer owns.
             child.terminate()
             child.join(timeout=timeout)
+            if child.is_alive():
+                # Stuck deep enough that SIGTERM never landed -- an
+                # uninterruptible syscall, or a handler that swallowed it --
+                # and left running, this would go on holding the model after
+                # stop() returns and this process is meant to be quitting.
+                log.warning("child %s did not stop on terminate(); killing it", child.pid)
+                child.kill()
+                child.join(timeout=timeout)
         for thread in self._threads:
             thread.join(timeout=timeout)
         self._threads = []

@@ -210,6 +210,7 @@ class FakeChild:
         self.exitcode = exitcode
         self.joined = False
         self.terminated = False
+        self.pid = 1234
 
     def start(self) -> None:
         pass
@@ -222,6 +223,22 @@ class FakeChild:
 
     def terminate(self) -> None:
         self.terminated = True
+
+
+class StubbornChild(FakeChild):
+    """Ignores terminate() -- stuck in an uninterruptible syscall, or a
+    handler that swallows SIGTERM outright -- and only dies on kill()."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.killed = False
+
+    def join(self, timeout=None) -> None:
+        if self.killed:
+            self.joined = True
+
+    def kill(self) -> None:
+        self.killed = True
 
 
 def watched(worker: Worker, child: FakeChild) -> list[tuple]:
@@ -296,6 +313,20 @@ def test_stopping_takes_the_build_process_with_it(conn, settings):
     worker.stop(timeout=0.1)
 
     assert child.terminated, "an orphaned build would hold the model and keep writing"
+
+
+def test_stopping_kills_a_child_that_ignores_terminate(conn, settings):
+    """terminate() alone was never checked: a child stuck deep enough not to
+    honour SIGTERM was left running and holding the model after stop()
+    returned, with nothing left to reap it."""
+    worker = Worker(settings)
+    child = StubbornChild()
+    worker._children["build"] = child
+
+    worker.stop(timeout=0.1)
+
+    assert child.terminated and child.killed
+    assert not child.is_alive()
 
 
 def switchable(settings, monkeypatch, count=2) -> Worker:
