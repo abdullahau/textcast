@@ -151,6 +151,18 @@ def fetch(config: MailConfig | None = None, settings: Settings | None = None, li
                 if config.mark_seen:
                     imap.store(message_id, "+FLAGS", "\\Seen")
                 continue
+            except Exception:
+                # Anything else — a parser bug, a database error — is not a
+                # verdict on this message the way `IngestError` is. Left to
+                # propagate, it used to abort the whole poll before
+                # `mark_seen` ran on it: the message stayed unread, and so did
+                # every message queued behind it, forever, because the next
+                # poll hit the same broken message first. One bad message
+                # must not cost the rest of the batch, the way a bad file
+                # already can't in `service.py`'s own batch loader.
+                log.exception("could not ingest %s", _subject(head[0][1]))
+                result.failed += 1
+                continue
 
             if outcome.duplicate:
                 result.duplicates += 1

@@ -131,10 +131,37 @@ def test_a_transient_failure_leaves_the_message_unread(imap, monkeypatch, settin
 
     monkeypatch.setattr(mail, "ingest", blow_up)
 
-    with pytest.raises(OSError):
-        mail.fetch(CONFIG, settings=settings)
+    result = mail.fetch(CONFIG, settings=settings)
 
+    assert result.failed == 1 and result.added == 0
     assert server.seen == [], "a transient failure must not consume the message"
+
+
+def test_a_transient_failure_does_not_cost_the_messages_behind_it(imap, monkeypatch, settings):
+    """One bad message must not stop the poll before it reaches the rest.
+
+    A parser bug on the first message used to propagate out of the whole
+    poll, so the second was never even looked at -- and the next poll hit
+    the same broken message first, forever.
+    """
+    server = imap(
+        {
+            b"1": message("A poison message", "A paragraph. " * 40),
+            b"2": message("A good one", "Another paragraph. " * 40),
+        }
+    )
+
+    def flaky(**kwargs):
+        if kwargs["eml"] == server.messages[b"1"][1]:
+            raise AttributeError("a parser bug")
+        return _added("A good one")
+
+    monkeypatch.setattr(mail, "ingest", flaky)
+
+    result = mail.fetch(CONFIG, settings=settings)
+
+    assert result.failed == 1 and result.added == 1
+    assert server.seen == [b"2"], "the poisoned message stays unread; the other lands"
 
 
 def test_the_subject_is_named_when_a_message_fails(imap):
