@@ -99,6 +99,13 @@ section you are about to touch**, and add to it when something bites you.
 
 ## Re-parsing, and editing an article
 
+- **An article fetched by URL used to keep nothing at all.** `article_from_source`
+  fetched the page into a local that never came back, so `_original` was asked
+  for it, had none, and `store_source` was skipped — for the one input that
+  cannot simply be handed in again once the address has moved or gone behind a
+  wall. Everything else (an upload, an `.eml`, pasted text, a bookmarklet's
+  HTML) was kept, which is why it went unnoticed. `ingest` fetches before it
+  parses, so the bytes are still in hand when the store asks for them.
 - **The slug is an address, and a re-parse must not move it.** It is derived
   from the title, and `reparse` deletes the row and stores a new one — so a
   better title meant a new slug, and `media/<old-slug>/`, its `images/` and

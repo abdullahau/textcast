@@ -152,6 +152,15 @@ def ingest(
     settings = settings or get_settings()
     settings.ensure_dirs()
 
+    # Fetched here rather than left to `article_from_source`, which fetches
+    # into a local that never comes back: `_original` was then asked for the
+    # page and had nothing, so a URL ingest stored no source at all and
+    # Re-parse had nothing to replay -- for the one input that cannot simply
+    # be handed in again once the address has moved or gone behind a wall.
+    wants_page = upload is None and eml is None and not (text and text.strip())
+    if wants_page and html is None and url:
+        html = fetch(url)
+
     article = article_from_source(
         html=html, url=url, eml=eml, text=text, title=title, upload=upload,
         adapter=adapter, source=source,

@@ -650,3 +650,35 @@ def test_a_charset_the_server_does_name_is_believed(monkeypatch):
     monkeypatch.setattr(netguard, "get", lambda *a, **k: response)
 
     assert service.fetch("https://example.com/a") == text
+
+
+def test_an_article_fetched_by_url_keeps_the_page_it_was_built_from(settings, conn, monkeypatch):
+    """`sources/` is one of the two things that cannot be made again, and a
+    URL ingest stored nothing at all: the page was fetched into a local that
+    never came back, so `_original` was asked for it and had none. Re-parse
+    then had nothing to replay for the one input you cannot simply hand in
+    again once the address has moved."""
+    from textcast import service
+
+    page = (
+        "<html><head><title>A Fetched Note</title></head><body><article>"
+        "<h1>A Fetched Note</h1>"
+        "<p>The SEC asked about GAAP and the trade settled at twelve times EBITDA.</p>"
+        "<p>Nobody at the fund would say which desk had booked it that morning.</p>"
+        # Past MIN_WORDS, or the login-wall guard refuses the page before it
+        # is ever stored and this tests the wrong thing.
+        "<p>The filing ran to nine pages and named three counterparties, none "
+        "of whom returned a call before the market opened on the Tuesday.</p>"
+        "<p>Two of them had settled a similar claim the year before, on terms "
+        "nobody involved has ever been willing to describe on the record.</p>"
+        "<p>The rest of the document is a table of dates, and the dates are "
+        "the only part of it that everyone agrees about.</p>"
+        "</article></body></html>"
+    )
+    monkeypatch.setattr(service, "fetch", lambda url, **k: page)
+
+    result = ingest(url="https://example.com/a-fetched-note", build=False)
+
+    stored = settings.source_dir / f"{result.slug}.html"
+    assert stored.is_file(), "the fetched page is kept, like every other input"
+    assert "twelve times EBITDA" in stored.read_text(encoding="utf-8")
