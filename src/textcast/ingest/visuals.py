@@ -316,6 +316,29 @@ def _image_src(img: Node, base: str) -> str:
     return src
 
 
+def _caption_match(node: Node, rules: VisualRules, *, bare: bool) -> Node | None:
+    """The first `rules.captions` match that is a genuine descendant of ``node``.
+
+    ``found != node`` (not ``is``) because lexbor hands out a fresh wrapper
+    per lookup, so a container whose own class matches a caption selector
+    (e.g. `class="captioned-image-wrapper"`, which also matches
+    `[class*="caption"]`) would otherwise self-match and be read as its own
+    caption. ``bare`` picks which of `_caption` and `_credit` is asking: a
+    bare credit ("© Reuters") is not a caption and vice versa.
+    """
+    for selector in rules.captions:
+        try:
+            found = node.css_first(selector)
+        except Exception:
+            continue
+        if found is None or found == node:
+            continue
+        text = text_of(found)
+        if text and bool(BARE_CREDIT.match(text)) == bare:
+            return found
+    return None
+
+
 def _caption(node: Node, rules: VisualRules) -> str:
     """The words a publication prints under the picture.
 
@@ -323,17 +346,8 @@ def _caption(node: Node, rules: VisualRules) -> str:
     it shows, and read aloud it is noise where a caption would have been
     information.
     """
-    for selector in rules.captions:
-        try:
-            found = node.css_first(selector)
-        except Exception:
-            continue
-        if found is None:
-            continue
-        text = text_of(found)
-        if text and not BARE_CREDIT.match(text):
-            return text
-    return ""
+    found = _caption_match(node, rules, bare=False)
+    return text_of(found) if found is not None else ""
 
 
 def _figure_block(node: Node, rules: VisualRules, base: str) -> Block | None:
@@ -369,16 +383,8 @@ def _figure_block(node: Node, rules: VisualRules, base: str) -> Block | None:
 
 
 def _credit(node: Node, rules: VisualRules) -> str:
-    for selector in rules.captions:
-        try:
-            found = node.css_first(selector)
-        except Exception:
-            continue
-        if found is not None:
-            text = text_of(found)
-            if text and BARE_CREDIT.match(text):
-                return text
-    return ""
+    found = _caption_match(node, rules, bare=True)
+    return text_of(found) if found is not None else ""
 
 
 def _label(word: str, caption: str) -> str:
@@ -521,14 +527,9 @@ def _wraps_prose(node: Node, rules: VisualRules) -> bool:
     if any(found != node for found in node.css("h1, h2, h3, blockquote")):
         return False if node.tag == "figure" else True
     text_len = len(node.text(separator=" ", strip=True) or "")
-    for selector in rules.captions:
-        try:
-            found = node.css_first(selector)
-        except Exception:
-            continue
-        if found is not None:
-            text_len -= len(found.text(separator=" ", strip=True) or "")
-            break
+    found = _caption_match(node, rules, bare=False)
+    if found is not None:
+        text_len -= len(text_of(found))
     return text_len > MAX_FIGURE_TEXT
 
 
