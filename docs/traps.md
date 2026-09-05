@@ -277,6 +277,18 @@ section you are about to touch**, and add to it when something bites you.
   since misaki already says "point" for a bare "14.6" itself and loses
   nothing. Guarded against a second decimal point on either side, so
   "192.168.1.1" is left alone rather than half-read as a number.
+- **A currency word only goes singular before a noun it modifies, and only a
+  whitelist decides that.** "the $4.4tn company" was read "four point four
+  trillion dollars company" — grammatical for a plain amount ("it raised
+  $4.4tn"), wrong for the same amount modifying a noun the way "a
+  five-dollar bill" does. Telling the two apart needs the word right after
+  the match, which `_is_one` alone never looked at. `_ATTRIBUTIVE_NOUNS` is a
+  whitelist, not a stoplist of what keeps the plural: a stoplist would
+  singularise ahead of any verb it didn't know — "$4.4tn evaporated" reading
+  as "four trillion dollar evaporated" — which is a worse, more audible
+  failure than the noun it would occasionally miss. Grown from what this
+  app's own corpus writes money in front of; a noun that is not on it just
+  keeps today's plural reading.
 
 ## The TTS engines
 

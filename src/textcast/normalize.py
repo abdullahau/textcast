@@ -66,9 +66,33 @@ _CURRENCY_CHARS = "".join(re.escape(c) for c in "$£€¥₹")
 _PREFIXES = r"(?:R\$|A\$|C\$|HK\$|US\$|[" + _CURRENCY_CHARS + r"])"
 _SCALE_ALT = "|".join(sorted(SCALES, key=len, reverse=True))
 
+#: "the $4.4tn company" reads with a singular, hyphen-implied currency word --
+#: the same shift as "a five-dollar bill" -- but only when the amount sits
+#: right before a noun it modifies. "$4.4tn was raised" and "$4.4tn of debt"
+#: keep the plural, so this is a whitelist of nouns rather than a stoplist of
+#: what comes before a plural reading: a missed noun just keeps today's
+#: (grammatical, if slightly flat) plural, but a false positive ahead of a
+#: verb like "evaporated" would read as a broken compound. Grown from what
+#: this app's own corpus writes money in front of.
+_ATTRIBUTIVE_NOUNS = {
+    "company", "firm", "business", "startup", "giant", "group", "conglomerate",
+    "corporation", "bank", "lender", "insurer", "fund", "empire", "unicorn",
+    "deal", "round", "raise", "offering", "acquisition", "merger", "takeover",
+    "buyout", "transaction", "purchase", "sale", "spinoff",
+    "loan", "bond", "note", "bill", "coin", "facility", "mortgage", "bailout",
+    "package", "payout", "settlement", "fine", "penalty", "judgment",
+    "verdict", "award", "grant", "subsidy", "contract", "check", "cheque",
+    "valuation", "budget", "endowment", "fortune", "windfall", "profit",
+    "loss", "writedown", "shortfall", "surplus", "stake",
+}
+
 #: $72mm, £5bn, €300k, US$1.2tn — a currency, a number, an optional scale.
+#: The trailing lookahead peeks at the next word without consuming it, so
+#: ``_money`` can tell "$4.4tn company" (attributive) from "$4.4tn of debt"
+#: (a plain amount) while leaving whatever follows untouched.
 MONEY = re.compile(
-    rf"(?<![A-Za-z0-9])({_PREFIXES})\s?(\d[\d,]*(?:\.\d+)?)(?:\s?({_SCALE_ALT}))?\b",
+    rf"(?<![A-Za-z0-9])({_PREFIXES})\s?(\d[\d,]*(?:\.\d+)?)(?:\s?({_SCALE_ALT}))?\b"
+    rf"(?:(?=\s+([a-zA-Z]+)\b))?",
     re.IGNORECASE,
 )
 
@@ -204,16 +228,19 @@ def _is_one(number: str) -> bool:
 
 
 def _money(match: re.Match) -> str:
-    symbol, number, scale = match.group(1), match.group(2), match.group(3)
+    symbol, number, scale, following = match.group(1), match.group(2), match.group(3), match.group(4)
     unit = CURRENCIES.get(symbol.upper() if symbol.upper() in CURRENCIES else symbol)
     if unit is None:
         unit = CURRENCIES.get(symbol.replace("US", ""), "dollars")
 
     number = _strip_commas(number)
+    # A scale keeps the plural even at "$1 million" -- it is never one dollar
+    # -- unless the whole amount is modifying the noun right after it.
+    attributive = following is not None and following.lower() in _ATTRIBUTIVE_NOUNS
+    if attributive or (not scale and _is_one(number)):
+        unit = SINGULAR.get(unit, unit)
     if scale:
         return f"{number} {SCALES[scale.lower()]} {unit}"
-    if _is_one(number):
-        return f"{number} {SINGULAR.get(unit, unit)}"
     return f"{number} {unit}"
 
 

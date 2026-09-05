@@ -16,8 +16,17 @@ from textcast.normalize import normalize
     ("written", "spoken"),
     [
         # Money with a scale suffix, which is where engines fail hardest.
-        ("a $72mm round", "a 72 million dollars round"),
+        # "round" is a noun the amount modifies, so the currency word is
+        # singular, the same shift as "a five-dollar bill".
+        ("a $72mm round", "a 72 million dollar round"),
         ("the fund is $5bn", "the fund is 5 billion dollars"),
+        ("the $4.4tn company", "the 4 point four trillion dollar company"),
+        ("a $30bn deal", "a 30 billion dollar deal"),
+        ("a $5 bill", "a 5 dollar bill"),
+        # Not every following word is a noun the amount modifies -- only a
+        # whitelist fires, so a verb the list doesn't know keeps the plural
+        # rather than reading as a broken compound.
+        ("$4.4tn evaporated overnight", "4 point four trillion dollars evaporated overnight"),
         ("raised £5bn", "raised 5 billion pounds"),
         ("€300k of it", "300 thousand euros of it"),
         ("US$1.2tn of assets", "1 point two trillion dollars of assets"),
@@ -312,7 +321,7 @@ def test_display_text_is_never_touched():
     """The page keeps the author's punctuation; only the engine sees the rewrite."""
     block = Block(kind=BlockKind.PARA, text="A $72mm round — per the SEC.")
     assert block.text == "A $72mm round — per the SEC."
-    assert block.spoken() == "A 72 million dollars round, per the SEC."
+    assert block.spoken() == "A 72 million dollar round, per the SEC."
 
 
 def test_quotes_are_normalised_and_still_get_their_cue():
