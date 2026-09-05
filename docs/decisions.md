@@ -49,6 +49,17 @@ measured on a 33-minute article whose blocks were all cached, the rebuild took
 **`sources/`** keeps the bytes each article arrived as, so Re-parse can replay
 a parser fix without re-fetching. Delete it and Re-parse stops working.
 
+**The cache key's engine layer took two wrong shapes before `cache_keys`'s
+current one.** It was first the literal string "kokoro" — right when there
+was one engine, wrong for every article since. Then `settings.engine`, which
+skipped the *build's own* saved choice: pick an engine on the Voice page
+while the environment still names the other one, and every key was computed
+for an engine no build had used. `sweep_cache` runs after every build and
+deletes what it can't reach, so it deleted the renders that build had just
+written — the cache emptied itself on every rebuild. `cache_keys` now reads
+the same three layers, in the same order, that `jobs._build` does: the
+article's own build options, then the saved default.
+
 **A `position` row is deleted, not zeroed.** A zeroed row would still resume at
 the top and still read as unfinished.
 

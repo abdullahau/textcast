@@ -32,13 +32,9 @@ def cache_keys(article_id: int, conn, settings: Settings, chosen=None) -> set[st
 
     The engine comes off the article's own build options, then off the *saved*
     default -- the same three layers, in the same order, that `jobs._build`
-    reads. It used to be the string "kokoro", which was right when there was
-    one engine and wrong for every article since. Then it was
-    `settings.engine`, which skipped the middle layer: choose an engine on the
-    Voice page while the environment still names the other one, and every key
-    here was computed for an engine no build had used. `_sweep_cache` runs
-    after every build, so it deleted the renders that build had just written --
-    the cache emptied itself and each rebuild went back to the model.
+    reads. Getting that layering wrong made a rebuild empty its own cache; see
+    docs/decisions.md ("Where the data lives") for the two shapes that were
+    wrong before this one.
 
     The phonemiser matters for the same reason. A rule written in IPA reaches
     only the engine it was written for, so the spoken text is not the same
