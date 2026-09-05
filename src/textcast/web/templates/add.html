@@ -100,6 +100,30 @@
 </div>
 
 <div class="card">
+  <h2>One click from any page</h2>
+  <p class="hint">
+    Drag this to your bookmarks bar. It posts the page <b>your browser</b> has, already
+    rendered and already logged in, so the server never has to get past the wall. That is
+    what the share sheet cannot do: the sheet sends the link, and the server fetches it as
+    a stranger.
+  </p>
+  <p class="hint">
+    It posts to <code>{{ origin }}/api/ingest</code>. A browser refuses to post from an
+    <code>https</code> page to an <code>http</code> one, so on a paywalled site this
+    needs textcast behind TLS. Set <code>TEXTCAST_PUBLIC_URL</code> to the address the
+    outside world uses.
+  </p>
+{% if token %}  <p class="hint">
+    Access control is on, so this bookmarklet carries your token. Treat it as a
+    password. Change the token and you must drag this button again.
+  </p>
+{% endif %}  <p><a class="btn ghost" id="bookmarklet" href="#">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4z"/></svg>
+    <span>Send to textcast</span>
+  </a></p>
+</div>
+
+<div class="card">
   <h2>From the iPhone share sheet</h2>
   <p class="hint">
     Android posts straight to this app once you install it. iOS has no share target,
@@ -168,30 +192,6 @@
     rendering and share again. Keep both shortcuts: this one needs Safari, and the
     first one takes a link from anywhere.
   </p>
-</div>
-
-<div class="card">
-  <h2>One click from any page</h2>
-  <p class="hint">
-    Drag this to your bookmarks bar. It posts the page <b>your browser</b> has, already
-    rendered and already logged in, so the server never has to get past the wall. That is
-    what the share sheet cannot do: the sheet sends the link, and the server fetches it as
-    a stranger.
-  </p>
-  <p class="hint">
-    It posts to <code>{{ origin }}/api/ingest</code>. A browser refuses to post from an
-    <code>https</code> page to an <code>http</code> one, so on a paywalled site this
-    needs textcast behind TLS. Set <code>TEXTCAST_PUBLIC_URL</code> to the address the
-    outside world uses.
-  </p>
-{% if token %}  <p class="hint">
-    Access control is on, so this bookmarklet carries your token. Treat it as a
-    password. Change the token and you must drag this button again.
-  </p>
-{% endif %}  <p><a class="btn ghost" id="bookmarklet" href="#">
-    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4z"/></svg>
-    <span>Send to textcast</span>
-  </a></p>
 </div>
 
 <script>
