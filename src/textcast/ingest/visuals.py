@@ -501,18 +501,35 @@ def _still_of(src: str, rules: VisualRules) -> str:
     return ""
 
 
-def _wraps_prose(node: Node) -> bool:
+def _wraps_prose(node: Node, rules: VisualRules) -> bool:
     """True when the candidate is a layout container, not a figure.
 
     Two signs, and either is enough: it holds a heading or a quote, which no
     caption does, or it holds more words than a caption ever has. A table is
     exempt — its text is its data.
+
+    The caption's own words are not counted towards that limit. A data-heavy
+    Substack post can caption a chart with a full explanatory paragraph —
+    "hook-and-squeeze"'s second image ran to 407 characters on its own — and
+    counting it left a real figure indistinguishable from the wrapper this
+    check exists to catch, so `visual_block` fell through to the bare `img`
+    inside it, which cannot see a `figcaption` sitting beside it as its
+    parent's sibling.
     """
     if node.tag == "table":
         return False
     if any(found != node for found in node.css("h1, h2, h3, blockquote")):
         return False if node.tag == "figure" else True
-    return len(node.text(separator=" ", strip=True) or "") > MAX_FIGURE_TEXT
+    text_len = len(node.text(separator=" ", strip=True) or "")
+    for selector in rules.captions:
+        try:
+            found = node.css_first(selector)
+        except Exception:
+            continue
+        if found is not None:
+            text_len -= len(found.text(separator=" ", strip=True) or "")
+            break
+    return text_len > MAX_FIGURE_TEXT
 
 
 # --------------------------------------------------------------------------
@@ -538,7 +555,7 @@ def visual_block(
     if not kept and _furniture(node, stop):
         return None
 
-    if _wraps_prose(node):
+    if _wraps_prose(node, rules):
         return None
     if node.tag == "table":
         return _table_block(node, rules)

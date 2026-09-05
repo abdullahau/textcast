@@ -125,6 +125,22 @@ def test_a_wrapper_holding_the_whole_article_is_not_a_figure():
     assert only(html, "div") is None
 
 
+def test_a_figure_keeps_its_caption_however_long_the_caption_runs():
+    """hook-and-squeeze's second image: a 407-character figcaption, on its own,
+    tripped the same 400-character limit meant to catch a wrapper holding the
+    whole article, and the figure was discarded for a bare `img` that cannot
+    see a caption sitting beside it as its parent's sibling.
+    """
+    caption = "This graphic summarizes the expenditures. " * 10
+    assert len(caption) > 400
+    html = f'<figure><img src="https://x.test/a.png" width="900"><figcaption>{caption}</figcaption></figure>'
+
+    block = only(html, "figure")
+
+    assert block is not None
+    assert block.media["caption"] == caption.strip()
+
+
 # ----------------------------------------------------------------- tables
 
 
