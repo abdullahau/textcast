@@ -204,34 +204,20 @@ def test_a_footnote_citing_a_bracket_of_its_own_is_not_cut_short():
     assert "for detail" in out
 
 
-@pytest.mark.parametrize(
-    ("written", "spoken"),
-    [
-        ("World War II began", "World War 2 began"),
-        ("Elizabeth II died", "Elizabeth 2 died"),
-        ("Henry VIII had six wives", "Henry 8 had six wives"),
-        ("Super Bowl LIX was in 2025", "Super Bowl 59 was in 2025"),
-        ("Richard III is a play", "Richard 3 is a play"),
-        ("Season IX just dropped", "Season 9 just dropped"),
-    ],
-)
-def test_a_roman_numeral_becomes_a_digit(written: str, spoken: str):
-    """Kokoro's own g2p already recognises one of these and says so out
-    loud -- "Roman number 2" for "II" -- so the digit has to reach it
-    first."""
-    assert normalize(written) == spoken
-
-
 @pytest.mark.parametrize("written", [
-    "Chapter I is the introduction",  # bare I: the pronoun, far more often
-    "He works at Detroit MI today",  # a state code that round-trips too
-    "The event is in Washington DC",
-    "Watch LIV Golf this weekend",  # a brand, not the numeral 54
-    "The MIX is a popular station",  # a word, not the numeral 1009
-    "St Croix VI is beautiful",
-    "I think this is fine",
+    "The M&A team met today",  # capitalised word + "M" + boundary looked like "M"
+    "The D&O broker called",  # same shape, a different single-letter value
+    "Elizabeth II died",
+    "Henry VIII had six wives",
+    "Chapter I is the introduction",
 ])
 def test_a_roman_looking_word_is_left_alone(written: str):
+    """Roman numerals were once converted to digits so Kokoro's own g2p
+    reading ("Roman number 2" for "II") never got the chance -- but the rule
+    that spotted "Elizabeth II" also spotted "The M" inside "The M&A team",
+    because a word boundary sits between "M" and "&" too. It read as "The
+    1000&A team". Losing the digit conversion is the trade for never
+    mangling an ampersand abbreviation again."""
     assert normalize(written) == written
 
 

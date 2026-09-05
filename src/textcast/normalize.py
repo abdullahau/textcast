@@ -216,61 +216,6 @@ def _unit(match: re.Match) -> str:
     return f"{number} {singular if _is_one(number) else plural}"
 
 
-#: Kokoro's own g2p already recognises a Roman numeral and says so out loud —
-#: "Roman number 2" for "II" — which is correct and unwanted in the same
-#: breath. Converting to the digit first is what keeps the model from ever
-#: seeing the numeral at all.
-#:
-#: Bare "I" is left alone regardless of what follows it: it is the pronoun far
-#: more often than it is a regnal or sequence number, and nothing here can
-#: tell "Chapter I" from a sentence that happens to end in the word "I".
-#: Every other numeral is unambiguous enough on the strength of two things
-#: together — capital Roman-numeral letters immediately after a capitalised
-#: word, the way "Elizabeth II" and "Chapter IV" are actually written — and
-#: only one of them is a coincidence a false hit needs both to survive. A
-#: word that merely spells like a numeral is not: "CIVIL" round-trips to
-#: "CXLIII", not itself, and the guard below throws it out.
-_ROMAN_VALUES = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1000}
-_ROMAN_TABLE = (
-    (1000, "M"), (900, "CM"), (500, "D"), (400, "CD"), (100, "C"), (90, "XC"),
-    (50, "L"), (40, "XL"), (10, "X"), (9, "IX"), (5, "V"), (4, "IV"), (1, "I"),
-)
-ROMAN_NUMERAL = re.compile(r"\b([A-Z][A-Za-z]*)\s+([IVXLCDM]{2,}|[VXLCDM])\b")
-
-#: A token that passes the round-trip check but is something else far more
-#: often: postal codes ("Detroit MI", "Washington DC", "St Croix VI",
-#: "Baltimore MD") and a brand written in capitals ("LIV Golf", the radio
-#: and playlist "MIX"). Found by checking every US state and territory code
-#: against the round-trip test, plus what turned up while testing this; not
-#: exhaustive, so a new one belongs here the day it misfires.
-_NOT_A_NUMERAL = {"MI", "MD", "DC", "VI", "LIV", "MIX"}
-
-
-def _roman_numeral(n: int) -> str:
-    out = []
-    for value, symbol in _ROMAN_TABLE:
-        count, n = divmod(n, value)
-        out.append(symbol * count)
-    return "".join(out)
-
-
-def _roman_value(token: str) -> int | None:
-    total = prev = 0
-    for ch in reversed(token):
-        value = _ROMAN_VALUES[ch]
-        total += -value if value < prev else value
-        prev = max(prev, value)
-    return total if _roman_numeral(total) == token else None
-
-
-def _roman(match: re.Match) -> str:
-    name, token = match.group(1), match.group(2)
-    if token in _NOT_A_NUMERAL:
-        return match.group(0)
-    value = _roman_value(token)
-    return f"{name} {value}" if value is not None else match.group(0)
-
-
 _ONES = (
     "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
     "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen",
@@ -342,10 +287,6 @@ def normalize(
     # First, so a marker cannot sit between a currency and its number.
     for pattern, replacement in EMPHASIS:
         text = pattern.sub(replacement, text)
-
-    # A numeral becomes a digit before anything else runs, so the engine's
-    # own Roman-numeral reading ("Roman number 2") never gets the chance.
-    text = ROMAN_NUMERAL.sub(_roman, text)
 
     # Before money, bare scales and units get anywhere near a year: each of
     # those strips or spaces out the very thing YEAR_WORDS' guards check for

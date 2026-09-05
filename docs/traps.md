@@ -234,6 +234,19 @@ section you are about to touch**, and add to it when something bites you.
   "closed in 1999.Companies rushed in" — a missing space, which is common in
   scraped text — is read as a website. Keep the guard if you add an ending on
   the Voice page.
+- **Roman numeral conversion was removed; do not bring it back.**
+  `normalize.ROMAN_NUMERAL` matched a capitalised word, whitespace, then a
+  Roman-numeral token — and its own word boundary treats `&` as the end of a
+  word. "The M&A team" has a capitalised word ("The"), whitespace, then "M"
+  bounded by `&`, which is indistinguishable from "Elizabeth II"'s "Elizabeth"
+  + "II". It converted "M" to "1000" and read "The 1000&A team", which the
+  ampersand rule then turned into "the one thousand and a team". Every
+  single-letter value (`I`, `V`, `X`, `L`, `C`, `D`, `M`) joined by `&` to
+  another capital right after a capitalised word had the same failure —
+  `D&O`, `C&I` — and there was no way to tell that shape from a real regnal
+  number without also breaking the regnal numbers. Kokoro's own "Roman number
+  2" reading for a bare "II" is back as a result; that was judged the smaller
+  cost.
 
 ## The TTS engines
 
