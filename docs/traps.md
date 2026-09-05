@@ -255,6 +255,15 @@ section you are about to touch**, and add to it when something bites you.
   and that read as "the best tip to not because ... to but because". Only an
   en dash with a digit on each side becomes "to" now; every other one gets the
   em dash's comma.
+- **espeak expands "&" to "and" before deciding what the letter after it is.**
+  "M&A" read as `ˈɛm _and a#` — the schwa of the indefinite article, not the
+  letter — the moment a noun followed: "the M&A team" but not bare "M&A" on
+  its own. "Q&A" has the same failure. misaki reads the same "&" as a signal
+  that the trailing letter is a letter (`ˈɛm ænd ˈA`) and needs no rule; a
+  hint on "A" by itself cannot fix espeak either, because espeak resolves the
+  letter before "&" expands, so the hint never sees the character that would
+  tell it which reading to give. `PHONEME_HINTS["M&A"]` and `["Q&A"]` name the
+  whole phrase's phonemes, espeak-only.
 - **A decimal point that ends a sentence reads as the sentence's own full
   stop, on kokoro-onnx only.** "$14.6bn" normalises to "14.6 billion dollars"
   and reads correctly everywhere — until that is the block's last sentence:

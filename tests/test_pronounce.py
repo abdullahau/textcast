@@ -154,15 +154,20 @@ def test_acronyms_said_as_words_are_respelled(written, spoken):
 def test_almost_everything_ships_as_letters_not_ipa():
     """IPA is hard to write, so it is the exception, not the default.
 
-    Three words have earned it. LIBOR, where Kokoro is already right and every
+    Five words have earned it. LIBOR, where Kokoro is already right and every
     respelling was worse. homogeneous, where misaki is right and espeak drops
     a syllable, and no respelling fixed the one without moving the other.
     Elon, where misaki is right and the respelling that fixes espeak moves it.
+    M&A and Q&A, where a respelling cannot even be tried: the plain text
+    "M and A" reads worse on *both* engines than the untouched "M&A" does,
+    because the "&" itself is what tells them the trailing letter is a
+    letter and not the article. Only espeak needs the hint; misaki already
+    reads the ampersand correctly.
     """
     rules = builtin_rules()
     ipa = [r for r in rules if r.is_phonemes]
-    assert len(ipa) <= 3, "respell where a respelling works"
-    assert {r.pattern for r in ipa} == {"LIBOR", "homogeneous", "Elon"}
+    assert len(ipa) <= 5, "respell where a respelling works"
+    assert {r.pattern for r in ipa} == {"LIBOR", "homogeneous", "Elon", "M&A", "Q&A"}
 
 
 # --------------------------------------------------------------------------
@@ -356,6 +361,23 @@ def test_only_the_initialisms_the_phonemiser_gets_wrong_have_rules():
     for already_right in ("CEO", "SEC", "ETF", "GDP", "M&A", "US", "ARR", "TAM"):
         assert already_right not in SPELL_OUT
         assert apply(f"The {already_right} today.", rules) == f"The {already_right} today."
+
+
+def test_an_ampersand_initial_ending_in_a_gets_espeak_only_phonemes():
+    """espeak expands "&" to "and" itself, then reads the bare "A" left over
+    as the indefinite article the moment a noun follows -- "the M&A team" is
+    `ˈɛm _and a#`, not the letter. misaki reads the same "&" correctly on its
+    own (`ˈɛm ænd ˈA`), so only espeak gets a hint, and it names the whole
+    phrase rather than "A" alone: espeak resolves "A" before "&" is expanded,
+    so a hint on the letter by itself never sees the ampersand that would
+    have told it which reading to give."""
+    rules = builtin_rules()
+
+    for token in ("M&A", "Q&A"):
+        assert apply(f"the {token} team", rules, g2p="misaki") == f"the {token} team"
+        out = apply(f"the {token} team", rules, g2p="espeak")
+        assert out.startswith(f"the [{token}](/")
+        assert out.endswith("/) team")
 
     # The ones kept are where misaki says a real word instead of the letters.
     assert apply("Return on equity, or ROE, fell.", rules) == "Return on equity, or R O E, fell."

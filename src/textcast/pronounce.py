@@ -345,6 +345,15 @@ PHONEME_HINTS = {
     # but it moves misaki off a correct answer (ˈilɔn to ˈilɑn) for nothing,
     # and this is a person's name.
     "Elon": {"espeak": "ˈiːlɑːn"},
+    # espeak expands "&" to "and" itself, and then reads a bare trailing "A"
+    # as the indefinite article, not the letter -- "M&A" is `ˈɛm _and a#`
+    # (schwa) the moment a noun follows, "the M&A team". Giving it the whole
+    # phrase's phonemes skips espeak's own re-derivation, which is what a
+    # hint on "A" alone could not do since it fires before "&" is expanded.
+    # misaki reads the "&" as the same signal already and needs no hint:
+    # "M&A" is `ˈɛm ænd ˈA` there, capital A being its own /eɪ/.
+    "M&A": {"espeak": "ˈɛm ənd ˈeɪ"},
+    "Q&A": {"espeak": "kjˈuː ənd ˈeɪ"},
 }
 
 #: Names and words the phonemisers get wrong, respelled. A respelling is
@@ -568,6 +577,10 @@ ABBREVIATIONS = {
     "aka": "also known as",
     "AUM": "assets under management",
     "IPO": "I P O",
+    # Both engines mangle the five letters run together -- misaki says
+    # something close to "why em em vee", stress marks on every letter;
+    # espeak's own IPA drops the Y and M entirely and says "imv".
+    "YMMV": "your mileage may vary",
 }
 
 #: Initialisms misaki reads as a word when it should spell them out. There
