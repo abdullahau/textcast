@@ -532,7 +532,7 @@
   </div>
 </div>
 
-<script id="payload" type="application/json">{{ payload|safe }}</script>
+<script id="payload" type="application/json">{{ payload|tojson }}</script>
 <script>
   window.TEXTCAST = {
     articleId: {{ row.id }},

@@ -936,7 +936,7 @@ def reader(
         "reader.html",
         article=article,
         row=row,
-        payload=json.dumps(build_payload(row["id"]), separators=(",", ":")),
+        payload=build_payload(row["id"]),
         position=position,
         job=job,
         tags=db.tags_for(row["id"], conn),
