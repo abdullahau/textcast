@@ -20,7 +20,7 @@ from textcast.normalize import normalize
         ("the fund is $5bn", "the fund is 5 billion dollars"),
         ("raised £5bn", "raised 5 billion pounds"),
         ("€300k of it", "300 thousand euros of it"),
-        ("US$1.2tn of assets", "1.2 trillion dollars of assets"),
+        ("US$1.2tn of assets", "1 point two trillion dollars of assets"),
         ("HK$40mm", "40 million Hong Kong dollars"),
         # An already-spelled scale must reorder, not strand the currency.
         ("about $19 million of cash", "about 19 million dollars of cash"),
@@ -34,7 +34,7 @@ from textcast.normalize import normalize
         # Finance shorthand.
         ("up 150bps", "up 150 basis points"),
         ("trading at 12x", "trading at 12 times"),
-        ("fell 2.5%", "fell 2.5 percent"),
+        ("fell 2.5%", "fell 2 point five percent"),
         ("Q3 was fine", "quarter 3 was fine"),
         ("FY2024 guidance", "fiscal year 2024 guidance"),
         ("revenue 2019-21 grew", "revenue 2019 to 2021 grew"),
@@ -168,6 +168,27 @@ def test_written_forms_the_phonemiser_reads_wrongly(written: str, spoken: str):
     from textcast import pronounce
 
     assert normalize(written, rules=pronounce.builtin_rules()) == spoken
+
+
+def test_a_decimal_point_is_spelled_out():
+    """kokoro-onnx's tokenizer reads a decimal point as the sentence's own
+    full stop when the number sits in the block's last sentence -- "The deal
+    was worth 14.6bn today." came out "fourteen. six billion dollars",
+    the pause landing mid-number. Spelling the fraction out removes the
+    character that confusion turns on, for every engine, not only the one
+    that has it."""
+    assert normalize("The deal was worth $14.6bn today.") == (
+        "The deal was worth 14 point six billion dollars today."
+    )
+    assert normalize("14.65 percent") == "14 point six five percent"
+
+
+def test_a_second_decimal_point_leaves_the_number_alone():
+    """A run of more than one decimal point is an IP address or a version
+    number, not a number to read aloud -- "192.168.1.1" said as "one hundred
+    ninety-two point one hundred sixty-eight point one point one" serves no
+    reader."""
+    assert normalize("ping 192.168.1.1 failed") == "ping 192.168.1.1 failed"
 
 
 def test_mm_stays_the_accounting_scale_not_a_length():

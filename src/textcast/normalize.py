@@ -157,6 +157,17 @@ CLOCK = re.compile(r"(?<![\d:.])(\d{1,2})(?::00)?\s*([ap])\.?m\.?(?![\w.])", re.
 #: The same o'clock, with no am or pm after it.
 OCLOCK = re.compile(r"(?<![\d:.])(\d{1,2}):00(?![\d:])")
 
+#: "$14.6bn" reads fine everywhere as "14.6 billion dollars" -- until that
+#: sentence is the block's last one. kokoro-onnx's tokenizer then reads the
+#: decimal point as the sentence's own full stop: "fourteen. six billion
+#: dollars", the pause landing mid-number. misaki never does this, but
+#: spelling the fraction out costs it nothing (it says "point" for a bare
+#: "14.6" already) and removes the character the confusion turns on, so this
+#: runs for both. Guarded on both sides against a second dot -- "192.168.1.1"
+#: -- so a run of more than one decimal point is left alone rather than
+#: half-read as a number.
+DECIMAL = re.compile(r"(?<![\d.])(\d+)\.(\d+)(?![\d.])")
+
 #: Emphasis markers that reached the block text. Matt Levine writes *before*
 #: for italics and the newsletter carries the asterisks through as characters,
 #: so the engine said the word "asterisk" out loud. The same patterns as
@@ -229,6 +240,11 @@ def _two_digits(n: int) -> str:
         return _ONES[n]
     tens, ones = divmod(n, 10)
     return _TENS[tens] if ones == 0 else f"{_TENS[tens]}-{_ONES[ones]}"
+
+
+def _decimal(match: re.Match) -> str:
+    whole, frac = match.groups()
+    return f"{whole} point {' '.join(_ONES[int(d)] for d in frac)}"
 
 
 def _year_words(match: re.Match) -> str:
@@ -315,6 +331,11 @@ def normalize(
     text = TIMES.sub(lambda m: f"{_strip_commas(m.group(1))} times", text)
     text = CLOCK.sub(lambda m: f"{m.group(1)} {m.group(2).lower()}.m.", text)
     text = OCLOCK.sub(r"\1", text)
+
+    # After the money, scale, unit, percent and times handling above, so any
+    # decimal point they left behind -- "14.6 billion dollars" -- is spelled
+    # out here rather than surviving as a character an engine can misread.
+    text = DECIMAL.sub(_decimal, text)
 
     # An emoji is read out by its name: espeak says "money bag" for the
     # 💰 in an FT table headed "Ker-CHING 💰", and "Table: Ker-CHING money

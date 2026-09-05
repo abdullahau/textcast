@@ -263,7 +263,7 @@ def test_a_library_with_the_old_case_blind_respelling_is_migrated(conn):
 
     rule = next(r for r in db.list_pronunciations(conn) if r.pattern == new_era)
     assert not rule.ignore_case
-    assert normalize("his ERA was under 3.00") == "his ERA was under 3.00"
+    assert normalize("his ERA was under 3.00") == "his ERA was under 3 point zero zero"
     assert normalize("a new era of cheap money") == "a new eera of cheap money"
 
     assert db.seed_pronunciations(conn) == 0, "the migrated row, not a duplicate of it"
@@ -699,7 +699,7 @@ def test_era_does_not_fire_inside_a_longer_word(conn):
 def test_era_in_all_caps_is_the_acronym_not_the_word(conn):
     """ERA is a baseball and finance stat, not "era" shouting. The
     respelling used to be case-blind and rewrote it into "eera" too."""
-    assert normalize("his ERA was under 3.00") == "his ERA was under 3.00"
+    assert normalize("his ERA was under 3.00") == "his ERA was under 3 point zero zero"
 
 
 def test_refund_in_all_caps_is_left_alone(conn):

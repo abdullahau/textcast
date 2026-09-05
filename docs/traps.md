@@ -255,6 +255,19 @@ section you are about to touch**, and add to it when something bites you.
   and that read as "the best tip to not because ... to but because". Only an
   en dash with a digit on each side becomes "to" now; every other one gets the
   em dash's comma.
+- **A decimal point that ends a sentence reads as the sentence's own full
+  stop, on kokoro-onnx only.** "$14.6bn" normalises to "14.6 billion dollars"
+  and reads correctly everywhere — until that is the block's last sentence:
+  "The deal was worth 14.6bn today." came out "fourteen. six billion
+  dollars", the pause landing mid-number. Isolated ("14.6" with nothing
+  after) or mid-paragraph ("It is 14.6 percent. It rose.") it is fine; only a
+  decimal whose sentence is the text's last one hits it, which is why it took
+  a real article to surface rather than the "$1.2tn of assets" fixture.
+  misaki never does this. `normalize.DECIMAL` now spells the fraction out —
+  "14 point six" — for both engines rather than only the one with the bug,
+  since misaki already says "point" for a bare "14.6" itself and loses
+  nothing. Guarded against a second decimal point on either side, so
+  "192.168.1.1" is left alone rather than half-read as a number.
 
 ## The TTS engines
 
