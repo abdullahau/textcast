@@ -37,6 +37,7 @@ def has_column(conn: sqlite3.Connection, table: str, name: str) -> bool:
 def run(conn: sqlite3.Connection) -> None:
     _seed_account(conn)
     _add_block_media(conn)
+    _add_block_rich(conn)
     _add_built_at(conn)
     _retire_embed_blocks(conn)
     _add_phoneme_columns(conn)
@@ -262,6 +263,19 @@ def _add_block_media(conn: sqlite3.Connection) -> None:
         return
     conn.execute("ALTER TABLE block ADD COLUMN media TEXT")
     log.info("added block.media")
+
+
+def _add_block_rich(conn: sqlite3.Connection) -> None:
+    """A block can now show its italics and bold, not just say them.
+
+    Nothing backfills, same as `_add_block_media`: an article parsed before
+    `rich` existed has no record of the markup it flattened. Re-parse fills
+    it in.
+    """
+    if not has_table(conn, "block") or has_column(conn, "block", "rich"):
+        return
+    conn.execute("ALTER TABLE block ADD COLUMN rich TEXT")
+    log.info("added block.rich")
 
 
 def _seed_account(conn: sqlite3.Connection) -> None:

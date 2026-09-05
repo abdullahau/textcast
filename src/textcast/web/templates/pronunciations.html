@@ -9,6 +9,7 @@
 <script>
 (function () {
   var go = document.getElementById("say-go");
+  var goLabel = go.querySelector("span");
   var field = document.getElementById("say-text");
   var out = document.getElementById("say-out");
   var err = document.getElementById("say-error");
@@ -17,7 +18,7 @@
   function say() {
     var text = field.value.trim();
     if (!text) return;
-    go.disabled = true; go.textContent = "…";
+    go.disabled = true; goLabel.textContent = "…";
     err.hidden = true;
 
     var body = new FormData();
@@ -64,7 +65,7 @@
         audio.play().catch(function () { /* the controls are right there */ });
       })
       .catch(function (e) { err.textContent = e.message; err.hidden = false; })
-      .finally(function () { go.disabled = false; go.textContent = "Speak it"; });
+      .finally(function () { go.disabled = false; goLabel.textContent = "Speak it"; });
   }
 
   /* One engine's voices at a time, in both cards. The engines share every
@@ -145,7 +146,10 @@
     <input type="hidden" name="kind" value="{{ changed_kind }}">
     <input type="hidden" name="pattern" value="{{ changed_pattern }}">
     <div class="row" style="margin-top:.8rem">
-      <button class="narrow" type="submit">Rebuild {{ affected|length }}</button>
+      <button class="narrow" type="submit">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></svg>
+        <span>Rebuild {{ affected|length }}</span>
+      </button>
     </div>
   </form>
 </div>
@@ -204,7 +208,12 @@
         </select>
       </div>
     </div>
-    <div class="row" style="margin-top:.9rem"><button class="narrow" type="submit">Save defaults</button></div>
+    <div class="row" style="margin-top:.9rem">
+      <button class="narrow" type="submit">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8"/><path d="M7 3v5h8"/></svg>
+        <span>Save defaults</span>
+      </button>
+    </div>
   </form>
 </div>
 
@@ -241,7 +250,10 @@
       </select>
     </div>
     <div class="narrow" style="align-self:end">
-      <button type="button" id="say-go">Speak it</button>
+      <button type="button" id="say-go">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5 6 9H2v6h4l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 5.5a9 9 0 0 1 0 13"/></svg>
+        <span>Speak it</span>
+      </button>
     </div>
   </div>
   <label class="check" style="margin-top:.6rem"><input type="checkbox" id="say-rules" checked> Apply the rules below first</label>
@@ -318,7 +330,12 @@
       <div><label for="note">Note</label><input type="text" name="note" id="note" placeholder="optional"></div>
       <label class="check narrow"><input type="checkbox" name="ignore_case" value="true"> Ignore case</label>
     </div>
-    <div class="row" style="margin-top:.9rem"><button class="narrow" type="submit">Add rule</button></div>
+    <div class="row" style="margin-top:.9rem">
+      <button class="narrow" type="submit">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
+        <span>Add rule</span>
+      </button>
+    </div>
   </form>
 
   <div class="rule-io">
@@ -334,14 +351,20 @@
     <form method="post" action="/pronunciations/import" enctype="multipart/form-data">
       <div class="row">
         <input type="file" name="file" accept=".json,application/json" required>
-        <button class="ghost narrow" type="submit">Import</button>
+        <button class="ghost narrow" type="submit">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"/><path d="m7 8 5-5 5 5"/><path d="M5 21h14"/></svg>
+          <span>Import</span>
+        </button>
       </div>
       <label class="check" style="margin-top:.6rem">
         <input type="checkbox" name="replace" value="true"> Replace all, instead of merging
       </label>
     </form>
     <div class="row" style="margin-top:.8rem">
-      <a class="btn ghost narrow" href="/pronunciations/export">Export {{ rows|length }} rules</a>
+      <a class="btn ghost narrow" href="/pronunciations/export">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V3"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
+        <span>Export {{ rows|length }} rules</span>
+      </a>
     </div>
   </div>
 </div>
@@ -369,7 +392,9 @@
           <td>
             <form method="post" action="/pronunciations/{{ r.id }}/delete"
                   onsubmit="return confirm('Delete this rule?')">
-              <button class="subtle sm" type="submit">Delete</button>
+              <button class="icon danger" type="submit" title="Delete this rule" aria-label="Delete this rule">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 4h4M6 7l1 13h10l1-13M10 11v6M14 11v6"/></svg>
+              </button>
             </form>
           </td>
         </tr>

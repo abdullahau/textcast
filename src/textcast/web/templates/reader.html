@@ -11,35 +11,54 @@
     <div class="row" style="margin:.9rem 0 0">
       <form method="post" action="/api/articles/{{ row.id }}/summarize" class="narrow">
         {% if has_summary %}<input type="hidden" name="again" value="true">{% endif %}
-        <button class="ghost" type="submit">{{ 'Summarise again' if has_summary else 'Summarise' }}</button>
+        <button class="ghost" type="submit">
+          <svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor" stroke="none"><path d="M11 3l1.6 4.4L17 9l-4.4 1.6L11 15l-1.6-4.4L5 9l4.4-1.6z"/><path d="M18.5 14l.9 2.6L22 17.5l-2.6.9-.9 2.6-.9-2.6-2.6-.9 2.6-.9z"/></svg>
+          <span>{{ 'Summarise again' if has_summary else 'Summarise' }}</span>
+        </button>
       </form>
       {% if has_summary and missing_summaries %}
       <form method="post" action="/api/articles/{{ row.id }}/summarize" class="narrow">
         <button class="ghost" type="submit"
                 title="Ask only for the sections that have no summary yet">
-          Summarise the other {{ missing_summaries }}
+          <svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor" stroke="none"><path d="M11 3l1.6 4.4L17 9l-4.4 1.6L11 15l-1.6-4.4L5 9l4.4-1.6z"/><path d="M18.5 14l.9 2.6L22 17.5l-2.6.9-.9 2.6-.9-2.6-2.6-.9 2.6-.9z"/></svg>
+          <span>Summarise the other {{ missing_summaries }}</span>
         </button>
       </form>
       {% endif %}
-      <a class="btn ghost narrow" href="/a/{{ row.slug }}?edit=1">Edit text</a>
+      <a class="btn ghost narrow" href="/a/{{ row.slug }}?edit=1">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z"/><path d="M15 5l4 4"/></svg>
+        <span>Edit text</span>
+      </a>
       <form method="post" action="/api/articles/{{ row.id }}/reparse" class="narrow">
-        <button class="ghost" type="submit" title="Re-run the parser over the saved source">Re-parse</button>
+        <button class="ghost" type="submit" title="Re-run the parser over the saved source">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></svg>
+          <span>Re-parse</span>
+        </button>
       </form>
       {% if has_summary %}
       <form method="post" action="/api/articles/{{ row.id }}/summaries/delete" class="narrow"
             onsubmit="return confirm('Remove the summaries? The audio goes too, because every block id moves.')">
-        <button class="ghost" type="submit" title="Remove the summary blocks and keep the article">Delete summaries</button>
+        <button class="ghost" type="submit" title="Remove the summary blocks and keep the article">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 4h4M6 7l1 13h10l1-13M10 11v6M14 11v6"/></svg>
+          <span>Delete summaries</span>
+        </button>
       </form>
       {% endif %}
       {% if row.status == 'ready' or row.audio_ms %}
       <form method="post" action="/api/articles/{{ row.id }}/audio/delete" class="narrow"
             onsubmit="return confirm('Delete the audio? The text stays and you can build it again.')">
-        <button class="ghost" type="submit" title="Remove the audio and its cache, keep the article">Delete audio</button>
+        <button class="ghost" type="submit" title="Remove the audio and its cache, keep the article">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 4h4M6 7l1 13h10l1-13M10 11v6M14 11v6"/></svg>
+          <span>Delete audio</span>
+        </button>
       </form>
       {% endif %}
       <form method="post" action="/api/articles/{{ row.id }}/delete" class="narrow"
             onsubmit="return confirm('Delete this article and its audio? Archive it instead to keep it.')">
-        <button class="danger" type="submit">Delete</button>
+        <button class="danger" type="submit">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 4h4M6 7l1 13h10l1-13M10 11v6M14 11v6"/></svg>
+          <span>Delete</span>
+        </button>
       </form>
     </div>
     {# Only ever shown when a pass recorded itself. A summary block carries no
@@ -110,7 +129,10 @@
         <label class="check"><input type="checkbox" name="skip_visuals" value="true" {{ 'checked' if build.get('skip_visuals') }}> Skip figure captions</label>
       </div>
       <div class="row" style="margin-top:.9rem">
-        <button class="narrow" type="submit">{{ 'Rebuild' if row.status == 'ready' else 'Build' }}</button>
+        <button class="narrow" type="submit">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5 6 9H2v6h4l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/></svg>
+          <span>{{ 'Rebuild' if row.status == 'ready' else 'Build' }}</span>
+        </button>
       </div>
     </form>
 
@@ -244,8 +266,14 @@
           it; the rebuild is still cheap, because nothing goes back to the model.
         </p>
         <div class="row" style="margin:0">
-          <button class="narrow" type="submit">Save changes</button>
-          <a class="btn ghost narrow" href="/a/{{ row.slug }}">Cancel</a>
+          <button class="narrow" type="submit">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8"/><path d="M7 3v5h8"/></svg>
+            <span>Save changes</span>
+          </button>
+          <a class="btn ghost narrow" href="/a/{{ row.slug }}">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+            <span>Cancel</span>
+          </a>
         </div>
       </div>
       {% for section in article.sections %}
@@ -260,18 +288,66 @@
                 <input type="checkbox" name="remove:{{ block.id }}" value="1"> Remove
               </label>
             </div>
-            <textarea name="text:{{ block.id }}" rows="3" aria-label="Block text">{{ block.text }}</textarea>
+            <div class="rich-edit-wrap">
+              {# Four buttons, not a library: `execCommand` is deprecated but
+                 every browser still runs it, and whatever it produces is
+                 rewritten to the allowlist server-side on save regardless —
+                 see `sanitize_rich`. The client only has to be usable. #}
+              <div class="rich-toolbar" role="toolbar" aria-label="Formatting" data-for="rich-{{ block.id }}">
+                <button type="button" data-cmd="bold" aria-label="Bold" title="Bold"><b>B</b></button>
+                <button type="button" data-cmd="italic" aria-label="Italic" title="Italic"><i>I</i></button>
+                <button type="button" data-cmd="code" aria-label="Code" title="Code"><code>&lt;/&gt;</code></button>
+                <button type="button" data-cmd="link" aria-label="Link" title="Link">🔗</button>
+              </div>
+              <div class="rich-edit" id="rich-{{ block.id }}" contenteditable="true"
+                   aria-label="Block text">{% if block.rich %}{{ block.rich|safe }}{% else %}{{ block.text }}{% endif %}</div>
+              <input type="hidden" name="rich:{{ block.id }}" id="richval-{{ block.id }}">
+            </div>
           </div>
         {% endfor %}
       {% endfor %}
       <div class="row" style="margin-top:1rem">
-        <button class="narrow" type="submit">Save changes</button>
-        <a class="btn ghost narrow" href="/a/{{ row.slug }}">Cancel</a>
+        <button class="narrow" type="submit">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8"/><path d="M7 3v5h8"/></svg>
+          <span>Save changes</span>
+        </button>
+        <a class="btn ghost narrow" href="/a/{{ row.slug }}">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+          <span>Cancel</span>
+        </a>
       </div>
     </form>
     <script>
+      /* The toolbar: four commands, and the browser's own toggle behaviour
+         for each. What it produces is never trusted as-is — the server runs
+         everything submitted through the same allowlist a parsed page's
+         markup goes through, so a stray <div> or <font> from execCommand
+         costs nothing here. */
+      document.querySelectorAll(".rich-toolbar").forEach(function (bar) {
+        var editor = document.getElementById(bar.dataset.for);
+        bar.querySelectorAll("button[data-cmd]").forEach(function (btn) {
+          btn.addEventListener("click", function () {
+            editor.focus();
+            var cmd = btn.dataset.cmd;
+            if (cmd === "link") {
+              var url = prompt("Link address (https://...)");
+              if (url) document.execCommand("createLink", false, url);
+            } else if (cmd === "code") {
+              var picked = window.getSelection().toString() || "code";
+              var safe = picked.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+              document.execCommand("insertHTML", false, "<code>" + safe + "</code>");
+            } else {
+              document.execCommand(cmd, false, null);
+            }
+          });
+        });
+      });
+
       /* Removing is the one thing here that cannot be undone by editing back. */
       document.querySelector(".doc-edit").addEventListener("submit", function (event) {
+        document.querySelectorAll(".rich-edit").forEach(function (el) {
+          document.getElementById("richval-" + el.id.slice(5)).value = el.innerHTML;
+        });
         var going = this.querySelectorAll('input[name^="remove:"]:checked').length;
         if (going && !confirm("Remove " + going + " block" + (going === 1 ? "" : "s") +
                               "? The audio goes with them, and you rebuild it after.")) {
@@ -315,7 +391,12 @@
             {% endif %}
           </figure>
         {% else %}
-          <p class="b {{ block.kind }}" id="{{ block.id }}" data-b="{{ block.id }}" data-s="{{ section.idx }}">{{ seek }}{{ block.text }}</p>
+          {# An ordered item already carries its number in `block.text`, read
+             aloud and shown alike. An unordered one has nothing to mark it as
+             a list item rather than an indented paragraph, so it alone gets
+             the bullet — drawn in CSS, never spoken. #}
+          {%- set bullet = block.kind == 'list_item' and not block.text[0].isdigit() -%}
+          <p class="b {{ block.kind }}{{ ' bullet' if bullet else '' }}" id="{{ block.id }}" data-b="{{ block.id }}" data-s="{{ section.idx }}">{{ seek }}{% if block.rich %}{{ block.rich|safe }}{% else %}{{ block.text }}{% endif %}</p>
         {% endif %}
       {% endfor %}
     {% endfor %}
@@ -343,7 +424,12 @@
           {% for t in all_tags[:14] %}<button type="button" class="tag" data-tag-suggest="{{ t.name }}">{{ t.name }}</button>{% endfor %}
         </div>
       {% endif %}
-      <div class="row" style="margin-top:.8rem"><button class="ghost narrow" type="submit">Save details</button></div>
+      <div class="row" style="margin-top:.8rem">
+        <button class="ghost narrow" type="submit">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8"/><path d="M7 3v5h8"/></svg>
+          <span>Save details</span>
+        </button>
+      </div>
     </form>
   </div>
 
@@ -437,7 +523,10 @@
       </p>
     </div>
     <div class="sheet-foot">
-      <button type="button" class="danger sm" id="stop">Stop and forget my place</button>
+      <button type="button" class="danger sm" id="stop">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>
+        <span>Stop and forget my place</span>
+      </button>
       <p class="note">Goes back to the start and takes this article out of “Continue listening”.</p>
     </div>
   </div>

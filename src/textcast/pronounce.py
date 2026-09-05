@@ -366,6 +366,16 @@ SAY_AS_WRITTEN = {
     "Stearns": "Sterns",
     "Solomon": "Solamon",
     "OpenAI": "Open AI",
+    # misaki has no entry for the company at all and reads nothing; espeak's
+    # own guess, ɛnɹˈɑːn, is already right, so the fix only has to bring
+    # misaki up to it rather than move anything already correct.
+    "Enron": "En ron",
+    # Bank of America's own shorthand. Neither engine has a reading for the
+    # bare initialism; the full name is what a person would say instead.
+    "BofA": "Bank of America",
+    # SoftBank's Japanese carrier, styled "Y!mobile". Both engines guess at
+    # the run-together spelling; splitting it is what a person reads aloud.
+    "Ymobile": "Y Mobile",
 }
 
 #: The same, but case-insensitive because they are ordinary words rather than
@@ -454,6 +464,17 @@ RESPELL = {
     # espeak, nˈApɔl on misaki, whose capital A is that same /eɪ/. "Nypaul" is
     # nˈaɪpɔːl / nˈIpɔl, right on both. A regex, so Naipaul's comes too.
     r"(?<!\w)Naipaul(?!\w)": "Nypaul",
+    # "loyer" on both: lˈɔɪɚ / lˈɔɪɚ. "law yer" is lˈɔ jˈɜɹ, the two
+    # syllables a person says. A regex, like acquisition above, so the
+    # plural comes with it.
+    r"(?<!\w)lawyer(s?)(?!\w)": r"law yer\1",
+    # SEC Rule 144A, read as a rule number -- "one forty-four A" -- not as
+    # the plain integer, the same convention 401(k) gets above.
+    r"(?<!\w)144A(?!\w)": "one forty four A",
+    # Neither engine has a reading for the initialism: misaki guesses at
+    # "TL" and espeak reads "DR" as Doctor. The punctuation between the two
+    # halves is optional, because both "TL;DR" and "TLDR" are written.
+    r"(?<!\w)TL[;:,]?\s?DR(?!\w)": "too long, didn't read",
 }
 
 #: The same idea as RESPELL, but never case-blind: each pattern spells out

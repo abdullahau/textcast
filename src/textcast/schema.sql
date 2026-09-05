@@ -74,6 +74,9 @@ CREATE TABLE IF NOT EXISTS block (
     -- What a visual block shows: the picture's address, the table's cells.
     -- JSON, because the three visual kinds hold different things.
     media        TEXT,
+    -- `text`, with its italics, bold and links, under a strict tag allowlist.
+    -- NULL wherever it would be identical to `text` read aloud.
+    rich         TEXT,
     -- Filled in once audio exists; start_ms is relative to the section file.
     start_ms     INTEGER,
     dur_ms       INTEGER,

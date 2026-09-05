@@ -77,12 +77,75 @@ BARE_SCALE = re.compile(
     rf"(?<![A-Za-z0-9$£€¥₹])(\d[\d,]*(?:\.\d+)?)\s?({_SCALE_ALT})\b(?!\w)"
 )
 
+#: unit -> (singular, plural). Glued to the number only, no space allowed:
+#: "in" is an ordinary word, and "10 in total" is not ten inches. That guard
+#: makes every other entry safe as a side effect, since nothing here is a
+#: word on its own either.
+#:
+#: Bare "m" and "mm" are not here: this app's own corpus writes them far more
+#: often as the accounting scale in `SCALES` above -- "$72mm", "5bn users" --
+#: than as a length, and a millimetre reading would silently break that.
+#: Kept case-sensitive throughout, so "5G" the wireless generation and "5g"
+#: the mass, or "IN" and "in", are never the same match.
+UNITS = {
+    # power
+    "kW": ("kilowatt", "kilowatts"),
+    "MW": ("megawatt", "megawatts"),
+    "GW": ("gigawatt", "gigawatts"),
+    "TW": ("terawatt", "terawatts"),
+    # data, always the decimal reading -- nobody says "gibibyte" out loud
+    "KB": ("kilobyte", "kilobytes"),
+    "kB": ("kilobyte", "kilobytes"),
+    "MB": ("megabyte", "megabytes"),
+    "GB": ("gigabyte", "gigabytes"),
+    "TB": ("terabyte", "terabytes"),
+    "PB": ("petabyte", "petabytes"),
+    "MBytes": ("megabyte", "megabytes"),
+    "GBytes": ("gigabyte", "gigabytes"),
+    "KBytes": ("kilobyte", "kilobytes"),
+    "Mbps": ("megabit per second", "megabits per second"),
+    "Gbps": ("gigabit per second", "gigabits per second"),
+    "Kbps": ("kilobit per second", "kilobits per second"),
+    # mass
+    "kg": ("kilogram", "kilograms"),
+    "mg": ("milligram", "milligrams"),
+    "lb": ("pound", "pounds"),
+    "lbs": ("pound", "pounds"),
+    "oz": ("ounce", "ounces"),
+    # length
+    "km": ("kilometer", "kilometers"),
+    "cm": ("centimeter", "centimeters"),
+    "in": ("inch", "inches"),
+    "ft": ("foot", "feet"),
+    "yd": ("yard", "yards"),
+    "mi": ("mile", "miles"),
+    # volume
+    "mL": ("milliliter", "milliliters"),
+    "ml": ("milliliter", "milliliters"),
+}
+_UNIT_ALT = "|".join(sorted(UNITS, key=len, reverse=True))
+UNIT = re.compile(rf"(?<![A-Za-z0-9])(\d[\d,]*(?:\.\d+)?)({_UNIT_ALT})(?![A-Za-z0-9])")
+
 PERCENT = re.compile(r"(\d[\d,]*(?:\.\d+)?)\s?%")
 BPS = re.compile(r"(?<![A-Za-z0-9])(\d[\d,]*(?:\.\d+)?)\s?bps?\b", re.IGNORECASE)
 QUARTER = re.compile(r"\b([QH])([1-4])\b")
 FISCAL = re.compile(r"\b(FY|CY)\s?(\d{2,4})\b")
 #: 2019-21 and 2019-2021 as a span, not a subtraction.
 YEAR_RANGE = re.compile(r"\b(19|20)(\d{2})\s?[–—-]\s?((?:19|20)?\d{2})\b")
+
+#: A bare calendar year -- misaki already reads "1931" as "nineteen
+#: thirty-one" on its own, but espeak reads the same digits as "nineteen
+#: hundred thirty one" (and "1600" as "one thousand six hundred", and "1999"
+#: as "nineteen hundred ninety nine"), which is `pronounce.PHONEME_HINTS`'s
+#: kind of split with none of the fixes there able to cover it: there is no
+#: one word to respell, only every four-digit number in the range.
+#:
+#: 1500-2099 on purpose, not "any four digits": a plain count -- "1931
+#: votes", "$1931" -- is not a year, and nothing here can tell the two apart
+#: by shape alone. The range is what a newsletter or an article actually
+#: dates itself with; a `$`, a scale letter or another digit or letter stuck
+#: to either side rules out money, "1931mm" and "the 1930s" respectively.
+YEAR_WORDS = re.compile(r"(?<![\w$£€¥₹.])(1[5-9]\d{2}|20\d{2})(?![\w.])")
 TIMES = re.compile(r"(?<![A-Za-z0-9])(\d[\d,]*(?:\.\d+)?)\s?x\b", re.IGNORECASE)
 #: 8:00am came out "eight zero zero a m", because espeak reads the zero
 #: minutes and then loses the space before the suffix. Measured: "8 a.m." is
@@ -147,6 +210,96 @@ def _bare_scale(match: re.Match) -> str:
     return f"{_strip_commas(match.group(1))} {SCALES[match.group(2).lower()]}"
 
 
+def _unit(match: re.Match) -> str:
+    number = _strip_commas(match.group(1))
+    singular, plural = UNITS[match.group(2)]
+    return f"{number} {singular if _is_one(number) else plural}"
+
+
+#: Kokoro's own g2p already recognises a Roman numeral and says so out loud —
+#: "Roman number 2" for "II" — which is correct and unwanted in the same
+#: breath. Converting to the digit first is what keeps the model from ever
+#: seeing the numeral at all.
+#:
+#: Bare "I" is left alone regardless of what follows it: it is the pronoun far
+#: more often than it is a regnal or sequence number, and nothing here can
+#: tell "Chapter I" from a sentence that happens to end in the word "I".
+#: Every other numeral is unambiguous enough on the strength of two things
+#: together — capital Roman-numeral letters immediately after a capitalised
+#: word, the way "Elizabeth II" and "Chapter IV" are actually written — and
+#: only one of them is a coincidence a false hit needs both to survive. A
+#: word that merely spells like a numeral is not: "CIVIL" round-trips to
+#: "CXLIII", not itself, and the guard below throws it out.
+_ROMAN_VALUES = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1000}
+_ROMAN_TABLE = (
+    (1000, "M"), (900, "CM"), (500, "D"), (400, "CD"), (100, "C"), (90, "XC"),
+    (50, "L"), (40, "XL"), (10, "X"), (9, "IX"), (5, "V"), (4, "IV"), (1, "I"),
+)
+ROMAN_NUMERAL = re.compile(r"\b([A-Z][A-Za-z]*)\s+([IVXLCDM]{2,}|[VXLCDM])\b")
+
+#: A token that passes the round-trip check but is something else far more
+#: often: postal codes ("Detroit MI", "Washington DC", "St Croix VI",
+#: "Baltimore MD") and a brand written in capitals ("LIV Golf", the radio
+#: and playlist "MIX"). Found by checking every US state and territory code
+#: against the round-trip test, plus what turned up while testing this; not
+#: exhaustive, so a new one belongs here the day it misfires.
+_NOT_A_NUMERAL = {"MI", "MD", "DC", "VI", "LIV", "MIX"}
+
+
+def _roman_numeral(n: int) -> str:
+    out = []
+    for value, symbol in _ROMAN_TABLE:
+        count, n = divmod(n, value)
+        out.append(symbol * count)
+    return "".join(out)
+
+
+def _roman_value(token: str) -> int | None:
+    total = prev = 0
+    for ch in reversed(token):
+        value = _ROMAN_VALUES[ch]
+        total += -value if value < prev else value
+        prev = max(prev, value)
+    return total if _roman_numeral(total) == token else None
+
+
+def _roman(match: re.Match) -> str:
+    name, token = match.group(1), match.group(2)
+    if token in _NOT_A_NUMERAL:
+        return match.group(0)
+    value = _roman_value(token)
+    return f"{name} {value}" if value is not None else match.group(0)
+
+
+_ONES = (
+    "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+    "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen",
+    "eighteen", "nineteen",
+)
+_TENS = ("", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety")
+
+
+def _two_digits(n: int) -> str:
+    if n < 20:
+        return _ONES[n]
+    tens, ones = divmod(n, 10)
+    return _TENS[tens] if ones == 0 else f"{_TENS[tens]}-{_ONES[ones]}"
+
+
+def _year_words(match: re.Match) -> str:
+    year = int(match.group(1))
+    if year == 2000:
+        # The one number in range nobody reads in pairs: "twenty hundred"
+        # is not said, where every other X00 in this table is.
+        return "two thousand"
+    century, rest = divmod(year, 100)
+    if rest == 0:
+        return f"{_two_digits(century)} hundred"
+    if rest < 10:
+        return f"{_two_digits(century)} oh {_ONES[rest]}"
+    return f"{_two_digits(century)} {_two_digits(rest)}"
+
+
 def _year_range(match: re.Match) -> str:
     start = match.group(1) + match.group(2)
     end = match.group(3)
@@ -190,12 +343,28 @@ def normalize(
     for pattern, replacement in EMPHASIS:
         text = pattern.sub(replacement, text)
 
+    # A numeral becomes a digit before anything else runs, so the engine's
+    # own Roman-numeral reading ("Roman number 2") never gets the chance.
+    text = ROMAN_NUMERAL.sub(_roman, text)
+
+    # Before money, bare scales and units get anywhere near a year: each of
+    # those strips or spaces out the very thing YEAR_WORDS' guards check for
+    # -- "$1931" becomes "1931 dollars" and "1931kg" becomes "1931
+    # kilograms" if it runs later, and both then read as a year regardless.
+    # The range goes first for the same reason "2019-21" is one thing to
+    # YEAR_RANGE only while the hyphen is still standing between the digits.
+    text = YEAR_RANGE.sub(_year_range, text)
+    # misaki already reads a bare year in pairs on its own; espeak does not,
+    # so this is the one structural rewrite that only runs for one engine.
+    if g2p == "espeak":
+        text = YEAR_WORDS.sub(_year_words, text)
+
     # Order matters: money before bare scales, so "$5bn" is not caught twice.
     text = MONEY.sub(_money, text)
     text = BPS.sub(lambda m: f"{_strip_commas(m.group(1))} basis points", text)
     text = BARE_SCALE.sub(_bare_scale, text)
+    text = UNIT.sub(_unit, text)
     text = PERCENT.sub(lambda m: f"{_strip_commas(m.group(1))} percent", text)
-    text = YEAR_RANGE.sub(_year_range, text)
     text = QUARTER.sub(
         lambda m: f"{'quarter' if m.group(1) == 'Q' else 'half'} {m.group(2)}", text
     )

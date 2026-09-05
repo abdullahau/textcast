@@ -68,6 +68,38 @@ def test_footnotes_are_inlined_not_appended():
     assert "[Footnote 1:" in text
 
 
+def test_a_substack_footnote_is_inlined_where_it_is_cited():
+    """Substack collects its footnotes at the foot of the post, in their own
+    `.footnote` divs, rather than in a list Bloomberg-style — but a listener
+    still needs the note read where the claim is made, not appended after."""
+    html = """
+    <html><head>
+      <link rel="canonical" href="https://example.substack.com/p/a-post">
+      <meta property="og:title" content="A Post">
+    </head><body>
+      <h1 class="post-title">A Post</h1>
+      <div class="available-content"><div class="body markup">
+        <p>A claim worth citing<span>
+          <a data-component-name="FootnoteAnchorToDOM" id="footnote-anchor-1"
+             href="#footnote-1" class="footnote-anchor">1</a>
+        </span> and the rest of the sentence.</p>
+        <div data-component-name="FootnoteToDOM" class="footnote">
+          <a id="footnote-1" href="#footnote-anchor-1" class="footnote-number">1</a>
+          <div class="footnote-content"><p>Where the claim comes from.</p></div>
+        </div>
+      </div></div>
+    </body></html>
+    """
+    article = parse_html(html)
+    assert article.adapter == "substack"
+    text = " ".join(b.text for _s, b in article.blocks())
+    assert "[Footnote 1: Where the claim comes from.]" in text
+    # The div at the foot of the post must not also survive as its own block.
+    assert "Where the claim comes from" not in text.replace(
+        "[Footnote 1: Where the claim comes from.]", ""
+    )
+
+
 def test_quote_blocks_get_spoken_markers():
     from textcast.document import Block
 

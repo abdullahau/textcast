@@ -167,7 +167,12 @@
         <input type="password" name="api_key" id="api_key" autocomplete="new-password">
       </div>
     </div>
-    <div class="row" style="margin-top:.9rem"><button class="narrow" type="submit">Save key</button></div>
+    <div class="row" style="margin-top:.9rem">
+      <button class="narrow" type="submit">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8"/><path d="M7 3v5h8"/></svg>
+        <span>Save key</span>
+      </button>
+    </div>
     <p class="hint" style="margin:.6rem 0 0">
       Saving a name that already exists replaces that key. Leave the box blank to keep the key
       it already holds and change only its provider.
@@ -267,7 +272,12 @@
         </p>
       </div>
     </div>
-    <div class="row" style="margin-top:.9rem"><button class="narrow" type="submit">Save</button></div>
+    <div class="row" style="margin-top:.9rem">
+      <button class="narrow" type="submit">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8"/><path d="M7 3v5h8"/></svg>
+        <span>Save</span>
+      </button>
+    </div>
     <p class="hint" style="margin:.6rem 0 0">
       Saving stores the settings and nothing else. No article is summarised until you ask for one.
     </p>
@@ -279,7 +289,12 @@
   <p class="hint">One paragraph in, one summary out. The cheapest way to check a key and a model name.</p>
   <form method="post" action="/summaries/test">
     <textarea name="sample" style="min-height:6rem">{{ sample or "" }}</textarea>
-    <div class="row" style="margin-top:.7rem"><button class="narrow" type="submit">Summarise it</button></div>
+    <div class="row" style="margin-top:.7rem">
+      <button class="narrow" type="submit">
+        <svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor" stroke="none"><path d="M11 3l1.6 4.4L17 9l-4.4 1.6L11 15l-1.6-4.4L5 9l4.4-1.6z"/><path d="M18.5 14l.9 2.6L22 17.5l-2.6.9-.9 2.6-.9-2.6-2.6-.9 2.6-.9z"/></svg>
+        <span>Summarise it</span>
+      </button>
+    </div>
   </form>
   {% if tested %}
     <div class="tryout">
@@ -301,7 +316,10 @@
       <form method="post" action="/summaries/run-all"
             onsubmit="return confirm('Summarise {{ pending|length }} articles? Each one calls the model once per section.')">
         <div class="row" style="margin-top:.8rem">
-          <button class="ghost narrow" type="submit">Summarise all {{ pending|length }}</button>
+          <button class="ghost narrow" type="submit">
+            <svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor" stroke="none"><path d="M11 3l1.6 4.4L17 9l-4.4 1.6L11 15l-1.6-4.4L5 9l4.4-1.6z"/><path d="M18.5 14l.9 2.6L22 17.5l-2.6.9-.9 2.6-.9-2.6-2.6-.9 2.6-.9z"/></svg>
+            <span>Summarise all {{ pending|length }}</span>
+          </button>
         </div>
       </form>
     {% endif %}

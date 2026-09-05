@@ -190,12 +190,12 @@ def save_article(
         conn.executemany(
             """
             INSERT INTO block
-                (article_id, section_idx, idx, block_id, kind, text, footnote_ref, media)
-            VALUES (?,?,?,?,?,?,?,?)
+                (article_id, section_idx, idx, block_id, kind, text, footnote_ref, media, rich)
+            VALUES (?,?,?,?,?,?,?,?,?)
             """,
             [
                 (article_id, b.section_idx, b.idx, b.id, str(b.kind), b.text,
-                 b.footnote_ref, dump_media(b.media))
+                 b.footnote_ref, dump_media(b.media), b.rich)
                 for _s, b in article.blocks()
             ],
         )
@@ -225,14 +225,16 @@ def edit_blocks(article_id: int, edits: dict[str, dict], conn: sqlite3.Connectio
         for block_id, edit in edits.items():
             text = (edit.get("text") or "").strip()
             kind = edit.get("kind")
+            rich = edit.get("rich")
             if not text:
                 continue
             if kind not in kinds:
                 kind = None
             cursor = conn.execute(
-                "UPDATE block SET text = ?, kind = COALESCE(?, kind)"
-                " WHERE article_id = ? AND block_id = ? AND (text <> ? OR kind <> COALESCE(?, kind))",
-                (text, kind, article_id, block_id, text, kind),
+                "UPDATE block SET text = ?, rich = ?, kind = COALESCE(?, kind)"
+                " WHERE article_id = ? AND block_id = ?"
+                " AND (text <> ? OR IFNULL(rich, '') <> IFNULL(?, '') OR kind <> COALESCE(?, kind))",
+                (text, rich, kind, article_id, block_id, text, rich, kind),
             )
             changed += cursor.rowcount
         if changed:
@@ -286,12 +288,12 @@ def replace_blocks(article_id: int, article: Article, conn: sqlite3.Connection |
         conn.executemany(
             """
             INSERT INTO block
-                (article_id, section_idx, idx, block_id, kind, text, footnote_ref, media)
-            VALUES (?,?,?,?,?,?,?,?)
+                (article_id, section_idx, idx, block_id, kind, text, footnote_ref, media, rich)
+            VALUES (?,?,?,?,?,?,?,?,?)
             """,
             [
                 (article_id, b.section_idx, b.idx, b.id, str(b.kind), b.text,
-                 b.footnote_ref, dump_media(b.media))
+                 b.footnote_ref, dump_media(b.media), b.rich)
                 for _s, b in article.blocks()
             ],
         )
@@ -329,7 +331,7 @@ def load_article(article_id: int, conn: sqlite3.Connection | None = None) -> Art
     }
     for b in conn.execute(
         """
-        SELECT section_idx, idx, kind, text, footnote_ref, media
+        SELECT section_idx, idx, kind, text, footnote_ref, media, rich
           FROM block WHERE article_id = ? ORDER BY section_idx, idx
         """,
         (article_id,),
@@ -341,6 +343,7 @@ def load_article(article_id: int, conn: sqlite3.Connection | None = None) -> Art
                 text=b["text"],
                 footnote_ref=b["footnote_ref"],
                 media=load_media(b["media"]),
+                rich=b["rich"],
                 section_idx=b["section_idx"],
                 idx=b["idx"],
             )

@@ -984,6 +984,35 @@ def test_space_on_a_block_handle_pauses_instead_of_seeking_again(still_page, liv
     assert still_page.evaluate("(document.querySelector('#doc .b.on') || {}).id") == target.id
 
 
+def test_arrow_keys_skip_five_seconds_wherever_the_focus_is(still_page):
+    """Same shortcut as Space, for rewind and skip: five seconds, matching
+    the lock screen's step, not media-chrome's own ten-second default."""
+    audio = "document.getElementById('audio')"
+    still_page.evaluate(f"{audio}.pause()")
+    still_page.evaluate(f"{audio}.currentTime = 3")
+
+    still_page.evaluate("document.body.focus()")
+    still_page.keyboard.press("ArrowRight")
+    still_page.wait_for_function(f"() => {audio}.currentTime > 7.5 && {audio}.currentTime < 8.5")
+
+    still_page.keyboard.press("ArrowLeft")
+    still_page.wait_for_function(f"() => {audio}.currentTime > 2.5 && {audio}.currentTime < 3.5")
+
+
+def test_arrow_key_on_a_transport_button_does_not_double_skip(still_page):
+    """media-chrome binds these same two keys on the controller, at its own
+    ten-second step. Focus a button inside it — the play button gives focus
+    up on click, like the block handles do, so it is given directly — and
+    check the skip is still five seconds, not fifteen from both firing."""
+    audio = "document.getElementById('audio')"
+    still_page.evaluate(f"{audio}.pause()")
+    still_page.evaluate(f"{audio}.currentTime = 3")
+
+    still_page.evaluate("document.querySelector('media-play-button').focus()")
+    still_page.keyboard.press("ArrowRight")
+    still_page.wait_for_function(f"() => {audio}.currentTime > 7.5 && {audio}.currentTime < 8.5")
+
+
 def test_space_still_types_and_still_ticks_a_box(still_page):
     """Stealing the key everywhere would break the search field and every
     checkbox in the sheet, which is what Space is for in both."""

@@ -29,7 +29,12 @@
       <label for="text-body">Text</label>
       <textarea name="text" id="text-body" required placeholder="Paste here…"></textarea>
     </div></div>
-    <div class="row" style="margin-top:.9rem"><button class="narrow" type="submit">Add text</button></div>
+    <div class="row" style="margin-top:.9rem">
+      <button class="narrow" type="submit">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M12 11v6"/><path d="M9 14h6"/></svg>
+        <span>Add text</span>
+      </button>
+    </div>
   </form>
 </div>
 
@@ -41,7 +46,12 @@
     <div class="row">
       <input type="url" name="url" placeholder="https://…" value="{{ url }}" required>
     </div>
-    <div class="row" style="margin-top:.9rem"><button class="narrow" type="submit">Add link</button></div>
+    <div class="row" style="margin-top:.9rem">
+      <button class="narrow" type="submit">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 17H7A5 5 0 0 1 7 7h2"/><path d="M15 7h2a5 5 0 1 1 0 10h-2"/><path d="M8 12h8"/></svg>
+        <span>Add link</span>
+      </button>
+    </div>
   </form>
 </div>
 
@@ -57,7 +67,10 @@
     <div class="row">
       <input type="file" name="files" id="file-input" multiple
              accept=".html,.htm,.pdf,.docx,.md,.markdown,.txt,.eml,.mbox,.msg" required>
-      <button class="narrow" type="submit" id="file-submit">Upload</button>
+      <button class="narrow" type="submit" id="file-submit">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"/><path d="m7 8 5-5 5 5"/><path d="M5 21h14"/></svg>
+        <span>Upload</span>
+      </button>
     </div>
   </form>
 </div>
@@ -77,7 +90,12 @@
         <option value="generic">Generic article</option>
       </select>
     </div>
-    <div class="row" style="margin-top:.9rem"><button class="narrow" type="submit">Add source</button></div>
+    <div class="row" style="margin-top:.9rem">
+      <button class="narrow" type="submit">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 6-5 6 5 6"/><path d="m16 6 5 6-5 6"/></svg>
+        <span>Add source</span>
+      </button>
+    </div>
   </form>
 </div>
 
@@ -170,7 +188,10 @@
     Access control is on, so this bookmarklet carries your token. Treat it as a
     password. Change the token and you must drag this button again.
   </p>
-{% endif %}  <p><a class="btn ghost" id="bookmarklet" href="#">Send to textcast</a></p>
+{% endif %}  <p><a class="btn ghost" id="bookmarklet" href="#">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4z"/></svg>
+    <span>Send to textcast</span>
+  </a></p>
 </div>
 
 <script>
@@ -204,10 +225,11 @@
 (function () {
   var input = document.getElementById("file-input");
   var submit = document.getElementById("file-submit");
-  if (!input || !submit) return;
+  var label = submit ? submit.querySelector("span") : null;
+  if (!input || !label) return;
   input.addEventListener("change", function () {
     var n = input.files ? input.files.length : 0;
-    submit.textContent = n > 1 ? "Upload " + n + " files" : "Upload";
+    label.textContent = n > 1 ? "Upload " + n + " files" : "Upload";
   });
 })();
 

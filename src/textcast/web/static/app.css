@@ -264,9 +264,12 @@ body.ready .theme-switch .knob {
   width: 12px;
   height: 12px;
 }
-/* The icon under the knob is the one you are in, so it leads; the other waits. */
-.theme-switch .sun { color: var(--fg); }
-.theme-switch .moon { color: var(--muted); }
+/* The icon under the knob is the one you are in, so it leads; the other waits.
+   Fill and stroke named again here, not left to the button default further
+   down: the sun is an outline and the moon a solid crescent, and a shared
+   rule for every button icon cannot say one thing for both. */
+.theme-switch .sun { color: var(--fg); fill: none; stroke: currentColor; stroke-width: 2.2; }
+.theme-switch .moon { color: var(--muted); fill: currentColor; stroke: none; }
 :root[data-theme="dark"] .theme-switch .sun { color: var(--muted); }
 :root[data-theme="dark"] .theme-switch .moon { color: var(--fg); }
 @media (prefers-color-scheme: dark) {
@@ -287,6 +290,7 @@ button.link { background: none; border: 0; padding: 0 .3rem; font: inherit; colo
   width: var(--bar-control); height: var(--bar-control); min-width: var(--bar-control); padding: 0;
   background: transparent; border-color: transparent; color: var(--muted);
 }
+.nav-toggle svg { width: 18px; height: 18px; }
 @media (hover: hover) {
   .nav-toggle:hover { color: var(--fg); background: var(--sunk); opacity: 1; }
 }
@@ -399,6 +403,16 @@ button, .btn {
   color: var(--accent-fg);
   cursor: pointer;
   transition: background-color .12s ease, border-color .12s ease, opacity .12s ease;
+}
+/* A button's own icon, the same size and stroke wherever one is used, so a
+   card of "Save key" / "Save" / "Summarise it" reads as one family rather
+   than each button drawing its glyph its own way. `button.icon`'s square
+   row-action buttons and the nav's own sizing both override this already,
+   on a more specific selector, so neither one moved. */
+button svg, .btn svg {
+  width: 1rem; height: 1rem; flex-shrink: 0;
+  fill: none; stroke: currentColor; stroke-width: 2;
+  stroke-linecap: round; stroke-linejoin: round;
 }
 @media (hover: hover) {
   button:hover, .btn:hover { opacity: .88; text-decoration: none; }
@@ -558,7 +572,35 @@ button.q:focus-visible { color: var(--fg); border-color: var(--fg-soft); opacity
 .edit-side select { width: 100%; }
 .check.remove { font-size: .78rem; color: var(--muted); }
 .check.remove:has(input:checked) { color: var(--bad); }
-.edit-block textarea { flex: 1 1 auto; min-height: 4rem; font-family: var(--serif); font-size: .95rem; }
+.rich-edit-wrap { flex: 1 1 auto; display: flex; flex-direction: column; gap: .3rem; min-width: 0; }
+.rich-toolbar { display: flex; gap: .3rem; }
+.rich-toolbar button {
+  width: 1.9rem; height: 1.9rem;
+  display: flex; align-items: center; justify-content: center;
+  font-size: .82rem;
+  color: var(--fg-soft);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+@media (hover: hover) {
+  .rich-toolbar button:hover { border-color: var(--border-hi); color: var(--fg); }
+}
+.rich-edit {
+  min-height: 4rem;
+  padding: .42rem .6rem;
+  font-family: var(--serif);
+  font-size: .95rem;
+  line-height: 1.55;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  white-space: pre-wrap;
+}
+.rich-edit:focus { border-color: var(--border-hi); outline: none; }
+.rich-edit code { font-family: var(--mono); font-size: .9em; background: var(--sunk); padding: .1em .35em; border-radius: 3px; }
 
 /* ---------- article list ---------- */
 
@@ -1013,7 +1055,7 @@ button.chip {
 @media (hover: hover) {
   button.chip:hover { background: var(--sunk); color: var(--fg); opacity: 1; }
 }
-button.chip svg { width: 14px; height: 14px; }
+button.chip svg { width: 14px; height: 14px; stroke-width: 1.8; }
 button.chip[aria-pressed="true"] { border-color: var(--border-hi); color: var(--fg); background: var(--sunk); }
 button.chip[aria-pressed="true"] .star { fill: var(--warn); stroke: var(--warn); }
 
@@ -1050,6 +1092,14 @@ button.chip[aria-pressed="true"] .star { fill: var(--warn); stroke: var(--warn);
   transition: background-color .15s ease, border-color .15s ease;
   cursor: text;
 }
+/* `rich` carries its own line breaks — a `<br>` in the source, or the blank
+   line between two paragraphs a quote already used `\n\n` for. Scoped to the
+   `<p>` a spoken block renders as, never the `<figure>` a table or a picture
+   does: the table's own markup is indented Jinja output, and `pre-line`
+   turned every line of that indentation into a blank line inside the cell. */
+p.b { white-space: pre-line; }
+.b a { text-decoration: underline; text-decoration-color: var(--border-hi); text-underline-offset: .15em; }
+.b code { font-family: var(--mono); font-size: .9em; background: var(--sunk); padding: .1em .35em; border-radius: 3px; }
 @media (hover: hover) {
   .b:hover { border-left-color: var(--border-hi); }
 }
@@ -1080,6 +1130,9 @@ button.chip[aria-pressed="true"] .star { fill: var(--warn); stroke: var(--warn);
   cursor: pointer;
   transition: opacity .12s ease;
 }
+/* A solid triangle, not the button default's outline: fill and stroke named
+   again here for the same reason the theme switch's icons are. */
+.b .seek svg { width: 13px; height: 13px; fill: currentColor; stroke: none; }
 .b .seek:focus-visible { opacity: 1; }
 @media (hover: hover) {
   .b:hover .seek { opacity: 1; }
@@ -1090,11 +1143,10 @@ button.chip[aria-pressed="true"] .star { fill: var(--warn); stroke: var(--warn);
   .b .seek { position: static; opacity: .45; float: right; margin: 0 0 0 .3rem; }
 }
 
-/* `pre-line` keeps the blank lines a quote was published with and collapses
-   everything else, so a three-paragraph pull quote reads as three. */
-.b.quote { font-style: italic; color: var(--fg-soft); border-left-color: var(--border-hi); padding-left: 1rem; white-space: pre-line; }
+.b.quote { font-style: italic; color: var(--fg-soft); border-left-color: var(--border-hi); padding-left: 1rem; }
 .b.quote.on { border-left-color: var(--accent); }
 .b.list_item { padding-left: 1.6rem; text-indent: -.85rem; }
+.b.list_item.bullet::before { content: "•  "; }
 .b.footnote { font-size: .9rem; color: var(--muted); }
 /* A summary is not the author's text. It sits apart so nobody mistakes the
    machine's words for theirs. */
@@ -1283,6 +1335,7 @@ media-playback-rate-button { font-variant-numeric: tabular-nums; font-weight: 50
   cursor: pointer;
   flex: none;
 }
+.ctl svg { width: 17px; height: 17px; }
 @media (hover: hover) {
   .ctl:hover { background: var(--sunk); opacity: 1; }
 }

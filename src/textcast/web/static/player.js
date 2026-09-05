@@ -873,6 +873,27 @@
     if (audio.paused) audio.play().catch(function () { /* needs a gesture */ });
     else audio.pause();
   }, true);
+
+  /* Left and right rewind and skip, same step as the lock screen's buttons
+     (SKIP_SECONDS) so every way of nudging the audio agrees. Same guards as
+     Space: not while typing, not while the sheet has focus, no modifier
+     (Cmd/Ctrl/Alt-arrow are the browser's own history and word-jump keys).
+
+     media-chrome binds these same two keys itself, on the controller, at a
+     ten-second step — harmless until a transport button has focus, when
+     both fire and the audio jumps fifteen seconds for one press. Capture
+     runs before that listener; `stopPropagation` is what keeps it from
+     seeing the key at all, the way Space already keeps its click from
+     firing twice on a focused button. */
+  document.addEventListener("keydown", function (event) {
+    if (event.code !== "ArrowLeft" && event.code !== "ArrowRight") return;
+    if (event.metaKey || event.ctrlKey || event.altKey) return;
+    if (typing(event.target) || sheet.contains(event.target)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    var delta = event.code === "ArrowLeft" ? -SKIP_SECONDS : SKIP_SECONDS;
+    audio.currentTime = Math.min(audio.duration || Infinity, Math.max(0, audio.currentTime + delta));
+  }, true);
   addEventListener("pagehide", function () { savePosition(true); });
   document.addEventListener("visibilitychange", function () {
     if (document.hidden) { savePosition(true); return; }

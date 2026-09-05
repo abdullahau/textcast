@@ -57,7 +57,10 @@
   </select>
 
   {% if tag or status or archived or starred %}
-    <a class="btn ghost sm narrow" href="/">Clear</a>
+    <a class="btn ghost sm narrow" href="/">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+      <span>Clear</span>
+    </a>
   {% endif %}
   <span class="count">
     {%- if paging.total > articles|length -%}
@@ -108,15 +111,27 @@
    These links carry the filters, or paging would clear them. #}
 <nav class="pager" aria-label="Library pages">
   {% if paging.page > 1 %}
-    <a class="btn ghost sm narrow" href="/?{{ paging.query }}page={{ paging.page - 1 }}" rel="prev">Previous</a>
+    <a class="btn ghost sm narrow" href="/?{{ paging.query }}page={{ paging.page - 1 }}" rel="prev">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 6-6 6 6 6"/></svg>
+      <span>Previous</span>
+    </a>
   {% else %}
-    <span class="btn ghost sm narrow off" aria-hidden="true">Previous</span>
+    <span class="btn ghost sm narrow off" aria-hidden="true">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 6-6 6 6 6"/></svg>
+      <span>Previous</span>
+    </span>
   {% endif %}
   <span class="count">Page {{ paging.page }} of {{ paging.pages }}</span>
   {% if paging.page < paging.pages %}
-    <a class="btn ghost sm narrow" href="/?{{ paging.query }}page={{ paging.page + 1 }}" rel="next">Next</a>
+    <a class="btn ghost sm narrow" href="/?{{ paging.query }}page={{ paging.page + 1 }}" rel="next">
+      <span>Next</span>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>
+    </a>
   {% else %}
-    <span class="btn ghost sm narrow off" aria-hidden="true">Next</span>
+    <span class="btn ghost sm narrow off" aria-hidden="true">
+      <span>Next</span>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>
+    </span>
   {% endif %}
 </nav>
 

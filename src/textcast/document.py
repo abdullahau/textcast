@@ -49,6 +49,12 @@ class Block:
     #: kind. `text` stays the caption, so search, editing and the spoken cue
     #: all keep working without knowing this field exists.
     media: dict | None = None
+    #: `text`, with the italics and bold and links a publication printed —
+    #: under a strict tag allowlist, never raw passthrough. Set only when it
+    #: differs from the plain text; the reader shows it where it exists and
+    #: falls back to `text` where it does not, so nothing here is load-bearing
+    #: for search, TTS or a WebVTT cue, all of which keep reading `text`.
+    rich: str | None = None
     section_idx: int = 0
     idx: int = 0
 
@@ -147,6 +153,7 @@ class Article:
                         text=b["text"],
                         footnote_ref=b.get("footnote_ref"),
                         media=b.get("media"),
+                        rich=b.get("rich"),
                         section_idx=b.get("section_idx", i),
                         idx=b.get("idx", j),
                     )

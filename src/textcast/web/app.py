@@ -27,6 +27,7 @@ from starlette.datastructures import Headers
 
 from .. import __version__, db
 from ..document import VISUAL_KINDS, BlockKind, to_markdown
+from ..ingest.base import sanitize_rich
 from ..jobs import Worker
 from ..prefs import save_voice_defaults, voice_defaults
 
@@ -1807,7 +1808,15 @@ async def api_edit_blocks(request: Request, article_id: int):
         name, _, block_id = field.partition(":")
         if not block_id:
             continue
-        if name in ("text", "kind"):
+        if name == "rich":
+            # The one untrusted field here: markup out of a browser's
+            # `contenteditable`, sanitised the same way a parsed page's own
+            # markup is. `text` is derived from it, never taken separately —
+            # the two cannot drift apart if only one of them is ever typed.
+            rich, text = sanitize_rich(str(value))
+            edit = edits.setdefault(block_id, {})
+            edit["rich"], edit["text"] = rich, text
+        elif name == "kind":
             edits.setdefault(block_id, {})[name] = str(value)
         elif name == "remove":
             removed.add(block_id)

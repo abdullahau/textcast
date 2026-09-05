@@ -7,11 +7,12 @@ where the article came from.
 
 from __future__ import annotations
 
+import html
 import re
 from typing import Protocol
 
 from ..document import Article, Block, BlockKind, Section
-from .dom import Node, Tree, ancestor_tags, children, clean, parse, text_of
+from .dom import Node, Tree, ancestor_tags, attr, children, clean, parse, text_of
 from .visuals import NO_VISUALS, VisualRules, drop_furniture, visual_block
 
 BLOCK_SELECTOR = "h1, h2, h3, h4, blockquote, p, ol, ul"
@@ -109,7 +110,9 @@ def blocks_from_dom(
             continue
 
         if elem.tag == "blockquote":
-            current.blocks.append(Block(kind=BlockKind.QUOTE, text=quoted(elem) or text))
+            current.blocks.append(
+                Block(kind=BlockKind.QUOTE, text=quoted(elem) or text, rich=rich_of(elem))
+            )
             continue
 
         if elem.tag in ("ol", "ul"):
@@ -119,10 +122,15 @@ def blocks_from_dom(
                 item = text_of(li)
                 if item:
                     prefix = f"{n}. " if ordered else ""
-                    current.blocks.append(Block(kind=BlockKind.LIST_ITEM, text=f"{prefix}{item}"))
+                    rich = rich_of(li)
+                    if rich is not None and prefix:
+                        rich = f"{html.escape(prefix)}{rich}"
+                    current.blocks.append(
+                        Block(kind=BlockKind.LIST_ITEM, text=f"{prefix}{item}", rich=rich)
+                    )
             continue
 
-        current.blocks.append(Block(kind=BlockKind.PARA, text=text))
+        current.blocks.append(Block(kind=BlockKind.PARA, text=text, rich=rich_of(elem)))
 
     if current.blocks:
         sections.append(current)
@@ -144,6 +152,121 @@ def quoted(node: Node) -> str:
     parts = [text_of(child) for child in node.css("p, li")]
     parts = [part for part in parts if part]
     return "\n\n".join(parts) if len(parts) > 1 else ""
+
+
+# --------------------------------------------------------------------------
+# Rich text: `block.rich`, alongside `block.text`
+
+
+#: What a block may keep of its own markup. Never raw passthrough — a
+#: publication's tracking `<span>` or an editor's pasted `<script>` would
+#: otherwise ride along into every reader that opens the block. Everything
+#: else unwraps to its own text, the way `text_of` already reads it.
+_RICH_ALIAS = {"b": "strong", "strong": "strong", "i": "em", "em": "em", "a": "a", "code": "code"}
+
+#: A tag whose presence is the one thing worth building `rich` for. Checked
+#: before serialising, so a block with none of these never gets a second copy
+#: of text it would say byte for byte.
+_FORMATTING_SELECTOR = "em, strong, b, i, a, code, br"
+
+#: A source that reads back as a real address, never a script the browser
+#: would run instead of following a link.
+_SAFE_SCHEMES = ("http://", "https://", "mailto:", "#", "/")
+
+_WS = re.compile(r"\s+")
+_TAG = re.compile(r"<[^>]+>")
+
+
+def _safe_href(href: str) -> str:
+    href = (href or "").strip()
+    return href if href.startswith(_SAFE_SCHEMES) else ""
+
+
+def _serialize_rich(node: Node) -> str:
+    """`node`'s children as inline markup restricted to `_RICH_ALIAS`.
+
+    A line break is the one piece of structure worth keeping outside the
+    allowlist: `<br>` is one, and a nested `<div>` or `<p>` — contenteditable's
+    own way of starting a new line — is two, matching the blank line between
+    paragraphs a quote's plain text already carries.
+    """
+    out: list[str] = []
+    for child in node.iter(include_text=True):
+        if child.tag == "-text":
+            text = _WS.sub(" ", child.text())
+            if text:
+                out.append(html.escape(text))
+            continue
+        if child.tag == "br":
+            out.append("\n")
+            continue
+        if child.tag in ("div", "p"):
+            inner = _serialize_rich(child)
+            if inner.strip():
+                if out:
+                    out.append("\n\n")
+                out.append(inner)
+            continue
+        inner = _serialize_rich(child)
+        tag = _RICH_ALIAS.get(child.tag)
+        if tag is None:
+            out.append(inner)
+        elif tag == "a":
+            href = _safe_href(attr(child, "href"))
+            out.append(f'<a href="{html.escape(href, quote=True)}">{inner}</a>' if href else inner)
+        else:
+            out.append(f"<{tag}>{inner}</{tag}>")
+    return "".join(out)
+
+
+def rich_of(node: Node | None) -> str | None:
+    """``node``'s inline content as markup, or ``None`` when there is nothing
+    in it that ``block.text`` does not already say.
+
+    The selector is a fast no — most paragraphs in an article have no
+    formatting at all, and it skips serialising every one of them just to
+    throw the result away. The tag search afterward is the real answer: a
+    link whose `href` gets rejected leaves an `<a>` for the selector to find
+    but nothing left in the output, same as `sanitize_rich`.
+    """
+    if node is None or node.css_first(_FORMATTING_SELECTOR) is None:
+        return None
+    rich = _serialize_rich(node).strip()
+    return rich if _TAG.search(rich) else None
+
+
+def rich_to_text(rich: str) -> str:
+    """The plain reading of a `rich` string: every tag stripped, entities back.
+
+    What an edited block's `text` is derived from — `rich` is the one thing
+    typed at the keyboard; `text` never carries anything `rich` does not.
+    """
+    return html.unescape(_TAG.sub("", rich)).strip()
+
+
+def sanitize_rich(raw: str) -> tuple[str | None, str]:
+    """An edited block's submitted markup, made safe, and its plain reading.
+
+    ``raw`` is HTML from a browser's `contenteditable`, which is to say a
+    form field like any other: never trusted past this function. Parsing it
+    and walking it through the same allowlist `rich_of` uses is what keeps a
+    pasted `<script>` or an `onerror` handler from ever reaching a row in
+    `block`, let alone another reader's page.
+
+    Whether to keep `rich` at all is decided by looking for a surviving tag
+    in the *output*, unlike `rich_of`, which checks the input up front: a
+    link whose `href` gets rejected below leaves an `<a>` in the source
+    markup but nothing left to show for it, and checking the input would
+    keep a copy that says exactly what `text` already does. A raw `<` or `&`
+    typed into the block never causes a false positive here either — both
+    are escaped to entities on the way in, so the only `<...>` a match can
+    find is a tag this function put there.
+    """
+    tree = parse(f"<div>{raw}</div>")
+    root = tree.css_first("div")
+    rich = _serialize_rich(root).strip() if root is not None else ""
+    text = rich_to_text(rich)
+    return (rich if _TAG.search(rich) else None), text
 
 
 def _within(node: Node, containers: list[Node]) -> bool:
@@ -264,5 +387,8 @@ __all__ = [
     "is_junk_block",
     "make_tree",
     "prune",
+    "rich_of",
+    "rich_to_text",
+    "sanitize_rich",
     "text_of",
 ]

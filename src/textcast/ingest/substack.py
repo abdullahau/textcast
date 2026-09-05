@@ -15,8 +15,8 @@ in a `.body.markup` inside a layout table.
 from __future__ import annotations
 
 from ..document import Article
-from .base import blocks_from_dom, finish, text_of
-from .dom import Tree, drop, first_text, meta, root, select_one
+from .base import blocks_from_dom, finish, inline_footnotes, text_of
+from .dom import Tree, clean, drop, first_text, meta, root, select, select_one
 from .visuals import VisualRules
 
 #: Where the prose is, most specific first.
@@ -29,6 +29,12 @@ CONTAINERS = (
     ".email-body",
 )
 
+#: Substack marks a citation with the number as its own link text, and prints
+#: the note itself in a matching `.footnote` div collected at the end of the
+#: post — not read where it is cited, unless something inlines it.
+FOOTNOTE_LINK = "a.footnote-anchor"
+FOOTNOTE_BLOCK = "div.footnote"
+
 NOISE = [
     "script", "style", "noscript",
     ".subscription-widget-wrap", ".subscription-widget", ".subscribe-widget",
@@ -37,6 +43,7 @@ NOISE = [
     ".paywall", ".paywall-jump", ".comments-page", ".post-footer",
     ".footer", ".recommendations", ".publication-footer",
     '[class*="poll-embed"]', '[class*="subscribeWidget"]',
+    FOOTNOTE_BLOCK,
 ]
 
 #: Substack draws a picture inside `.captioned-image-container`, which is the
@@ -88,6 +95,9 @@ class SubstackAdapter:
         author = _author(tree)
         series = meta(tree, property="og:site_name") or ""
 
+        footnotes = self._collect_footnotes(tree)
+        inline_footnotes(tree, footnotes, FOOTNOTE_LINK)
+
         container = next(
             (n for selector in CONTAINERS if (n := select_one(tree, selector)) is not None),
             root(tree),
@@ -108,3 +118,12 @@ class SubstackAdapter:
                 published_at=meta(tree, property="article:published_time") or None,
             )
         )
+
+    def _collect_footnotes(self, tree: Tree) -> dict[str, str]:
+        out: dict[str, str] = {}
+        for i, block in enumerate(select(tree, FOOTNOTE_BLOCK), start=1):
+            content = select_one(block, ".footnote-content") or block
+            body = clean(content.text(separator=" ", strip=True))
+            if body:
+                out[str(i)] = body
+        return out

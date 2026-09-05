@@ -387,6 +387,24 @@ def test_the_reading_pace_picker_opens_at_the_normal_pace(client, conn, monkeypa
     assert '<option value="1.2" selected>' in body.replace(' selected ', ' selected')
 
 
+def test_an_unordered_list_item_gets_a_bullet_an_ordered_one_does_not(client, conn, monkeypatch):
+    """A numbered item already carries its number in `block.text`, spoken and
+    shown alike; an unordered one has nothing to mark it as a list item rather
+    than an indented paragraph, so only that one needs the CSS bullet."""
+    from textcast.document import Article, Block, BlockKind, Section
+
+    monkeypatch.setattr(web, "_voices", lambda *a: [])
+    doc = Article(title="A listed note", sections=[Section(title="One", blocks=[
+        Block(kind=BlockKind.LIST_ITEM, text="An unnumbered point."),
+        Block(kind=BlockKind.LIST_ITEM, text="1. A numbered point."),
+    ])]).renumber()
+    db.save_article(doc, conn)
+
+    body = client.get("/a/a-listed-note").text
+    assert 'class="b list_item bullet"' in body
+    assert 'class="b list_item"' in body
+
+
 def test_the_quote_voice_hint_is_a_button_not_a_wall_of_text(client, conn, monkeypatch):
     from textcast.document import Article, Block, BlockKind, Section
 
@@ -919,12 +937,12 @@ def test_the_text_can_be_edited_by_hand(client, conn, monkeypatch):
     ])]).renumber()
     article_id = db.save_article(doc, conn)
 
-    assert 'name="text:b0-0"' in client.get("/a/needs-a-fix?edit=1").text
+    assert 'name="rich:b0-0"' in client.get("/a/needs-a-fix?edit=1").text
 
     response = client.post(
         f"/api/articles/{article_id}/blocks",
-        data={"text:b0-0": "First paragraph, spelled properly.", "kind:b0-0": "quote",
-              "text:b0-1": "A line the page should not have kept."},
+        data={"rich:b0-0": "First paragraph, spelled properly.", "kind:b0-0": "quote",
+              "rich:b0-1": "A line the page should not have kept."},
     )
 
     assert response.json()["changed"] == 1, "only the block that differs"
@@ -933,6 +951,58 @@ def test_the_text_can_be_edited_by_hand(client, conn, monkeypatch):
     assert after.sections[0].blocks[0].kind is BlockKind.QUOTE
     assert [b.id for _s, b in after.blocks()] == ["b0-0", "b0-1"], "ids do not move"
     assert [h["block_id"] for h in db.search("spelled properly", conn) if h["kind"] != "article"] == ["b0-0"]
+
+
+def test_editing_keeps_bold_and_italic_typed_at_the_keyboard(client, conn):
+    """The whole point of option 2 over dropping `rich` on edit: format a
+    block by hand and it is still formatted after Save, not just after the
+    next Re-parse."""
+    from textcast.document import Article, Block, BlockKind, Section
+
+    doc = Article(title="A hand-formatted note", sections=[Section(title="One", blocks=[
+        Block(kind=BlockKind.PARA, text="Plain for now."),
+    ])]).renumber()
+    article_id = db.save_article(doc, conn)
+
+    response = client.post(
+        f"/api/articles/{article_id}/blocks",
+        data={"rich:b0-0": 'Plain <b>no more</b>, see <a href="https://x.test">this</a>.'},
+    )
+
+    assert response.json()["changed"] == 1
+    after = db.load_article(article_id, conn)
+    block = after.sections[0].blocks[0]
+    assert block.text == "Plain no more, see this."
+    assert block.rich == 'Plain <strong>no more</strong>, see <a href="https://x.test">this</a>.'
+
+    page = client.get("/a/a-hand-formatted-note").text
+    assert "<strong>no more</strong>" in page
+    assert '<a href="https://x.test">this</a>' in page
+
+
+def test_a_script_tag_posted_to_the_edit_endpoint_never_reaches_the_page(client, conn):
+    """`rich` is a browser's `contenteditable` output, which is to say a form
+    field like any other — forged directly, not just typed, in this test."""
+    from textcast.document import Article, Block, BlockKind, Section
+
+    doc = Article(title="A targeted note", sections=[Section(title="One", blocks=[
+        Block(kind=BlockKind.PARA, text="Before."),
+    ])]).renumber()
+    article_id = db.save_article(doc, conn)
+
+    client.post(
+        f"/api/articles/{article_id}/blocks",
+        data={"rich:b0-0": '<script>alert(document.cookie)</script><a href="javascript:alert(1)">x</a>'},
+    )
+
+    after = db.load_article(article_id, conn)
+    block = after.sections[0].blocks[0]
+    assert block.rich is None
+    assert "<script" not in block.text and "javascript:" not in block.text
+
+    page = client.get("/a/a-targeted-note").text
+    assert "<script>alert" not in page
+    assert "javascript:" not in page
 
 
 def test_an_edit_that_empties_a_block_is_ignored(client, conn):
@@ -944,7 +1014,7 @@ def test_an_edit_that_empties_a_block_is_ignored(client, conn):
     ])]).renumber()
     article_id = db.save_article(doc, conn)
 
-    client.post(f"/api/articles/{article_id}/blocks", data={"text:b0-0": "   "})
+    client.post(f"/api/articles/{article_id}/blocks", data={"rich:b0-0": "   "})
 
     assert db.load_article(article_id, conn).sections[0].blocks[0].text == "The only line."
 
@@ -970,9 +1040,9 @@ def test_a_block_can_be_removed_outright(client, conn, monkeypatch):
         f"/api/articles/{article_id}/blocks",
         data={
             "remove:b0-0": "1",
-            "text:b0-0": "Sign up for our newsletter here.",
-            "text:b0-1": "The first real paragraph of the piece.",
-            "text:b0-2": "The second real paragraph of the piece.",
+            "rich:b0-0": "Sign up for our newsletter here.",
+            "rich:b0-1": "The first real paragraph of the piece.",
+            "rich:b0-2": "The second real paragraph of the piece.",
         },
     )
 
@@ -2021,3 +2091,4 @@ def test_every_picture_gets_the_same_headers_not_only_the_svgs(client, settings)
 
     assert reply.headers["content-type"].startswith("image/png")
     assert "sandbox" in reply.headers["content-security-policy"]
+

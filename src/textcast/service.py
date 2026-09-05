@@ -381,6 +381,7 @@ def edit_blocks(
             text = (edit.get("text") or "").strip()
             if text:
                 block.text = text
+                block.rich = edit.get("rich")
             if edit.get("kind") in kinds:
                 block.kind = BlockKind(edit["kind"])
                 # Retyped out of a visual, the payload describes nothing on

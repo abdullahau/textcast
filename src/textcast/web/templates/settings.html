@@ -26,13 +26,19 @@
         <label for="photo">Profile picture</label>
         <div class="row">
           <input type="file" name="photo" id="photo" accept="image/*">
-          <button class="ghost narrow" type="submit">Upload</button>
+          <button class="ghost narrow" type="submit">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"/><path d="m7 8 5-5 5 5"/><path d="M5 21h14"/></svg>
+            <span>Upload</span>
+          </button>
         </div>
         <p class="hint">JPEG, PNG, WebP, GIF or AVIF, under 4 MB. Shown as a circle.</p>
       </form>
       {% if account and account.has_photo %}
         <form method="post" action="/settings/avatar/delete">
-          <button class="ghost sm" type="submit">Remove the picture</button>
+          <button class="ghost sm" type="submit">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 4h4M6 7l1 13h10l1-13M10 11v6M14 11v6"/></svg>
+            <span>Remove the picture</span>
+          </button>
         </form>
       {% endif %}
     </div>
@@ -43,7 +49,10 @@
     <div class="row">
       <input type="text" name="username" id="username" value="{{ account.username if account }}"
              autocapitalize="none" spellcheck="false" required>
-      <button class="ghost narrow" type="submit">Save</button>
+      <button class="ghost narrow" type="submit">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8"/><path d="M7 3v5h8"/></svg>
+        <span>Save</span>
+      </button>
     </div>
     <p class="hint">What you type at the sign-in page.</p>
   </form>
@@ -61,7 +70,12 @@
     <label for="confirm_password" style="margin-top:.8rem">New password again</label>
     <input type="password" name="confirm_password" id="confirm_password"
            autocomplete="new-password" minlength="{{ password_min }}" required>
-    <div class="row" style="margin-top:.9rem"><button class="narrow" type="submit">Change it</button></div>
+    <div class="row" style="margin-top:.9rem">
+      <button class="narrow" type="submit">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+        <span>Change it</span>
+      </button>
+    </div>
     <p class="hint">
       At least {{ password_min }} characters. Changing it signs out every other browser
       and leaves this one signed in.
@@ -84,7 +98,10 @@
     </div>
     <form method="post" action="/settings/ingest-key"
           onsubmit="return confirm('Make a new key? The bookmarklet and the Shortcut stop working until you update them.')">
-      <button class="ghost narrow" type="submit">Regenerate</button>
+      <button class="ghost narrow" type="submit">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></svg>
+        <span>Regenerate</span>
+      </button>
     </form>
   </div>
   <p class="hint">
@@ -103,7 +120,10 @@
   </p>
   <form method="post" action="/settings/sign-out-everywhere"
         onsubmit="return confirm('Sign out every other browser? You will stay signed in here.')">
-    <button class="ghost narrow" type="submit">Sign out everywhere</button>
+    <button class="ghost narrow" type="submit">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg>
+      <span>Sign out everywhere</span>
+    </button>
   </form>
 </div>
 
@@ -113,7 +133,10 @@
   <h2>Downloads on this device</h2>
   <p class="hint" id="downloads-note">Counting…</p>
   <div class="row" style="margin:.9rem 0 0">
-    <button class="ghost narrow" type="button" id="drop-downloads" hidden>Remove all downloads</button>
+    <button class="ghost narrow" type="button" id="drop-downloads" hidden>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 4h4M6 7l1 13h10l1-13M10 11v6M14 11v6"/></svg>
+      <span>Remove all downloads</span>
+    </button>
   </div>
 </div>
 

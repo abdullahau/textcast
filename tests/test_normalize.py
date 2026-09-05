@@ -39,6 +39,15 @@ from textcast.normalize import normalize
         ("FY2024 guidance", "fiscal year 2024 guidance"),
         ("revenue 2019-21 grew", "revenue 2019 to 2021 grew"),
         ("72mm shares outstanding", "72 million shares outstanding"),
+        # Units of measure, glued to the number only -- "10 in total" is not
+        # ten inches, and requiring no space is what keeps it that way.
+        ("a 300MW turbine", "a 300 megawatts turbine"),
+        ("a 4GB file", "a 4 gigabytes file"),
+        ("a 4MBytes cache", "a 4 megabytes cache"),
+        ("weighs 200kg", "weighs 200 kilograms"),
+        ("just 1kg of it", "just 1 kilogram of it"),
+        ("10cm by 5in", "10 centimeters by 5 inches"),
+        ("a 100Mbps line", "a 100 megabits per second line"),
         # Abbreviations people write but do not say.
         ("gains vs. losses", "gains versus losses"),
         ("approx. half", "approximately half"),
@@ -139,6 +148,14 @@ def test_a_time_on_the_hour_loses_its_zero_minutes(written: str, spoken: str):
         # guard refuses to match before an apostrophe.
         ("INMune's stock rose", "InMune's stock rose"),
         ("INmune, a biotech,", "InMune, a biotech,"),
+        ("the stock is BofA", "the stock is Bank of America"),
+        ("carried by Ymobile", "carried by Y Mobile"),
+        ("under Rule 144A", "under Rule one forty four A"),
+        ("TL;DR it failed", "too long, didn't read it failed"),
+        ("TLDR it failed", "too long, didn't read it failed"),
+        ("her lawyer said", "her law yer said"),
+        ("the lawyers said", "the law yers said"),
+        ("Enron collapsed", "En ron collapsed"),
     ],
 )
 def test_written_forms_the_phonemiser_reads_wrongly(written: str, spoken: str):
@@ -151,6 +168,19 @@ def test_written_forms_the_phonemiser_reads_wrongly(written: str, spoken: str):
     from textcast import pronounce
 
     assert normalize(written, rules=pronounce.builtin_rules()) == spoken
+
+
+def test_mm_stays_the_accounting_scale_not_a_length():
+    """This app's own corpus writes "72mm shares" far more than it ever
+    writes a length, so the ambiguous ones stay million, not millimetre."""
+    assert normalize("a 4mm gap") == "a 4 million gap"
+
+
+def test_a_bare_g_is_left_alone_for_5g_the_network():
+    """"5g" the wireless generation and "5g" the mass are the same string;
+    a unit rule that expanded it would rewrite every mobile network in the
+    library into a mass measurement."""
+    assert normalize("a 5g network") == "a 5g network"
 
 
 def test_smart_punctuation_is_flattened():
@@ -172,6 +202,78 @@ def test_a_footnote_citing_a_bracket_of_its_own_is_not_cut_short():
     out = normalize("a claim [Footnote 3: see note [2] for detail] and on we go")
     assert "] and on we go" not in out, "the footnote's own body was cut short"
     assert "for detail" in out
+
+
+@pytest.mark.parametrize(
+    ("written", "spoken"),
+    [
+        ("World War II began", "World War 2 began"),
+        ("Elizabeth II died", "Elizabeth 2 died"),
+        ("Henry VIII had six wives", "Henry 8 had six wives"),
+        ("Super Bowl LIX was in 2025", "Super Bowl 59 was in 2025"),
+        ("Richard III is a play", "Richard 3 is a play"),
+        ("Season IX just dropped", "Season 9 just dropped"),
+    ],
+)
+def test_a_roman_numeral_becomes_a_digit(written: str, spoken: str):
+    """Kokoro's own g2p already recognises one of these and says so out
+    loud -- "Roman number 2" for "II" -- so the digit has to reach it
+    first."""
+    assert normalize(written) == spoken
+
+
+@pytest.mark.parametrize("written", [
+    "Chapter I is the introduction",  # bare I: the pronoun, far more often
+    "He works at Detroit MI today",  # a state code that round-trips too
+    "The event is in Washington DC",
+    "Watch LIV Golf this weekend",  # a brand, not the numeral 54
+    "The MIX is a popular station",  # a word, not the numeral 1009
+    "St Croix VI is beautiful",
+    "I think this is fine",
+])
+def test_a_roman_looking_word_is_left_alone(written: str):
+    assert normalize(written) == written
+
+
+@pytest.mark.parametrize(
+    ("written", "spoken"),
+    [
+        ("In 1931 he was born", "In nineteen thirty-one he was born"),
+        ("The year 1900 began well", "The year nineteen hundred began well"),
+        ("By 1999 it was over", "By nineteen ninety-nine it was over"),
+        ("In 1600 it happened", "In sixteen hundred it happened"),
+        ("In 2000 it changed", "In two thousand it changed"),
+        ("In 2024 it happened", "In twenty twenty-four it happened"),
+    ],
+)
+def test_a_bare_year_is_read_in_pairs_on_espeak(written: str, spoken: str):
+    """misaki already reads "1931" as "nineteen thirty-one" unassisted;
+    espeak reads the same digits as "nineteen hundred thirty one" instead,
+    which is what this rewrite exists to fix -- for espeak only."""
+    assert normalize(written, g2p="espeak") == spoken
+    assert normalize(written) == written, "misaki needs no help and gets none"
+
+
+def test_a_year_range_is_paired_on_espeak_after_the_range_itself_is_spelled_out():
+    """YEAR_RANGE turns the hyphen into "to" for every engine; espeak's own
+    pairing runs after, and on both halves."""
+    assert (
+        normalize("From 2019-21 it grew", g2p="espeak")
+        == "From twenty nineteen to twenty twenty-one it grew"
+    )
+    assert normalize("From 2019-21 it grew") == "From 2019 to 2021 it grew"
+
+
+@pytest.mark.parametrize("written", [
+    "It cost $1931 that year",  # money, not a year -- MONEY handles the $
+    "It weighed 1931kg",  # a count glued to a unit, not a year
+    "The 1930s were hard",  # a decade, not a single year
+])
+def test_a_year_shaped_number_that_is_not_a_year_is_left_to_its_own_rule(written: str):
+    """The guard is the character glued to either side, not the four digits
+    alone: a currency symbol or a unit means something else is reading it."""
+    assert "thirty-one" not in normalize(written, g2p="espeak")
+    assert "nineteen" not in normalize(written, g2p="espeak")
 
 
 def test_normalisation_is_idempotent():
