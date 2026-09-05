@@ -189,6 +189,21 @@ def test_smart_punctuation_is_flattened():
     assert normalize("it’s") == "it's"
 
 
+def test_an_en_dash_between_digits_becomes_to():
+    assert normalize("pages 5–10") == "pages 5 to 10"
+    assert normalize("ages 18 – 24") == "ages 18 to 24"
+
+
+def test_an_en_dash_used_as_a_pause_becomes_a_comma():
+    """A spaced en dash standing in for an em dash -- the style newsletters
+    and British outlets write instead of "—" -- is not a range just because
+    the mark is the same one "5–10" uses. Nothing here is a digit, so it
+    gets the em dash's comma instead of "to"."""
+    out = normalize("their best tip – not because they are leaking it – but because they respect you")
+    assert " to " not in out
+    assert out == "their best tip, not because they are leaking it, but because they respect you"
+
+
 def test_a_footnote_gets_a_pause_before_it():
     out = normalize("a claim [Footnote 3: the caveat] and on we go")
     assert out.startswith("a claim ...")

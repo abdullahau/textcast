@@ -326,9 +326,16 @@ def normalize(
     # Smart punctuation the engines mispronounce or read aloud. Before the
     # rules, not after: web prose is full of curly apostrophes, and a rule
     # written for who'll would never have matched who’ll.
+    #
+    # An en dash is two different marks wearing one glyph. Between digits --
+    # "pages 5–10" -- it is a range, so it becomes "to". Everywhere else --
+    # "the best tip – not because ... but because" -- it is standing in for
+    # an em dash, spaced the way British and newsletter style does it, and
+    # gets the same comma an em dash gets. Digits decide which one it is.
+    text = re.sub(r"(?<=\d)\s?–\s?(?=\d)", " to ", text)
     text = (
         text.replace("—", ", ")
-        .replace("–", " to ")
+        .replace("–", ", ")
         .replace("…", "...")
         .replace("“", '"')
         .replace("”", '"')

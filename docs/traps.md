@@ -247,6 +247,14 @@ section you are about to touch**, and add to it when something bites you.
   number without also breaking the regnal numbers. Kokoro's own "Roman number
   2" reading for a bare "II" is back as a result; that was judged the smaller
   cost.
+- **A spaced en dash is not always a range.** `normalize`'s smart-punctuation
+  pass used to replace every "–" with " to ", because `YEAR_RANGE` had already
+  turned digit ranges like "2019–21" into words earlier in the same function.
+  But a spaced en dash is also how British and newsletter style writes an
+  aside instead of an em dash — "the best tip – not because ... but because" —
+  and that read as "the best tip to not because ... to but because". Only an
+  en dash with a digit on each side becomes "to" now; every other one gets the
+  em dash's comma.
 
 ## The TTS engines
 
