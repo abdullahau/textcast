@@ -17,19 +17,19 @@
     <input type="hidden" name="kind" value="text">
     <div class="row">
       <div>
-        <label for="text-title">Title <span style="font-weight:400;color:var(--muted)">(optional)</span></label>
+        <label for="text-title">Title <span class="optional">(optional)</span></label>
         <input type="text" name="title" id="text-title" placeholder="Taken from the first heading if left blank">
       </div>
       <div>
-        <label for="text-source">Source <span style="font-weight:400;color:var(--muted)">(optional)</span></label>
+        <label for="text-source">Source <span class="optional">(optional)</span></label>
         <input type="text" name="source" id="text-source" placeholder="Bloomberg, a friend, your own notes…">
       </div>
     </div>
-    <div class="row" style="margin-top:.7rem"><div>
+    <div class="row mt-07"><div>
       <label for="text-body">Text</label>
       <textarea name="text" id="text-body" required placeholder="Paste here…"></textarea>
     </div></div>
-    <div class="row" style="margin-top:.9rem">
+    <div class="row mt-09">
       <button class="narrow" type="submit">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M12 11v6"/><path d="M9 14h6"/></svg>
         <span>Add text</span>
@@ -46,7 +46,7 @@
     <div class="row">
       <input type="url" name="url" placeholder="https://…" value="{{ url }}" required>
     </div>
-    <div class="row" style="margin-top:.9rem">
+    <div class="row mt-09">
       <button class="narrow" type="submit">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 17H7A5 5 0 0 1 7 7h2"/><path d="M15 7h2a5 5 0 1 1 0 10h-2"/><path d="M8 12h8"/></svg>
         <span>Add link</span>
@@ -81,7 +81,7 @@
   <form method="post" action="/api/ingest">
     <input type="hidden" name="kind" value="html">
     <textarea name="html" class="code" placeholder="&lt;!doctype html&gt;…" required></textarea>
-    <div class="row" style="margin-top:.7rem">
+    <div class="row mt-07">
       <select name="adapter">
         <option value="">Detect the publication</option>
         <option value="bloomberg">Bloomberg</option>
@@ -90,7 +90,7 @@
         <option value="generic">Generic article</option>
       </select>
     </div>
-    <div class="row" style="margin-top:.9rem">
+    <div class="row mt-09">
       <button class="narrow" type="submit">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 6-5 6 5 6"/><path d="m16 6 5 6-5 6"/></svg>
         <span>Add source</span>

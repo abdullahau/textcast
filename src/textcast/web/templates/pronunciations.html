@@ -145,7 +145,7 @@
   <form method="post" action="/pronunciations/rebuild">
     <input type="hidden" name="kind" value="{{ changed_kind }}">
     <input type="hidden" name="pattern" value="{{ changed_pattern }}">
-    <div class="row" style="margin-top:.8rem">
+    <div class="row mt-08">
       <button class="narrow" type="submit">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></svg>
         <span>Rebuild {{ affected|length }}</span>
@@ -208,7 +208,7 @@
         </select>
       </div>
     </div>
-    <div class="row" style="margin-top:.9rem">
+    <div class="row mt-09">
       <button class="narrow" type="submit">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8"/><path d="M7 3v5h8"/></svg>
         <span>Save defaults</span>
@@ -229,7 +229,7 @@
       <textarea id="say-text" style="min-height:4.5rem">{{ sample }}</textarea>
     </div>
   </div>
-  <div class="row" style="margin-top:.7rem">
+  <div class="row mt-07">
     <div>
       <label for="say-engine">Engine</label>
       <select id="say-engine">
@@ -256,7 +256,7 @@
       </button>
     </div>
   </div>
-  <label class="check" style="margin-top:.6rem"><input type="checkbox" id="say-rules" checked> Apply the rules below first</label>
+  <label class="check mt-06"><input type="checkbox" id="say-rules" checked> Apply the rules below first</label>
 
   <div id="say-out" class="tryout" hidden>
     <p class="label">Spoken as</p>
@@ -303,7 +303,7 @@
     {# Three ways to say the same thing, on one row: what to look for is one
        question and what to say is another. A hint under only some fields in a
        row pushes them off the shared bottom edge, so every one has one. #}
-    <div class="row" style="margin-top:.7rem">
+    <div class="row mt-07">
       <div>
         <div class="titled">
           <label for="replacement">Said as</label>
@@ -326,11 +326,11 @@
         <input type="text" name="replacement_espeak" id="replacement_espeak" placeholder="lˈaɪbɔːɹ">
       </div>
     </div>
-    <div class="row" style="margin-top:.7rem">
+    <div class="row mt-07">
       <div><label for="note">Note</label><input type="text" name="note" id="note" placeholder="optional"></div>
       <label class="check narrow"><input type="checkbox" name="ignore_case" value="true"> Ignore case</label>
     </div>
-    <div class="row" style="margin-top:.9rem">
+    <div class="row mt-09">
       <button class="narrow" type="submit">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
         <span>Add rule</span>
@@ -356,11 +356,11 @@
           <span>Import</span>
         </button>
       </div>
-      <label class="check" style="margin-top:.6rem">
+      <label class="check mt-06">
         <input type="checkbox" name="replace" value="true"> Replace all, instead of merging
       </label>
     </form>
-    <div class="row" style="margin-top:.8rem">
+    <div class="row mt-08">
       <a class="btn ghost narrow" href="/pronunciations/export">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V3"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
         <span>Export {{ rows|length }} rules</span>
@@ -403,7 +403,7 @@
   </table>
 </div>
 
-<div class="card" style="margin-top:1rem">
+<div class="card mt-1">
   <h2>Always on</h2>
   <p class="hint">
     Numbers, dates and symbols are handled in code. These run first and are not editable.

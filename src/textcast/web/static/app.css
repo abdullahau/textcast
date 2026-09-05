@@ -287,6 +287,7 @@ button.link { background: none; border: 0; padding: 0 .3rem; font: inherit; colo
 .nav-group { display: flex; align-items: center; gap: .4rem; }
 .nav-toggle {
   display: none;
+  justify-content: center;
   width: var(--bar-control); height: var(--bar-control); min-width: var(--bar-control); padding: 0;
   background: transparent; border-color: transparent; color: var(--muted);
 }
@@ -346,11 +347,10 @@ button.link { background: none; border: 0; padding: 0 .3rem; font: inherit; colo
   }
   .nav-group .theme-switch { margin: 0; }
   .nav-group form { width: 100%; }
-  /* The shared button rule centres its content and pins it to the bar's own
-     2.1rem. In the menu every other item starts at the left edge and grows to
-     its padding, so this one has to be told both. text-align does nothing to a
-     flex box. */
-  .nav-group button.link { width: 100%; height: auto; justify-content: flex-start; }
+  /* The shared button rule pins height to the bar's own 2.1rem and leaves
+     width to content. In the menu every other item is full width and grows
+     to its own padding instead, so this one has to be told both. */
+  .nav-group button.link { width: 100%; height: auto; }
 }
 
 /* ---------- page ---------- */
@@ -389,7 +389,16 @@ h1, h2, h3 { line-height: 1.25; text-wrap: balance; margin: 0; letter-spacing: -
 button, .btn {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
+  /* An icon and its label are one box, at a fixed distance from the
+     button's own left edge: `center` put both at whatever x their combined
+     width happened to land on, so the icon's own position drifted from one
+     button to the next wherever a button was ever wider than its content
+     -- a plain button never is, but `.nav-group button.link` already had
+     to say `flex-start` for itself to get a fixed icon column in a
+     full-width menu row. Default to that everywhere instead of overriding
+     it case by case; `button.icon`'s square, icon-only buttons still ask
+     for `center` on their own more specific selector. */
+  justify-content: flex-start;
   gap: .4rem;
   height: 2.1rem;
   padding: 0 .85rem;
@@ -471,6 +480,7 @@ button.sm, .btn.sm { height: var(--bar-control); padding: 0 .7rem; font-size: .7
    its own. */
 button.q {
   position: relative;
+  justify-content: center;
   width: .95rem;
   height: .95rem;
   min-width: .95rem;
@@ -842,6 +852,7 @@ button.q:focus-visible { color: var(--fg); border-color: var(--fg-soft); opacity
 .card p.hint code { font-size: .95em; }
 
 label { display: block; font-size: .78rem; font-weight: 500; color: var(--fg-soft); margin-bottom: .35rem; }
+label .optional { font-weight: 400; color: var(--muted); }
 
 input[type=text], input[type=url], input[type=search], input[type=number],
 input[type=password], select, textarea {
@@ -950,6 +961,20 @@ code.copy:focus { border-color: var(--border-hi); color: var(--fg); }
    with their bottom edge. */
 .row:has(> .check:only-child), .row:has(> .check + .check) { align-items: center; }
 
+/* The top margin a `.row`, a card or a hint needs when what comes before it
+   is not another of its own kind, so `.row + .row` above doesn't reach it.
+   `!important`: several of these sit on elements a more specific rule
+   already gives a margin (`.card p.hint`'s own `.9rem` bottom, for one), and
+   this must win the way the inline style it replaces always did. */
+.mt-035 { margin-top: .35rem !important; }
+.mt-06  { margin-top: .6rem !important; }
+.mt-07  { margin-top: .7rem !important; }
+.mt-08  { margin-top: .8rem !important; }
+.mt-09  { margin-top: .9rem !important; }
+.mt-1   { margin-top: 1rem !important; }
+.mt-12  { margin-top: 1.2rem !important; }
+.mt-25  { margin-top: 2.5rem !important; }
+
 .check { display: flex; align-items: center; gap: .45rem; font-size: .83rem; font-weight: 400; color: var(--fg-soft); margin: 0; cursor: pointer; }
 .check input {
   width: 1.05rem;
@@ -971,6 +996,7 @@ code.copy:focus { border-color: var(--border-hi); color: var(--fg); }
   position: absolute;
   top: .45rem;
   right: .45rem;
+  justify-content: center;
   width: 1.6rem;
   height: 1.6rem;
   min-width: 0;
@@ -1024,6 +1050,7 @@ code.copy:focus { border-color: var(--border-hi); color: var(--fg); }
   color: var(--fg-soft);
 }
 .tag-chip button {
+  justify-content: center;
   height: 1rem; width: 1rem; padding: 0;
   border: none; background: none; color: var(--muted);
   font-size: .9rem; line-height: 1; cursor: pointer; border-radius: 3px;
@@ -1186,6 +1213,10 @@ body.lb-open { overflow: hidden; }
 }
 .lb-bar { display: flex; justify-content: flex-end; gap: .4rem; flex: none; }
 .lightbox button {
+  /* A single glyph, no label -- centered like button.icon's square buttons,
+     not left-packed like the shared rule now defaults to for an icon next
+     to a label. */
+  justify-content: center;
   width: 2.4rem;
   height: 2.4rem;
   padding: 0;
@@ -1321,6 +1352,45 @@ media-play-button {
 media-time-range { flex: 1 1 auto; min-width: 4rem; margin: 0 .4rem; }
 media-time-display, media-duration-display { font-variant-numeric: tabular-nums; }
 media-playback-rate-button { font-variant-numeric: tabular-nums; font-weight: 500; }
+
+/* The transport cluster: previous, ±5s, play, next -- bigger than the rest
+   of the bar, plain like the rest of the bar. */
+#prev, #next { width: 2.15rem; height: 2.15rem; }
+#prev svg, #next svg { width: 18px; height: 18px; }
+/* The "5" is text baked into the seek icon's own SVG, sized off
+   --media-control-height like every other glyph here -- so the number grows
+   with the same box that grows the icon, not a separate override. Padding
+   is zeroed for the same reason media-play-button zeroes it above: a fixed
+   host size and shadow-DOM padding both claiming the box otherwise clips
+   the icon at exactly the size this is meant to fix. */
+media-seek-backward-button, media-seek-forward-button {
+  --media-control-height: 1.3rem;
+  --media-control-padding: 0;
+  width: 2.15rem;
+  height: 2.15rem;
+  padding: 0;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 .1rem;
+}
+
+/* A thumb is less precise than a pointer, and this is the one place that
+   told against it: the whole cluster grows a little further, short of
+   media-play-button's 2.4rem so the bar's own height, set by its tallest
+   control, does not move. */
+@media (max-width: 44rem) {
+  #prev, #next,
+  media-seek-backward-button, media-seek-forward-button {
+    width: 2.3rem;
+    height: 2.3rem;
+  }
+  #prev svg, #next svg { width: 20px; height: 20px; }
+  media-seek-backward-button, media-seek-forward-button {
+    --media-control-height: 1.6rem;
+  }
+}
 
 .ctl {
   display: inline-flex;

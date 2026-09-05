@@ -44,7 +44,7 @@
     </div>
   </div>
 
-  <form method="post" action="/settings/profile" style="margin-top:1.2rem">
+  <form method="post" action="/settings/profile" class="mt-12">
     <label for="username">Username</label>
     <div class="row">
       <input type="text" name="username" id="username" value="{{ account.username if account }}"
@@ -64,13 +64,13 @@
     <label for="current_password">Current password</label>
     <input type="password" name="current_password" id="current_password"
            autocomplete="current-password" required>
-    <label for="new_password" style="margin-top:.8rem">New password</label>
+    <label for="new_password" class="mt-08">New password</label>
     <input type="password" name="new_password" id="new_password"
            autocomplete="new-password" minlength="{{ password_min }}" required>
-    <label for="confirm_password" style="margin-top:.8rem">New password again</label>
+    <label for="confirm_password" class="mt-08">New password again</label>
     <input type="password" name="confirm_password" id="confirm_password"
            autocomplete="new-password" minlength="{{ password_min }}" required>
-    <div class="row" style="margin-top:.9rem">
+    <div class="row mt-09">
       <button class="narrow" type="submit">
         <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
         <span>Change it</span>

@@ -123,12 +123,12 @@
           </select>
         </div>
       </div>
-      <div class="row" style="margin-top:.7rem">
+      <div class="row mt-07">
         <label class="check"><input type="checkbox" name="skip_footnotes" value="true" {{ 'checked' if build.get('skip_footnotes') }}> Skip footnotes</label>
         <label class="check"><input type="checkbox" name="skip_summaries" value="true" {{ 'checked' if build.get('skip_summaries') }}> Skip summaries</label>
         <label class="check"><input type="checkbox" name="skip_visuals" value="true" {{ 'checked' if build.get('skip_visuals') }}> Skip figure captions</label>
       </div>
-      <div class="row" style="margin-top:.9rem">
+      <div class="row mt-09">
         <button class="narrow" type="submit">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5 6 9H2v6h4l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/></svg>
           <span>{{ 'Rebuild' if row.status == 'ready' else 'Build' }}</span>
@@ -306,7 +306,7 @@
           </div>
         {% endfor %}
       {% endfor %}
-      <div class="row" style="margin-top:1rem">
+      <div class="row mt-1">
         <button class="narrow" type="submit">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8"/><path d="M7 3v5h8"/></svg>
           <span>Save changes</span>
@@ -403,7 +403,7 @@
   </div>
   {% endif %}
 
-  <div class="card" style="margin-top:2.5rem">
+  <div class="card mt-25">
     <h2>Details</h2>
     <p class="hint">Tags are how the library filters. Type to create a new one.</p>
     <form method="post" action="/api/articles/{{ row.id }}/tags">
@@ -424,7 +424,7 @@
           {% for t in all_tags[:14] %}<button type="button" class="tag" data-tag-suggest="{{ t.name }}">{{ t.name }}</button>{% endfor %}
         </div>
       {% endif %}
-      <div class="row" style="margin-top:.8rem">
+      <div class="row mt-08">
         <button class="ghost narrow" type="submit">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8"/><path d="M7 3v5h8"/></svg>
           <span>Save details</span>
@@ -453,9 +453,28 @@
       <button class="ctl" id="prev" title="Previous section" aria-label="Previous section">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 6h2v12H7zm3 6 8-6v12z"/></svg>
       </button>
-      <media-seek-backward-button seekoffset="5"></media-seek-backward-button>
+      {# media-chrome's own icon has the "5" off by a glyph-width from a true
+         mirror of the forward one -- measured by getBBox(), not eyeballed:
+         forward's glyph centers at x=11.125 of a 20-wide viewBox, and the
+         mirror of that is 8.875, which puts the backward glyph's left edge
+         (it keeps the forward icon's own left-aligned anchor) at 8.875 -
+         4.45/2 = 6.65, not the stock icon's 2.18. Everything else here,
+         including the number itself, is the stock icon unchanged. #}
+      <media-seek-backward-button seekoffset="5">
+        <svg slot="icon" aria-hidden="true" viewBox="0 0 20 24">
+          <defs><style>.text{font-size:8px;font-family:Arial-BoldMT, Arial;font-weight:700;}</style></defs>
+          <text class="text value" transform="translate(6.65 19.87)">5</text>
+          <path d="M10 6V3L4.37 7 10 10.94V8a5.54 5.54 0 0 1 1.9 10.48v2.12A7.5 7.5 0 0 0 10 6Z"/>
+        </svg>
+      </media-seek-backward-button>
       <media-play-button></media-play-button>
-      <media-seek-forward-button seekoffset="5"></media-seek-forward-button>
+      <media-seek-forward-button seekoffset="5">
+        <svg slot="icon" aria-hidden="true" viewBox="0 0 20 24">
+          <defs><style>.text{font-size:8px;font-family:Arial-BoldMT, Arial;font-weight:700;}</style></defs>
+          <text class="text value" transform="translate(8.9 19.87)">5</text>
+          <path d="M10 6V3l5.61 4L10 10.94V8a5.54 5.54 0 0 0-1.9 10.48v2.12A7.5 7.5 0 0 1 10 6Z"/>
+        </svg>
+      </media-seek-forward-button>
       <button class="ctl" id="next" title="Next section" aria-label="Next section">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M15 6h2v12h-2zM6 18V6l8 6z"/></svg>
       </button>
