@@ -93,6 +93,27 @@ def test_a_block_that_is_quiet_all_through_is_kept_whole():
     assert len(trim_silence(quiet, 24000)) == len(quiet)
 
 
+def test_a_block_that_normalises_to_nothing_is_read_as_silence(tmp_path):
+    """An emoji-only paragraph strips to "" (`normalize.EMOJI`); kokoro-onnx's
+    own `_prepare` raises on that rather than returning silence like kokoro's
+    torch pipeline does, which failed the whole build."""
+
+    class RaisesOnEmpty(FakeEngine):
+        def synthesize(self, text, voice=None, speed=1.0, lang="en"):
+            if not text.strip():
+                raise ValueError(f"Nothing to synthesize, {text!r} produced no phonemes")
+            return super().synthesize(text, voice=voice, speed=speed, lang=lang)
+
+    article = Article(
+        title="Test",
+        sections=[Section(title="One", blocks=[Block(kind=BlockKind.PARA, text="🔥🔥🔥")])],
+    ).renumber()
+
+    manifest = render_article(article, RaisesOnEmpty(), tmp_path, voice="v1")
+
+    assert manifest.sections[0].blocks[0].speech_ms == 0
+
+
 @pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not installed")
 def test_the_gap_between_blocks_is_the_gap_that_was_asked_for(tmp_path):
     gap = 350

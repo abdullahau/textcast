@@ -311,6 +311,13 @@ section you are about to touch**, and add to it when something bites you.
   1.8 GB on ONNX, 3.5 GB once the kokoro pool loaded, peak **7,508 MB**. No
   process loads two engines now, and `engines_for` raises rather than building
   a second pool.
+- **An emoji-only paragraph failed the whole build.** `normalize.EMOJI` drops
+  emoji for speech, so a block that is nothing but emoji — `🔥🔥🔥` — normalises
+  to `""`. kokoro's torch pipeline already turns that into silence, but
+  kokoro-onnx's `_prepare` raises `ValueError: Nothing to synthesize, ''
+  produced no phonemes` instead, and one bad block failed the whole article.
+  `audio._speak` now checks `text.strip()` before it ever reaches an engine,
+  so both engines agree: nothing to say is silence, not an error.
 
 ## The player and the read-along
 

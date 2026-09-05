@@ -178,7 +178,16 @@ def _speak(
 
     A 30-minute article takes minutes to build. Caching per block means a crash,
     a voice tweak on one section, or a re-run after an edit costs seconds.
+
+    An emoji-only paragraph normalises to nothing (`normalize.EMOJI` drops
+    them for speech), so kokoro's torch pipeline already hands back silence
+    for empty text -- but kokoro-onnx's `_prepare` raises instead of doing
+    the same, which failed the whole build. Silence, not the engine, is the
+    right reading of a block with nothing left to say.
     """
+    if not text.strip():
+        return np.zeros(0, dtype=np.float32)
+
     if cache_dir is None:
         return engine.synthesize(text, voice=voice, speed=speed, lang=lang).samples
 
