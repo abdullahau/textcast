@@ -100,6 +100,77 @@ def test_a_substack_footnote_is_inlined_where_it_is_cited():
     )
 
 
+def test_blogspot_matches_ahead_of_the_newsletter_false_positive():
+    """Blogger's own caption markup is `table.tr-caption-container`, which
+    matches the newsletter adapter's `table[class*="container"]` check on
+    every single post. This has to win the registry order, not just parse
+    better once chosen."""
+    html = """
+    <html><head><meta name="generator" content="blogger">
+      <meta property="og:title" content="A Post">
+    </head><body>
+      <h1 class="title">A Blog</h1>
+      <div class="post-body entry-content">
+        <p>A paragraph long enough to count as real prose for this test.</p>
+        <table class="tr-caption-container"><tr><td>
+          <img src="https://example.com/pic.jpg" width="400">
+        </td></tr><tr><td class="tr-caption">A caption.</td></tr></table>
+      </div>
+    </body></html>
+    """
+    assert pick_adapter("", parse_tree(html)).name == "blogspot"
+    article = parse_html(html)
+    assert article.adapter == "blogspot"
+    figures = [b for _s, b in article.blocks() if b.kind is BlockKind.FIGURE]
+    assert len(figures) == 1
+    assert figures[0].media["caption"] == "A caption."
+    assert not any(b.kind is BlockKind.TABLE for _s, b in article.blocks())
+
+
+def test_blogspot_promotes_a_fully_bold_paragraph_to_a_heading():
+    """A subheading not in `BLOCK_SELECTOR` (`<div>`, `<span>`) is not merely
+    unstructured — the shared walk never visits it, so the words are gone
+    outright unless this promotes it to a real heading first."""
+    html = """
+    <html><head><meta name="generator" content="blogger"></head><body>
+      <div class="post-body entry-content">
+        <div class="separator"><b>A Bold Subhead</b></div>
+        <p>The paragraph that follows the subhead, long enough to be kept.</p>
+        <p><b>&nbsp;</b>A paragraph that only starts with bold text, which is
+           prose and must stay a paragraph, not become a heading of its own.</p>
+      </div>
+    </body></html>
+    """
+    article = parse_html(html)
+    assert any(s.title == "A Bold Subhead" for s in article.sections)
+    texts = [b.text for _s, b in article.blocks()]
+    assert any(t.startswith("A paragraph that only starts with bold") for t in texts)
+
+
+def test_blogspot_promotes_a_bare_div_to_a_paragraph():
+    """Blogger's editor writes a plain line of prose straight into a `<div>`
+    as often as a `<p>` — commonly the line right after a picture. `<div>` is
+    not in `BLOCK_SELECTOR`, so it is not merely unstructured, it is never
+    visited and the sentence vanishes outright, unless promoted first. A
+    `<div>` that itself wraps another block (the layout-wrapper case) must be
+    left alone."""
+    html = """
+    <html><head><meta name="generator" content="blogger"></head><body>
+      <div class="post-body entry-content">
+        <div class="separator"><a href="x.jpg"><img src="x.jpg" width="400"></a></div>
+        <div style="text-align: justify;">A line of prose Blogger put in a div
+           instead of a p, long enough to look like a real paragraph.</div>
+        <div class="wrapper"><p>A paragraph inside a layout div, which must
+           stay exactly where it is and not be duplicated.</p></div>
+      </div>
+    </body></html>
+    """
+    article = parse_html(html)
+    texts = [b.text for _s, b in article.blocks()]
+    assert any(t.startswith("A line of prose Blogger put in a div") for t in texts)
+    assert sum(t.startswith("A paragraph inside a layout div") for t in texts) == 1
+
+
 def test_quote_blocks_get_spoken_markers():
     from textcast.document import Block
 
@@ -235,6 +306,34 @@ def test_a_bloomberg_page_names_who_wrote_it():
     assert article.source == "Bloomberg"
     assert article.author, "no byline extracted"
     assert article.author == "Matt Levine"
+
+
+@pytest.mark.skipif(not PAGES, reason="corpus not present")
+def test_blogspot_adapter_is_chosen_and_scopes_to_the_post():
+    """A Blogger permalink page's sidebar — "Popular Posts", a year-by-year
+    "Blog Archive" — must not read as sections of the article, and the page's
+    own `<h1>` (the *blog's* name) must not become the post's title."""
+    page = next((p for p in PAGES if "Scaling and Profitability" in p.name), None)
+    if page is None:
+        pytest.skip("Blogspot page not in corpus")
+
+    html = page.read_text(encoding="utf-8", errors="replace")
+    assert pick_adapter("", parse_tree(html)).name == "blogspot"
+
+    article = load(page)
+    assert article.title == "The Scaling and Profitability Trade off: Venture Capital's Weakest Link!"
+    assert article.source == "Musings on Markets"
+    assert article.author == "Aswath Damodaran"
+    assert article.published_at and article.published_at.startswith("2026-09-02")
+    assert not any(s.title == "Popular Posts" for s in article.sections)
+    assert not any(s.title == "Blog Archive" for s in article.sections)
+
+    # A subheading written as a fully-bold paragraph is promoted, not lost.
+    assert any(s.title == "Scaling versus Business Building" for s in article.sections)
+    # A picture captioned with a `table.tr-caption-container`, Blogger's own
+    # markup, survives as a figure rather than being read as a data table.
+    assert any(b.kind is BlockKind.FIGURE for _s, b in article.blocks())
+    assert not any(b.kind is BlockKind.TABLE for _s, b in article.blocks())
 
 
 @pytest.mark.skipif(not PAGES, reason="corpus not present")

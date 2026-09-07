@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from ..document import Article
 from .base import Adapter
+from .blogspot import BlogspotAdapter
 from .bloomberg import BloombergAdapter
 from .dom import Tree, parse
 from .economist import EconomistAdapter
@@ -24,6 +25,10 @@ ADAPTERS: list[Adapter] = [
     # Before the newsletter adapter: a Substack issue arriving by email
     # matches both, and this one knows where the pictures and the byline are.
     SubstackAdapter(),
+    # Also before it: Blogger's own caption markup, `table.tr-caption-container`,
+    # false-positives on the newsletter adapter's `table[class*="container"]`
+    # check, on every single post.
+    BlogspotAdapter(),
     NewsletterAdapter(),
     GenericAdapter(),
 ]
