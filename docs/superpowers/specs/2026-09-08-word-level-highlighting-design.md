@@ -139,39 +139,65 @@ once per unique block and rule set, kept until either changes.
 
 ## B. Forced alignment
 
-`ctc-forced-aligner` (PyPI), the ONNX-runtime path, MMS_FA model — CTC
-alignment via its own Viterbi decoder, not torchaudio's `forced_align`,
-which is what lets it skip torch. **Unverified claims that must become
-verified facts in implementation task 1**, before anything else is
-built on top of them:
+**Measured, not assumed — this section was rewritten after spiking three
+candidates.** All three ran on this box (4-core ARM Neoverse-N1, the one
+every other number in `decisions.md` is from), aligning real espeak-ng
+clips end to end, with `/proc/<pid>/maps` checked for `torch/lib` after
+each run:
 
-- The installed package's ONNX path genuinely never imports torch.
-  Checked the way this codebase already checks such things: instantiate
-  it inside a throwaway child process and read `/proc/<pid>/maps` for
-  `torch/lib`, the same test `docs/traps.md` prescribes for the engine
-  processes.
-- Resident memory of the loaded aligner, measured the same way every
-  engine in `decisions.md` is: four independent instantiations, one
-  shared, whichever this ends up needing given the phase-order design
-  above (likely one instance is enough, since alignment is not run
-  concurrently across a thread pool the way synthesis is — that itself
-  is worth deciding from the CPU measurement below rather than assumed).
-- Wall-clock cost per block and per article, CPU-bound, on this box (the
-  4-core ARM Neoverse-N1 every other number in `decisions.md` is from).
+| | MMS_FA, `window_length=30` (a package default, unexamined) | MMS_FA, tuned window | **wav2vec2-base-960h, int8, tuned window (chosen)** |
+| --- | --- | --- | --- |
+| Align time, 5.2 s clip | 13.1 s | 3.2 s | **1.3 s** |
+| Align time, 18.2 s clip | — | — | **3.4 s (RTF 0.186)** |
+| Peak RSS | 2.4–3.1 GB | same | **570–830 MB** |
+| Params / file size | 300 M | same | **94 M, ~95 MB int8** |
+| License | CC-BY-NC 4.0 | same | **Apache-2.0** |
+| Word boundaries | baseline | — | within ~20–40 ms of MMS_FA's own |
 
-If any of these come back wrong — torch leaks in, or the model is too
-large or too slow to be worth it — the fallback is torchaudio
-`forced_align` gated to the Kokoro (torch) engine only, with
-kokoro-onnx builds keeping block-level highlighting. That fork is a
-one-line decision at that point, not a redesign: phase two already reads
-cached PCM and writes the same `WordTiming` shape regardless of which
-aligner produced it.
+**The model:** `onnx-community/wav2vec2-base-960h-ONNX`
+(`onnx/model_int8.onnx`), an export of Meta's own
+`facebook/wav2vec2-base-960h` — a third the parameters of MMS_FA, an
+unrestricted license, and, once `window_length` is sized to the audio
+rather than left at the package's 30 s default, comfortably faster
+than real-time (RTF 0.186–0.287 across the two clips tested, against
+0.45–0.56 for synthesis itself). At this cost, aligning a 20-minute
+article adds an estimated 4–6 minutes to a build that already takes
+9–11 — not the ~49 minutes MMS_FA's unexamined default would have
+cost.
 
-**License:** the default MMS_FA weights are CC-BY-NC 4.0 —
-non-commercial. `textcast` is self-hosted and not sold, so this is
-likely fine, but it is a conscious call to record here rather than
-discover later, the way `decisions.md` records Supertonic's licence as
-the reason it was dropped.
+**What's reused from `ctc-forced-aligner` and what isn't.** Only the
+model-agnostic pieces: `generate_emissions` (windowing + ONNX inference,
+takes any session), `forced_align` (the compiled `.so` Viterbi decoder,
+takes any log-probs/targets/blank), `merge_repeats` (collapses a raw
+per-frame path into labelled segments). **Not** reused:
+`preprocess_text`/`get_alignments`/`get_spans`/`postprocess_results` —
+those encode MMS_FA's own vocabulary and word-boundary convention
+(implicit, via known word lengths). `wav2vec2-base-960h` predicts word
+boundaries explicitly, as its own `|` token, which is simpler to work
+with, not harder: tokenize the transcript as
+`uppercase, non-letters stripped, whitespace → "|"`, force-align the
+flat character sequence directly, then split the merged segments on
+`|`. This adapter — `textcast/tts/aligner.py` in the implementation —
+is under 60 lines and was written and run against real audio as part of
+this spec's verification, not left as a promise.
+
+**Why `window_length` is a design parameter, not the package's
+default.** `generate_emissions` zero-pads any clip shorter than
+`window_length` up to a full window plus 2 s of context on each side —
+a 5-second block at the 30 s default pays to encode 34 seconds of mostly
+silence. But smaller is not simply better: at `window_length=6` the
+18-second clip got *slower* (5.2 s, RTF 0.287) than at `window_length=20`
+(3.4 s, RTF 0.186), because each extra window re-pays its own context
+overhead. The alignment phase sizes `window_length` to roughly the
+duration of whatever it is aligning — a block, or a batch of blocks —
+rather than using a fixed constant either way.
+
+**Fallback, if this ever needs revisiting:** torchaudio `forced_align`,
+gated to the Kokoro (torch) engine only, kokoro-onnx builds keeping
+block-level highlighting. Phase two already reads cached PCM and writes
+the same `WordTiming` shape regardless of which aligner produced it, so
+this is a swap, not a redesign — but there is no evidence today that it
+will be needed.
 
 ---
 
@@ -280,11 +306,16 @@ highlight — no branch needed beyond "is `words` empty."
 ## G. Rollout
 
 A new build option, `word_highlight: bool`, alongside `voice`,
-`quote_voice`, `speed` — **off by default** until the measurements in
-task 1 are in and reviewed. This is the same posture `decisions.md`
-takes toward every engine and dependency choice: default off, prove the
-cost, then decide the default. Flipping it on is a one-line change to
-`voice_defaults` once the numbers are known.
+`quote_voice`, `speed` — **off by default for the first release**, not
+because the measured cost is bad (it isn't: RTF 0.19–0.29, cheaper than
+synthesis itself) but because every number so far is from two
+espeak-ng clips of a few seconds and eighteen seconds, not a real
+built article with hundreds of blocks, real Kokoro/kokoro-onnx audio,
+and the per-block `window_length` sizing running for real. Task 8
+promotes this to default-on once that full-article number exists — this
+is now expected to be a formality, not a gate the way it looked before
+the model swap, but `decisions.md`'s standard is a measurement, not an
+expectation.
 
 ---
 
@@ -311,34 +342,56 @@ cost, then decide the default. Flipping it on is a one-line change to
 
 ## I. Measurement plan
 
-Recorded in `docs/decisions.md` once known, in the same table format as
-the existing engine and audio/timing entries — this design explicitly
-does not assert numbers it has not measured:
+Resolved during spec-writing, against real synthesized clips (not yet a
+real article — that is what remains for task 8):
 
-- Aligner resident memory, loaded once, measured the way every engine
-  in this app already is (`docs/decisions.md`'s "The engines" table).
-- Wall-clock cost of phase two per block and per a representative full
-  article, against phase one's existing synthesis time, on the same
-  4-core ARM Neoverse-N1 box every other number here is from.
-- Whether the ONNX path actually avoids torch at runtime — a pass/fail,
-  not a number, but the gating one.
-- Peak RSS across the whole build (phase one + phase two), against
-  today's peak with `word_highlight` off, to confirm the phased design
-  actually delivers `max()` rather than accidentally `sum()`.
+- **Torch at runtime: pass.** `torch_imported: False`, no `torch` in
+  `/proc/<pid>/maps`, after a real alignment — and moot beyond doubt for
+  the shipped model, since the adapter calls `generate_emissions`,
+  `forced_align`, `merge_repeats` directly against a plain
+  `onnxruntime.InferenceSession`, never importing `ctc-forced-aligner`'s
+  own MMS_FA/torch code paths at all.
+- **Wall-clock, two clips:** 5.2 s clip → 1.3 s (RTF 0.25); 18.2 s clip →
+  3.4 s (RTF 0.186) at a tuned `window_length`. Both under real-time,
+  both on the 4-core ARM Neoverse-N1 box every other `decisions.md`
+  number is from.
+- **Peak RSS:** 570–830 MB for the aligner process (model + `librosa`,
+  `numba`, `scikit-learn` import overhead — the model itself is a
+  fraction of that). Against a TTS engine pool at 530 MB (ONNX) to
+  1,535 MB (Kokoro, shared), this is the same order of magnitude as one
+  more engine, not a new tier of cost.
+
+**Still to measure, task 8:** a real article, both engines, with
+`window_length` sized per block as designed rather than by hand per
+clip — to confirm the per-block sizing logic behaves as well in
+aggregate as it did on two hand-picked clips, and to get the one number
+that decides the default: total build time with `word_highlight` on
+vs. off, on a representative article.
 
 ---
 
 ## Open risks going into implementation
 
-1. Which `ctc-forced-aligner` PyPI release is actually torch-free at
-   runtime — verify before writing anything else against it.
-2. MMS_FA's CC-BY-NC licence — a conscious accept, not a default.
+1. ~~Which `ctc-forced-aligner` release is torch-free at runtime~~ —
+   **resolved.** Moot in the strongest sense: the shipped adapter never
+   imports `ctc-forced-aligner`'s MMS_FA code at all, only its
+   model-agnostic decoder functions against a plain
+   `onnxruntime.InferenceSession` of a different model.
+2. ~~MMS_FA's CC-BY-NC licence~~ — **resolved by not using MMS_FA.**
+   `wav2vec2-base-960h` is Apache-2.0.
 3. The HTML-aware word-splitter in `reader.html` is new surface area
    this app has not needed before; `docs/traps.md`'s CSS section is a
    reminder of how much this kind of markup-walking code tends to bite
    once it meets real publication HTML, not just fixtures.
-4. If task 1 fails the torch check, the fallback (torchaudio,
-   Kokoro-only) turns this from an engine-agnostic feature into an
-   engine-dependent one — a real product decision, not just an
-   implementation detail, and worth surfacing again at that point rather
-   than silently degrading.
+4. The `window_length` sizing rule (roughly match the audio being
+   aligned) was derived from two clips, 5 and 18 seconds. It needs
+   confirming against the real distribution of block lengths in
+   `tests/corpus` — a one-word block and a long list item are both real
+   cases the two spike clips didn't cover.
+5. The vocab adapter (`textcast/tts/aligner.py`) strips everything
+   outside `[A-Za-z' ]` before alignment — fine for English prose, but
+   `article.lang` is not always `"en"`; an aligner built only for
+   English needs either a language gate (skip alignment, `words: []`,
+   for a non-English article) or a second model, and the spec currently
+   assumes the former without stating it as a decision. Worth an
+   explicit call during implementation rather than a silent gap.
