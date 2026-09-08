@@ -284,6 +284,57 @@ if ("serviceWorker" in navigator) {
   });
 })();
 </script>
+<script>
+/* The hint bubbles beside a heading or a field label.
+ *
+ * They opened on `:focus-within` and on hover, with no JavaScript at all --
+ * and on a phone neither ever fires. Safari does not focus a <button> when
+ * you tap it, and every browser on iOS is Safari underneath, so Chrome on an
+ * iPhone behaves the same way: not one hint opened, on any page, whatever
+ * was tapped. `click` does fire, so that is what this listens for.
+ *
+ * Inline and in base.html rather than a file of its own: the three templates
+ * that carry a hint all extend this one, and a separate asset would have to
+ * be added to the service worker's own precache list to survive offline.
+ */
+(function () {
+  var open = null;
+
+  function close() {
+    if (!open) return;
+    open.classList.remove("open");
+    var button = open.querySelector(".q");
+    if (button) button.setAttribute("aria-expanded", "false");
+    open = null;
+  }
+
+  document.addEventListener("click", function (event) {
+    var target = event.target;
+    var button = target.closest ? target.closest(".tip > .q") : null;
+    if (!button) {
+      /* A tap inside an open bubble is reading it, not dismissing it: they
+         carry bold runs and the odd link. */
+      if (open && !open.contains(target)) close();
+      return;
+    }
+    var tip = button.closest(".tip");
+    var already = tip === open;
+    close();
+    if (already) return;          // the same button again closes it
+    tip.classList.add("open");
+    button.setAttribute("aria-expanded", "true");
+    open = tip;
+  });
+
+  document.addEventListener("keydown", function (event) {
+    if (event.key === "Escape") close();
+  });
+
+  document.querySelectorAll(".tip > .q").forEach(function (button) {
+    button.setAttribute("aria-expanded", "false");
+  });
+})();
+</script>
 {% block scripts %}{% endblock %}
 </body>
 </html>

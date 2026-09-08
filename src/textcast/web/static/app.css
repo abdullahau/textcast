@@ -475,9 +475,14 @@ button.sm, .btn.sm { height: var(--bar-control); padding: 0 .7rem; font-size: .7
 
 /* ---------- hint buttons ---------- */
 
-/* Shown on hover, and on focus so a tap or the keyboard works too. A details
-   element expanded on click instead, which on a phone meant two taps and a
-   panel that stayed open. */
+/* Shown on hover, on keyboard focus, and on a tap that `tips` in base.html
+   turns into `.open`. A details element expanded on click instead, which on a
+   phone meant two taps and a panel that stayed open.
+
+   `:focus-within` used to be the whole of the tap story, and on a phone it
+   never fired once: Safari does not focus a <button> when you tap it, and
+   every browser on iOS is Safari underneath, Chrome included. So no hint
+   opened on an iPhone, on any page. */
 .tip { position: relative; display: inline-flex; }
 /* Sized against the label beside it, not against a button: at 1.15rem the
    circle was half again the height of a .78rem label and read as a control of
@@ -515,7 +520,10 @@ button.q:focus-visible { color: var(--fg); border-color: var(--fg-soft); opacity
   position: absolute;
   top: 1.45rem;
   left: 0;
-  z-index: 30;
+  /* Above `.player`, which is also fixed to the bottom of the viewport and
+     was also 30 -- so on a phone the bubble opened *behind* the transport and
+     showed a six-pixel sliver of itself. Still below `.sheet` at 40. */
+  z-index: 35;
   display: none;
   width: max-content;
   max-width: min(26rem, calc(100vw - 3rem));
@@ -532,7 +540,12 @@ button.q:focus-visible { color: var(--fg); border-color: var(--fg-soft); opacity
   white-space: normal;
   text-align: left;
 }
-.tip:focus-within .tip-body { display: block; }
+/* `:focus-visible` and not `:focus-within`: a mouse or touch click must not
+   leave the bubble stuck open behind the class the tap handler toggles, and
+   `:focus-visible` is exactly "arrived here by keyboard". The bubble is the
+   button's next sibling, so this needs no :has(). */
+.tip.open > .tip-body,
+.tip > .q:focus-visible + .tip-body { display: block; }
 @media (hover: hover) {
   .tip:hover .tip-body { display: block; }
 }

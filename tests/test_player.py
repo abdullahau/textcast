@@ -1747,3 +1747,116 @@ def test_a_redirected_page_is_told_apart_from_the_one_that_was_asked_for(live, b
         assert bounced is True, "a bounced page is indistinguishable from the real one"
     finally:
         context.close()
+
+
+# --------------------------------------------------------------------------
+# hint bubbles
+# --------------------------------------------------------------------------
+
+
+@pytest.fixture
+def hints_page(live, browser):
+    """`/pronunciations` on a phone-sized viewport. Seven hints, no player."""
+    base, _slug, _manifest = live
+    context = browser.new_context(viewport={"width": 390, "height": 844}, has_touch=True)
+    page = context.new_page()
+    page.goto(f"{base}/pronunciations", wait_until="domcontentloaded")
+    page.wait_for_selector(".tip > .q")
+    yield page
+    context.close()
+
+
+def tap_without_focus(page, index: int = 0) -> None:
+    """Click a hint the way an iPhone does: an event, and no focus.
+
+    Safari does not focus a <button> when you tap it, and every browser on
+    iOS is Safari underneath -- so on a phone `:focus-within`, which used to
+    be the whole of the tap story, never fired once and no hint opened at
+    all. `el.click()` moves focus in no engine, which makes this the same
+    condition on a desktop Chromium that can be run here.
+    """
+    page.evaluate(
+        "(i) => document.querySelectorAll('.tip > .q')[i].click()", index
+    )
+    page.wait_for_timeout(120)
+
+
+def shown(page, index: int = 0) -> bool:
+    return page.evaluate(
+        "(i) => getComputedStyle(document.querySelectorAll('.tip-body')[i]).display",
+        index,
+    ) == "block"
+
+
+def test_a_hint_opens_on_a_tap_that_does_not_focus_its_button(hints_page):
+    tap_without_focus(hints_page)
+    assert hints_page.evaluate("() => document.activeElement.tagName") == "BODY", (
+        "the test did not reproduce the iPhone: the button took focus"
+    )
+    assert shown(hints_page), "the hint did not open"
+    assert hints_page.evaluate(
+        "() => document.querySelectorAll('.tip > .q')[0].getAttribute('aria-expanded')"
+    ) == "true"
+
+
+def test_tapping_the_same_hint_again_closes_it(hints_page):
+    tap_without_focus(hints_page)
+    assert shown(hints_page)
+    tap_without_focus(hints_page)
+    assert not shown(hints_page), "a second tap left it open"
+
+
+def test_opening_one_hint_closes_the_one_before_it(hints_page):
+    tap_without_focus(hints_page, 0)
+    tap_without_focus(hints_page, 1)
+    assert not shown(hints_page, 0), "two hints were open at once"
+    assert shown(hints_page, 1)
+
+
+def test_a_tap_outside_closes_a_hint_and_one_inside_does_not(hints_page):
+    tap_without_focus(hints_page)
+    hints_page.evaluate(
+        "() => document.querySelector('.tip-body').click()"   # reading it
+    )
+    hints_page.wait_for_timeout(120)
+    assert shown(hints_page), "reading the bubble dismissed it"
+
+    hints_page.evaluate("() => document.querySelector('h1').click()")
+    hints_page.wait_for_timeout(120)
+    assert not shown(hints_page), "a tap outside left it open"
+
+
+def test_escape_closes_a_hint(hints_page):
+    tap_without_focus(hints_page)
+    hints_page.keyboard.press("Escape")
+    hints_page.wait_for_timeout(120)
+    assert not shown(hints_page)
+
+
+def test_a_hint_on_a_phone_opens_in_front_of_the_player(live, browser):
+    """Under 44rem the bubble is fixed to the bottom of the viewport, which is
+    where the player already sits. Both carried z-index 30, and the player is
+    last in reader.html -- so the bubble opened behind the transport and
+    showed about six pixels of itself."""
+    base, slug, _manifest = live
+    context = browser.new_context(viewport={"width": 390, "height": 844}, has_touch=True)
+    page = context.new_page()
+    try:
+        page.goto(f"{base}/a/{slug}", wait_until="domcontentloaded")
+        page.wait_for_selector(".tip > .q")
+        page.wait_for_function("() => { const p = document.getElementById('player');"
+                               " return p && !p.hidden; }", timeout=20000)
+        tap_without_focus(page)
+
+        seen = page.evaluate("""() => {
+          const body = document.querySelector('.tip.open > .tip-body');
+          const r = body.getBoundingClientRect();
+          const top = document.elementFromPoint(
+            r.left + r.width / 2, r.top + Math.min(20, r.height / 2));
+          return { open: getComputedStyle(body).display === 'block',
+                   overPlayer: !!(top && top.closest('.player')) };
+        }""")
+        assert seen["open"], "the hint did not open on the reader page"
+        assert not seen["overPlayer"], "the player is drawn on top of the hint"
+    finally:
+        context.close()
