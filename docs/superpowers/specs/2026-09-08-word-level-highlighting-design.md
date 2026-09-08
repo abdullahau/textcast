@@ -44,45 +44,50 @@ Two problems sit on top of "which aligner":
 
 ## Architecture
 
-### Phase order: synthesize, release, then align
+### Phase order: `align` is its own job kind, its own lane
 
-A build already runs one article per child process that exits when the
-job ends. Word alignment adds a **second phase inside that same child**,
-strictly after the first:
+**Revised after reading `jobs.py` closely — the child process a build runs
+in is not per-article.** `drain_jobs` drains the *entire currently-queued
+backlog* of one lane in one child process, keeping the engine pool warm
+across every article in it (`Worker.engines_for`: "kept for the life of
+this process"). Releasing that pool between two phases of *one* article
+would reload the model for the *next* article in the same drain — exactly
+the cost pooling exists to avoid. The original plan here (`render_article`,
+release, `align_article`, same child) was wrong about the process boundary
+it was trying to share.
+
+What the codebase already has, and word alignment fits into unchanged, is
+two lanes for two kinds of job that must never share a process — `build`
+(the CPU, minutes) and `summarise` (the network, seconds) — each drained by
+its own child, each importing only what its own kind needs. `align` is a
+third:
 
 ```
-render_article() [existing, unchanged]
-  → TTS engine/pool resident
-  → every block synthesized, cached as .i16, encoded to Opus
-  → engine pool dropped: gc.collect(); malloc_trim(0)
-                                                    ← existing pattern,
-                                                      jobs.py already does
-                                                      this for the pool
-
-align_article() [new, runs after the above, same child, same job]
-  → aligner model loaded (lazy import, first use only)
-  → per block: read the cached .i16 PCM back (no re-synthesis)
-  → run forced alignment against block.spoken()
-  → compose with the source map (below) into displayed-word timings
-  → write alongside the audio cache, compose into the manifest
-  → aligner released before the child exits anyway
+LANES = (("build",), ("summarise",), ("align",))
 ```
 
-The two models are never resident together. Peak memory during a build
-becomes `max(engine pool, aligner)` for the alignment phase, not their
-sum — the same "one process, one engine" discipline `decisions.md`
-already enforces, extended to "one model at a time," not "one model
-total."
+A `build` job, on success, enqueues an `align` job for the same article —
+only when `word_highlight` is on — carrying the *exact* `voice`,
+`quote_voice` and `speed` that build resolved, not whatever the current
+defaults happen to be by the time `align` runs. `claim_job`'s existing
+"never a job for an article with one already running" guard means `align`
+cannot be claimed until `build`'s own row leaves `running`, with no new
+locking needed.
+
+`align`'s child process never imports the TTS engine at all — it is a
+different lane, a different `drain_jobs` call, a different process — so
+the aligner and the engine pool are **never resident together**, and
+`Worker` gets one more lazily-built, process-lifetime cache
+(`self._aligner`) alongside `self._engines`, following the exact pattern
+already there rather than inventing a second one.
 
 Both the TTS engine and the aligner are imported lazily, inside the
-function that first uses them — never at module top level in
-`audio.py` or `jobs.py`. This is the existing rule
-(`docs/traps.md`: *"The parent must stay clean… `audio.py` is safe — it
-imports numpy and the engine import lives inside `KokoroEngine.__init__`"*)
-applied to one more dependency. The parent worker (38 MB, polls the job
-table) and the web app (never loads a model inside a request) are
-unaffected either way — this is entirely inside the one child process
-that already owns the whole cost of a build.
+function that first uses them — never at module top level in `audio.py`
+or `jobs.py`. This is the existing rule (`docs/traps.md`: *"The parent
+must stay clean… `audio.py` is safe — it imports numpy and the engine
+import lives inside `KokoroEngine.__init__`"*) applied to one more
+dependency. The parent worker (38 MB, polls the job table) and the web app
+(never loads a model inside a request) are unaffected either way.
 
 ### Why alignment reads the cache instead of re-synthesizing
 
@@ -252,6 +257,21 @@ enough to recompute from `(block.text, g2p, phonemes, rules)` inside the
 alignment phase, an in-memory `lru_cache` for the duration of one build
 is enough, and giving it a disk cache would be a second cache to keep
 in step with pronunciation-rule edits for no measured benefit.
+
+**Where the composed result actually lives — found by reading `web/app.py`
+rather than assumed.** The reader's JSON payload
+(`build_payload`) is built from the **database**, not from
+`media/<slug>/manifest.json` on disk — that file is `render_article`'s own
+durable record (`SectionAudio`/`BlockTiming`, `speech_start_ms` included)
+but nothing currently reads it back. So: a new `block.words` column
+(`TEXT`, JSON, `NULL` when absent — the same shape as the existing
+`block.media`/`block.rich` columns), written by the `align` job once
+per block after alignment succeeds, read by `build_payload` alongside
+the `start_ms`/`dur_ms` it already selects. `manifest.json` on disk gets
+the composed words too, written back after `align` runs — it is the one
+place `speech_start_ms` survives between the `build` job that computed it
+and the `align` job that needs it, since the database never stored that
+field.
 
 ---
 
