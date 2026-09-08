@@ -40,6 +40,7 @@ def run(conn: sqlite3.Connection) -> None:
     _add_block_rich(conn)
     _add_block_words(conn)
     _add_block_speech_start_ms(conn)
+    _add_job_attempts(conn)
     _add_built_at(conn)
     _retire_embed_blocks(conn)
     _add_phoneme_columns(conn)
@@ -291,6 +292,19 @@ def _add_block_words(conn: sqlite3.Connection) -> None:
         return
     conn.execute("ALTER TABLE block ADD COLUMN words TEXT")
     log.info("added block.words")
+
+
+def _add_job_attempts(conn: sqlite3.Connection) -> None:
+    """How many child processes have died holding this job.
+
+    Nothing backfills: a job already in the table has a count of zero, which
+    gives it the whole budget. That is the right answer for a queue that has
+    survived to this migration and the wrong one for nothing.
+    """
+    if not has_table(conn, "job") or has_column(conn, "job", "attempts"):
+        return
+    conn.execute("ALTER TABLE job ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0")
+    log.info("added job.attempts")
 
 
 def _add_block_speech_start_ms(conn: sqlite3.Connection) -> None:

@@ -54,6 +54,12 @@ log = logging.getLogger("textcast.jobs")
 #: is gained by making any of the three wait for another.
 LANES = (("build",), ("summarise",), ("align",))
 
+#: How many child processes may die holding one job before it is failed
+#: rather than requeued. Three, so a one-off -- a deploy restarting the
+#: worker mid-build, the OOM killer picking this process on a busy box --
+#: still gets its retry, and a job that reliably kills its child stops.
+MAX_ATTEMPTS = 3
+
 
 def drain_jobs(settings: Settings, kinds: tuple[str, ...]) -> None:
     """Run every queued job of these kinds, then exit. The child's entry point.
@@ -190,7 +196,9 @@ class Worker:
         except Exception as exc:
             log.warning("mail poll failed: %s", exc)
 
-    def _requeue_orphans(self, kinds: tuple[str, ...] | None = None) -> None:
+    def _requeue_orphans(
+        self, kinds: tuple[str, ...] | None = None, *, count: bool = True
+    ) -> None:
         """A job left 'running' means the process died mid-job. Retry it.
 
         ``kinds`` scopes it to one lane. The two lanes run side by side, so a
@@ -198,22 +206,65 @@ class Worker:
         `queued` and start it again from the top -- and stamp its article
         `queued`, which claims audio is coming for an article nobody has asked
         to build. Only `start` sweeps both, and there nothing is running.
+
+        Retried `MAX_ATTEMPTS` times and then given up on. A job that kills
+        its own child every time -- the OOM killer on a block too big to
+        align, a C extension crashing on one input -- was requeued for ever:
+        `_run_in_child` put it back and returned "there was work", so the
+        lane did not sleep, spawned another child, loaded the model again and
+        died again, for as long as the worker ran. The only trace was one
+        line per cycle in the log. Failing it says so on the jobs page and in
+        the article's own status, and asking again through `enqueue` starts a
+        new row with the budget back.
         """
         conn = db.connect(self.settings.db_path)
         where, params = "state = 'running'", []
         if kinds:
             where += f" AND kind IN ({','.join('?' * len(kinds))})"
             params = list(kinds)
-        rows = conn.execute(f"SELECT id, article_id, kind FROM job WHERE {where}", params).fetchall()
+        rows = conn.execute(
+            f"SELECT id, article_id, kind, attempts FROM job WHERE {where}", params
+        ).fetchall()
+        requeued = failed = 0
         for row in rows:
-            conn.execute("UPDATE job SET state = 'queued', progress = 0 WHERE id = ?", (row["id"],))
+            attempts = (row["attempts"] or 0) + (1 if count else 0)
+            if attempts >= MAX_ATTEMPTS:
+                failed += 1
+                conn.execute(
+                    """
+                    UPDATE job
+                       SET state = 'failed', attempts = ?, progress = 0, finished_at = ?,
+                           error = ?
+                     WHERE id = ?
+                    """,
+                    (
+                        attempts,
+                        db.now(),
+                        f"the {row['kind']} process died {attempts} times without finishing; "
+                        "it was probably killed for running out of memory. "
+                        "Check the worker log, then ask for it again.",
+                        row["id"],
+                    ),
+                )
+                if row["kind"] == "build":
+                    conn.execute(
+                        "UPDATE article SET status = 'failed' WHERE id = ?", (row["article_id"],)
+                    )
+                continue
+            requeued += 1
+            conn.execute(
+                "UPDATE job SET state = 'queued', progress = 0, attempts = ? WHERE id = ?",
+                (attempts, row["id"]),
+            )
             # `status` describes the audio, so only a build may move it.
             if row["kind"] == "build":
                 conn.execute(
                     "UPDATE article SET status = 'queued' WHERE id = ?", (row["article_id"],)
                 )
-        if rows:
-            log.info("requeued %d interrupted job(s)", len(rows))
+        if requeued:
+            log.info("requeued %d interrupted job(s)", requeued)
+        if failed:
+            log.error("gave up on %d job(s) after %d attempts each", failed, MAX_ATTEMPTS)
 
     # -- work --------------------------------------------------------------
 
@@ -264,8 +315,10 @@ class Worker:
         """Hand this lane's queued jobs to a child process and wait for it.
 
         Returns True when there was something to do, so the lane knows not to
-        sleep. The parent imports neither torch nor openai, which is the whole
-        point: it polls a table and stays under 40 MB.
+        sleep -- and False on a child that died, which is the one case where
+        there *was* work and sleeping is still right. The parent imports
+        neither torch nor openai, which is the whole point: it polls a table
+        and stays under 40 MB.
         """
         conn = db.connect(self.settings.db_path)
         holes = ", ".join("?" for _ in kinds)
@@ -286,8 +339,17 @@ class Worker:
             # outright, by the OOM killer or a shutdown, with a job still
             # marked running and nobody left to finish it.
             log.error("the %s process exited with %s", lane, child.exitcode)
-            self._requeue_orphans(kinds)
-        elif lane == "build":
+            # `stop()` killed it, so the job did not fail -- this process is
+            # quitting. Put it back without spending an attempt, or a dev box
+            # under `--reload` would fail a build for being restarted.
+            self._requeue_orphans(kinds, count=not self._stop.is_set())
+            # False, though there *was* work: the lane sleeps `poll_seconds`
+            # before it tries again. Returning True sent it straight back
+            # round to spawn another child and reload a model, as fast as the
+            # box could do it. `MAX_ATTEMPTS` bounds how many times that can
+            # happen; this bounds how quickly.
+            return False
+        if lane == "build":
             self._sweep_cache()
         return True
 

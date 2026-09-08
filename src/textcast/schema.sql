@@ -119,6 +119,11 @@ CREATE TABLE IF NOT EXISTS job (
     message     TEXT    NOT NULL DEFAULT '',
     error       TEXT,
     options     TEXT    NOT NULL DEFAULT '{}',
+    -- How many times a child process has died holding this job. A job that
+    -- kills its own child -- the OOM killer, a C extension crashing -- used
+    -- to be requeued for ever, respawning a child and reloading a model
+    -- every few seconds with nothing to stop it. See jobs.MAX_ATTEMPTS.
+    attempts    INTEGER NOT NULL DEFAULT 0,
     created_at  TEXT    NOT NULL,
     started_at  TEXT,
     finished_at TEXT

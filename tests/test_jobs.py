@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 
 from textcast import db
-from textcast.jobs import Worker
+from textcast.jobs import MAX_ATTEMPTS, Worker
 from textcast.service import ingest
 from textcast.tts.base import Clip, Voice
 
@@ -299,10 +299,14 @@ def test_a_build_process_that_was_killed_leaves_no_job_running(conn, settings):
     worker = Worker(settings)
     watched(worker, FakeChild(exitcode=-9))
 
-    worker._run_in_child(("build",))
+    ran = worker._run_in_child(("build",))
 
     running = conn.execute("SELECT COUNT(*) c FROM job WHERE state = 'running'").fetchone()
     assert running["c"] == 0, "the killed job went back to the queue"
+    assert ran is False, (
+        "a dead child must make the lane sleep; returning True sent it straight "
+        "back round to spawn another one as fast as the box could do it"
+    )
 
 
 def test_stopping_takes_the_build_process_with_it(conn, settings):
@@ -616,3 +620,56 @@ def test_the_reader_payload_carries_delta_encoded_words(conn, settings):
     assert isinstance(first_word_text, str) and first_word_text
     assert first_word_delta >= 0  # delta from the block's own start_ms, never negative
     assert first_word_dur > 0
+
+
+def test_a_job_whose_child_keeps_dying_is_failed_rather_than_requeued(conn, settings):
+    """A child killed outright leaves its job 'running' with nobody to finish
+    it, so `_requeue_orphans` puts it back. A job that kills its child every
+    time -- the OOM killer on a block too big to align -- was put back for
+    ever: the lane did not sleep, spawned another child, reloaded the model
+    and died again, for as long as the worker ran."""
+
+    stored = ingest(text=LONG_NOTE, title="Keeps dying", build=False)
+    article_id = stored.article_id
+    job_id = db.enqueue(article_id, kind="build", conn=conn)
+    worker = Worker(settings)
+
+    for attempt in range(1, MAX_ATTEMPTS):
+        conn.execute("UPDATE job SET state = 'running' WHERE id = ?", (job_id,))
+        worker._requeue_orphans(("build",))
+        row = db.get_job(job_id, conn)
+        assert row["state"] == "queued", f"gave up on attempt {attempt}"
+        assert row["attempts"] == attempt
+
+    conn.execute("UPDATE job SET state = 'running' WHERE id = ?", (job_id,))
+    worker._requeue_orphans(("build",))
+
+    row = db.get_job(job_id, conn)
+    assert row["state"] == "failed"
+    assert row["attempts"] == MAX_ATTEMPTS
+    assert "died" in row["error"]
+    status = conn.execute("SELECT status FROM article WHERE id = ?", (article_id,)).fetchone()
+    assert status["status"] == "failed"
+
+    # Asking again is a new row, and a new budget.
+    again = db.enqueue(article_id, kind="build", conn=conn)
+    assert db.get_job(again, conn)["attempts"] == 0
+
+
+def test_stopping_the_worker_does_not_spend_a_job_s_attempts(conn, settings):
+    """`stop()` terminates the children, so their jobs come back 'running'
+    with a non-zero exit code -- but that is this process quitting, not the
+    job failing. A dev box under --reload would otherwise fail a build for
+    being restarted three times."""
+
+    stored = ingest(text=LONG_NOTE, title="Restarted", build=False)
+    job_id = db.enqueue(stored.article_id, kind="build", conn=conn)
+    worker = Worker(settings)
+
+    for _ in range(5):
+        conn.execute("UPDATE job SET state = 'running' WHERE id = ?", (job_id,))
+        worker._requeue_orphans(("build",), count=False)
+
+    row = db.get_job(job_id, conn)
+    assert row["state"] == "queued"
+    assert row["attempts"] == 0
