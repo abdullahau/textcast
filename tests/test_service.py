@@ -608,20 +608,31 @@ def test_a_reparse_that_changes_the_text_drops_the_audio_it_invalidated(conn, se
 
 
 class FakeResponse:
-    """Enough of `requests.Response` for `fetch` to decode."""
+    """Enough of `requests.Response` for `fetch` to read and decode.
 
-    def __init__(self, body: bytes, content_type: str):
+    A context manager and an iterator now: `fetch` streams and stops at a
+    cap rather than buying the whole body to measure it afterwards.
+    """
+
+    def __init__(self, body: bytes, content_type: str, chunk: int = 64 * 1024):
         self.content = body
         self.headers = {"Content-Type": content_type}
         self.encoding = "ISO-8859-1"   # what requests picks with no charset
+        self._chunk = chunk
+        self.read = 0
 
-    @property
-    def apparent_encoding(self):
-        return "utf-8"
+    def __enter__(self):
+        return self
 
-    @property
-    def text(self):
-        return self.content.decode(self.encoding, errors="replace")
+    def __exit__(self, *exc):
+        return False
+
+    def iter_content(self, size=None):
+        size = size or self._chunk
+        for i in range(0, len(self.content), size):
+            piece = self.content[i : i + size]
+            self.read += len(piece)
+            yield piece
 
     def raise_for_status(self):
         return None
@@ -682,3 +693,34 @@ def test_an_article_fetched_by_url_keeps_the_page_it_was_built_from(settings, co
     stored = settings.source_dir / f"{result.slug}.html"
     assert stored.is_file(), "the fetched page is kept, like every other input"
     assert "twelve times EBITDA" in stored.read_text(encoding="utf-8")
+
+
+def test_a_page_over_the_cap_is_refused_before_it_is_all_in_memory(monkeypatch):
+    """`fetch` ran inside the ingest request and returned `response.text`
+    with nothing in front of it, so a link to something large -- by malice or
+    by a mislabelled Content-Type -- was the whole body in the app process.
+    Uploads and pictures have both had a cap since they existed."""
+    from textcast import netguard, service
+
+    huge = FakeResponse(b"x" * (service.MAX_PAGE_BYTES + 4 * 1024 * 1024), "text/html")
+    monkeypatch.setattr(netguard, "get", lambda *a, **k: huge)
+
+    with pytest.raises(service.IngestError, match="page limit"):
+        service.fetch("https://example.com/big")
+
+    assert huge.read <= service.MAX_PAGE_BYTES + 64 * 1024, (
+        "it kept reading past the cap instead of stopping there"
+    )
+
+
+def test_something_that_is_not_a_page_is_refused_without_reading_it(monkeypatch):
+    """A parser needs markup or text. Reading a video to find out that it is
+    one is exactly the cost this refuses."""
+    from textcast import netguard, service
+
+    response = FakeResponse(b"\x00\x00\x00 ftypmp42", "video/mp4")
+    monkeypatch.setattr(netguard, "get", lambda *a, **k: response)
+
+    with pytest.raises(service.IngestError, match="not a page"):
+        service.fetch("https://example.com/clip.mp4")
+    assert response.read == 0, "it read the body of something it had already refused"

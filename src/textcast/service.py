@@ -24,6 +24,24 @@ log = logging.getLogger("textcast.service")
 
 USER_AGENT = "Mozilla/5.0 (compatible; textcast/0.2; +https://github.com/abdullahau/textcast)"
 
+#: The most `fetch` will read from one address. A newsletter is tens of
+#: kilobytes and the fattest article page a few hundred, so 10 MB refuses
+#: only what was never a page. Uploads have `web.app.UPLOAD_MAX` and pictures
+#: have `pictures.MAX_BYTES`; this was the outbound read still without one.
+MAX_PAGE_BYTES = 10 * 1024 * 1024
+
+#: How much of a body the charset detector is shown. A page's charset is
+#: settled by its first few kilobytes, and the detector reads every byte it
+#: is handed.
+DETECT_BYTES = 64 * 1024
+
+#: Content types that are a page without saying `text/`. Anything outside
+#: this and `text/*` is a file somebody linked, not an article.
+FETCH_TYPES = frozenset({
+    "application/xhtml+xml", "application/xml", "application/rss+xml",
+    "application/atom+xml", "application/json",
+})
+
 #: Below this, an extraction from a *web page* is almost certainly a login
 #: wall rather than an article. Text you typed or a file you chose is taken at
 #: face value, however short — a two-line note is a legitimate thing to add.
@@ -68,20 +86,65 @@ class Ingested:
 
 
 def fetch(url: str, timeout: float = 30.0) -> str:
+    """Fetch one page, refusing anything that is not one.
+
+    Capped and read a chunk at a time, the same shape `pictures._download`
+    already has and for the same reason: this runs inside the ingest request,
+    the address came from a newsletter or a bookmarklet, and `response.text`
+    with nothing in front of it put the whole body in the app process
+    whatever it was. Uploads have had a cap since they existed; this was the
+    one outbound read still without one.
+    """
     try:
-        response = netguard.get(url, timeout=timeout, headers={"User-Agent": USER_AGENT})
-        response.raise_for_status()
+        with netguard.get(
+            url, timeout=timeout, headers={"User-Agent": USER_AGENT}, stream=True
+        ) as response:
+            response.raise_for_status()
+            content_type = response.headers.get("Content-Type", "")
+            kind = content_type.split(";")[0].strip().lower()
+            # A parser needs markup or text. Anything else is a file that was
+            # linked, not a page that was written, and reading it to find out
+            # is the cost this is here to refuse.
+            if kind and not (kind.startswith("text/") or kind in FETCH_TYPES):
+                raise IngestError(f"could not fetch {url}: it is {kind}, not a page")
+
+            chunks, size = [], 0
+            for chunk in response.iter_content(64 * 1024):
+                size += len(chunk)
+                if size > MAX_PAGE_BYTES:
+                    raise IngestError(
+                        f"could not fetch {url}: it is over the "
+                        f"{MAX_PAGE_BYTES // (1024 * 1024)} MB page limit"
+                    )
+                chunks.append(chunk)
+            body = b"".join(chunks)
+            encoding = response.encoding
+            # `requests` falls back to ISO-8859-1 for any `text/html` that
+            # names no charset -- the old HTTP/1.1 default -- and the page is
+            # almost always UTF-8. Semafor sends exactly that header, so every
+            # curly quote arrived as the three characters its UTF-8 bytes
+            # spell in Latin-1: an opening quote came through as
+            # "a-circumflex, euro, oe". The body is asked instead, and only
+            # where the server declined to say.
+            if "charset=" not in content_type.lower():
+                encoding = _detect_encoding(body)
     except (requests.RequestException, netguard.UnsafeURL) as exc:
         raise IngestError(f"could not fetch {url}: {exc}") from exc
-    # `requests` falls back to ISO-8859-1 for any `text/html` that names no
-    # charset -- the old HTTP/1.1 default -- and the page is almost always
-    # UTF-8. Semafor sends exactly that header, so every curly quote arrived
-    # as the three characters its UTF-8 bytes spell in Latin-1: an opening
-    # quote came through as "a-circumflex, euro, oe". The body is asked
-    # instead, and only where the server declined to say.
-    if "charset=" not in response.headers.get("Content-Type", "").lower():
-        response.encoding = response.apparent_encoding or "utf-8"
-    return response.text
+    return body.decode(encoding or "utf-8", errors="replace")
+
+
+def _detect_encoding(body: bytes) -> str:
+    """What `Response.apparent_encoding` answers, over the head of the body.
+
+    The head, not all of it: the detector reads every byte it is given, and a
+    page's charset is settled by its first few kilobytes. `apparent_encoding`
+    handed it megabytes to reach the same answer.
+    """
+    from requests.compat import chardet  # whichever detector requests found
+
+    if chardet is None:
+        return "utf-8"
+    return chardet.detect(body[:DETECT_BYTES])["encoding"] or "utf-8"
 
 
 def article_from_source(
