@@ -57,6 +57,7 @@ from ..tts import (
     shared_engine,
 )
 from . import limits
+from .wordwrap import word_wrap
 
 log = logging.getLogger("textcast.web")
 
@@ -692,6 +693,9 @@ templates.env.filters["when"] = when
 templates.env.globals["assets"] = __version__
 # The sign-out control only makes sense when there is something to sign out of.
 templates.env.globals["auth_on"] = settings.require_auth
+# Wraps a block's own words in <span data-w="N">, or falls back to today's
+# plain rendering -- see web/wordwrap.py.
+templates.env.globals["word_wrap"] = word_wrap
 
 
 def render(request: Request, name: str, **context) -> HTMLResponse:
@@ -939,12 +943,24 @@ def reader(
     # below it. Once there is a summary, only the build is still pending.
     build_on_top = row["status"] in ("new", "failed")
 
+    payload = build_payload(row["id"])
+    # word_wrap needs only the text of each merged word, in order -- the
+    # same payload the player gets, not a second query. A block missing
+    # here (never aligned, or word_highlight off) gets today's plain
+    # rendering; word_wrap's own fallback is what makes that "just works".
+    words_by_block = {
+        b[0]: [w[0] for w in b[3]]
+        for section in payload["sections"]
+        for b in section["blocks"]
+    }
+
     return render(
         request,
         "reader.html",
         article=article,
         row=row,
-        payload=build_payload(row["id"]),
+        payload=payload,
+        words_by_block=words_by_block,
         position=position,
         job=job,
         tags=db.tags_for(row["id"], conn),

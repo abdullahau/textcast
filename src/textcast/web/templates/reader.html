@@ -396,7 +396,7 @@
              a list item rather than an indented paragraph, so it alone gets
              the bullet — drawn in CSS, never spoken. #}
           {%- set bullet = block.kind == 'list_item' and not block.text[0].isdigit() -%}
-          <p class="b {{ block.kind }}{{ ' bullet' if bullet else '' }}" id="{{ block.id }}" data-b="{{ block.id }}" data-s="{{ section.idx }}">{{ seek }}{% if block.rich %}{{ block.rich|safe }}{% else %}{{ block.text }}{% endif %}</p>
+          <p class="b {{ block.kind }}{{ ' bullet' if bullet else '' }}" id="{{ block.id }}" data-b="{{ block.id }}" data-s="{{ section.idx }}">{{ seek }}{{ word_wrap(block.text, block.rich, words_by_block.get(block.id, []))|safe }}</p>
         {% endif %}
       {% endfor %}
     {% endfor %}
