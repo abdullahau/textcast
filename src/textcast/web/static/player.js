@@ -411,6 +411,7 @@
       label.textContent = s.title || "Section " + (i + 1);
 
       var time = document.createElement("span");
+      time.className = "chapter-time";
       time.textContent = fmt(s.ms);
 
       btn.append(label, time);

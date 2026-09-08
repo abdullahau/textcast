@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-__version__ = "0.7.6"
+__version__ = "0.7.8"
 
 from .document import Article, Block, BlockKind, Section
 

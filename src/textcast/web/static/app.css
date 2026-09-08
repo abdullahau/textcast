@@ -414,8 +414,8 @@ button, .btn {
   transition: background-color .12s ease, border-color .12s ease, opacity .12s ease;
 }
 /* A button's own icon, the same size and stroke wherever one is used, so a
-   card of "Save key" / "Save" / "Summarise it" reads as one family rather
-   than each button drawing its glyph its own way. `button.icon`'s square
+   card of "Add key" / "Apply model" / "Summarise it" reads as one family
+   rather than each button drawing its glyph its own way. `button.icon`'s square
    row-action buttons and the nav's own sizing both override this already,
    on a more specific selector, so neither one moved. */
 button svg, .btn svg {
@@ -868,6 +868,21 @@ input[type=password], select, textarea {
 }
 input:focus, select:focus, textarea:focus { border-color: var(--border-hi); }
 input::placeholder, textarea::placeholder { color: var(--muted); }
+/* A native select's own arrow is a GTK widget on Linux Chrome, not a Blink
+   one, so it follows whatever combobox theme is installed rather than this
+   stylesheet -- on a narrow theme it drew crammed into the field's left
+   edge instead of sitting at the right. Drawing it ourselves, the same two
+   triangles `.filters select` already uses, means every browser shows the
+   same chevron regardless of the OS theme underneath it. */
+select {
+  padding-right: 1.9rem;
+  appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%),
+                    linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position: right .95rem center, right .7rem center;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
 textarea { min-height: 9rem; resize: vertical; line-height: 1.55; }
 textarea.code { font-family: var(--mono); font-size: .78rem; min-height: 7rem; }
 /* A file input is a button and a label the browser draws itself, so it lines
@@ -1350,6 +1365,9 @@ media-play-button {
 }
 
 media-time-range { flex: 1 1 auto; min-width: 4rem; margin: 0 .4rem; }
+@media (max-width: 44rem) {
+  media-time-range { min-width: 2.6rem; margin: 0 .3rem; }
+}
 media-time-display, media-duration-display { font-variant-numeric: tabular-nums; }
 media-playback-rate-button { font-variant-numeric: tabular-nums; font-weight: 500; }
 
@@ -1376,20 +1394,48 @@ media-seek-backward-button, media-seek-forward-button {
   margin: 0 .1rem;
 }
 
-/* A thumb is less precise than a pointer, and this is the one place that
-   told against it: the whole cluster grows a little further, short of
-   media-play-button's 2.4rem so the bar's own height, set by its tallest
-   control, does not move. */
+/* A thumb is less precise than a pointer, which is why these used to grow
+   past the desktop size here rather than shrink toward it. But a phone
+   narrow enough to hide #prev/#next below (see the 28.5rem query further
+   down) had nothing left to give the menu button, which ran 14px past the
+   edge of the screen and rendered half off it. Rewind is the one control
+   reached for mid-listen -- on a missed word, on a mispronunciation -- so
+   it gives up less than everything else on this bar does: still above the
+   desktop size, just no longer the tallest thing here besides play. */
 @media (max-width: 44rem) {
   #prev, #next,
   media-seek-backward-button, media-seek-forward-button {
-    width: 2.3rem;
-    height: 2.3rem;
+    width: 2.2rem;
+    height: 2.2rem;
   }
-  #prev svg, #next svg { width: 20px; height: 20px; }
+  #prev svg, #next svg { width: 19px; height: 19px; }
   media-seek-backward-button, media-seek-forward-button {
-    --media-control-height: 1.6rem;
+    --media-control-height: 1.5rem;
   }
+  /* Tap to lock, hold to unlock -- reached far less often than rewind or
+     scroll-follow, so it is what actually gives the menu button room. */
+  #lock { width: 1.85rem; height: 1.85rem; }
+  #lock svg { width: 15px; height: 15px; }
+  media-controller.player-inner media-control-bar { gap: .05rem; }
+  /* A hair of daylight before the menu button, so it reads as its own
+     control -- sections and settings, not another transport button --
+     rather than a third icon crammed against the lock beside it. */
+  #menu { margin-left: .25rem; }
+}
+
+/* #prev/#next are already gone below this (28.5rem), so what is left to
+   give is the scrub bar's own floor, the play button's side margins, the
+   rate button's padding, and one more notch off rewind and the padlock --
+   in that order, before anything the phone-in-hand hierarchy protects. */
+@media (max-width: 23.5rem) {
+  media-time-range { min-width: .9rem; margin: 0 .15rem; }
+  media-playback-rate-button { --media-control-padding: .3rem .2rem; }
+  media-play-button { margin: 0 .1rem; }
+  media-seek-backward-button, media-seek-forward-button { width: 2.05rem; height: 2.05rem; }
+  media-seek-backward-button, media-seek-forward-button { --media-control-height: 1.4rem; }
+  #lock { width: 1.7rem; height: 1.7rem; }
+  #lock svg { width: 14px; height: 14px; }
+  #menu { margin-left: .15rem; }
 }
 
 .ctl {
@@ -1452,7 +1498,11 @@ body.locked .b .seek { pointer-events: none; opacity: .12; }
 .now { font-size: .76rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 11rem; padding: 0 .4rem; }
 
 @media (max-width: 42rem) { .now, media-duration-display { display: none; } }
-@media (max-width: 26rem) { #prev, #next { display: none; } }
+/* 26rem used to be where #prev/#next stopped fitting -- until the menu
+   button next to them was measured overflowing the screen at 420-440px,
+   where the two reappear a little before the bar actually has room for
+   them again. 28.5rem is where that gap closes. */
+@media (max-width: 28.5rem) { #prev, #next { display: none; } }
 
 body.has-player { padding-bottom: 5.5rem; }
 
@@ -1486,6 +1536,7 @@ body.has-player { padding-bottom: 5.5rem; }
 
 .chapter {
   display: flex;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 1rem;
   width: 100%;
@@ -1504,8 +1555,15 @@ body.has-player { padding-bottom: 5.5rem; }
   .chapter:hover { background: var(--sunk); opacity: 1; }
 }
 .chapter.on { font-weight: 600; }
-.chapter-title { flex: 1; min-width: 0; text-align: left; }
-.chapter span { color: var(--muted); font-size: .78rem; font-variant-numeric: tabular-nums; flex: none; }
+/* `.chapter span` used to style the time badge, and matched `.chapter-title`
+   too -- it is a span like any other -- which beat `.chapter-title`'s own
+   `flex: 1` on specificity alone (0,1,1 against 0,1,0) and left it
+   `flex: none`. A long section title rendered at its full one-line width
+   instead of wrapping, and forced the whole sheet to scroll sideways to
+   read it. The time badge has its own class now, so the two rules can
+   never collide again regardless of which one is written first. */
+.chapter-title { flex: 1; min-width: 0; text-align: left; white-space: normal; }
+.chapter-time { color: var(--muted); font-size: .78rem; font-variant-numeric: tabular-nums; flex: none; padding-top: .1rem; }
 
 .toggles { display: flex; flex-wrap: wrap; gap: .55rem 1.2rem; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border); }
 

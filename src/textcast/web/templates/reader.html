@@ -520,33 +520,23 @@
          nothing else — no server-side state, no other device. #}
       <label class="check"><input type="checkbox" id="opt-offline"> Download to this device</label>
     </div>
-    <p class="note keep-note">
-      Stores this page, its audio and its timing map in this browser, so the
-      whole read-along works with no signal. It lives on this device only, and
-      unticking gives the space straight back.
-    </p>
+    <p class="note keep-note">Works with no signal, on this device only. Unticking frees the space.</p>
     <p class="note keep-note" id="offline-size"></p>
     <div class="tune">
       <label for="opt-sync">Highlight timing</label>
       <div class="tune-row">
         <input type="range" id="opt-sync" min="-500" max="1500" step="25" value="0"
-               aria-describedby="sync-why">
+               aria-describedby="sync-detected">
         <output id="sync-value" for="opt-sync">0 ms</output>
       </div>
       <p class="note" id="sync-detected"></p>
-      <p class="note" id="sync-why">
-        The player’s clock is the decoder’s, not the speaker’s, and Bluetooth
-        sits between the two — a fifth of a second, often more. The browser
-        reports what the output device costs and that is taken off already;
-        the slider is only for what is left over. Kept for this browser.
-      </p>
     </div>
     <div class="sheet-foot">
       <button type="button" class="danger sm" id="stop">
         <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>
         <span>Stop and forget my place</span>
       </button>
-      <p class="note">Goes back to the start and takes this article out of “Continue listening”.</p>
+      <p class="note">Also drops it from “Continue listening”.</p>
     </div>
   </div>
 </div>
