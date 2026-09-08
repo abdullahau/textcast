@@ -97,7 +97,6 @@
     activeEl = el;
     if (!el) return;
     el.classList.add("on");
-    keepInView(true);
     stopToLook(el);
   }
 
@@ -178,6 +177,12 @@
     if (!block) return;
     highlight(block[0]);
     highlightWord(wordAt(block, ms));
+    /* After both, not inside `highlight`, which is where this used to sit.
+       The block scroll fired first and then held the page for NUDGE_MS, so
+       the word — the better target, and the only one that is right inside a
+       block taller than the band — never got to correct it. One call, once
+       the best target for this moment is known. */
+    keepInView(true);
   }
 
   /* Ask the browser what the output device costs.
@@ -272,6 +277,36 @@
     };
   }
 
+  /* What has to stay on screen: the lit word when there is one, the block
+     otherwise.
+
+     A block is not always smaller than the band. A long paragraph, or a
+     quote carrying several of them, is taller than a phone screen — and then
+     the "is it inside the band?" test below can never pass, `wanted` pins the
+     block's first line to the top of the band, and the read-along walks off
+     the bottom with nothing following it. That was the whole of the bug.
+
+     Aiming at the word is exact wherever the reading has got to, and costs
+     nothing on a block that does fit: a word inside the band means the
+     reader is already looking at it, so nothing moves. A merged word can be
+     several <span>s (see highlightWord), and one that wraps a line break has
+     a box spanning both, so the union of them is what has to be visible. */
+  function followTarget() {
+    if (activeWordEls && activeWordEls.length) {
+      var top = Infinity, bottom = -Infinity;
+      for (var i = 0; i < activeWordEls.length; i++) {
+        var r = activeWordEls[i].getBoundingClientRect();
+        if (r.top < top) top = r.top;
+        if (r.bottom > bottom) bottom = r.bottom;
+      }
+      // A zero-height rect is an element that is not laid out; it would read
+      // as "at the very top of the document" and throw the page there.
+      if (bottom > top) return { top: top, height: bottom - top };
+    }
+    var box = activeEl.getBoundingClientRect();
+    return { top: box.top, height: box.height };
+  }
+
   function keepInView(smooth, force) {
     if (!follow || !activeEl) return;
     var now = Date.now();
@@ -280,13 +315,14 @@
     var view = band();
     var height = view.bottom - view.top;
     if (height <= 0) return;
-    var box = activeEl.getBoundingClientRect();
+    var box = followTarget();
     // Readable where it is. Leaving the page alone is the point.
-    if (box.top >= view.top && box.bottom <= view.bottom) return;
+    if (box.top >= view.top && box.top + box.height <= view.bottom) return;
 
     /* A third of the way down the band, not centred: what has not been read
-       yet is what you want to see. A block taller than the band starts at
-       the top instead, because its first line is the one being read. */
+       yet is what you want to see. Something taller than the band itself —
+       a long block with no word timings to aim at — starts at the top
+       instead, because its first line is the one being read. */
     var wanted = box.height >= height ? view.top : view.top + (height - box.height) / 3;
     var delta = box.top - wanted;
     if (Math.abs(delta) < 4) return;
@@ -719,6 +755,9 @@
       if (blocks[i][0] === blockId) {
         loadSection(at, blocks[i][1], true);
         highlight(blockId);
+        // Its own call: this path has no clock reading yet, so there is no
+        // word to aim at and the block is the whole target.
+        keepInView(true);
         return;
       }
     }

@@ -1639,3 +1639,61 @@ def test_scroll_with_the_audio_reads_the_same_armed_on_a_phone(live, browser):
         assert look() == armed, "a tap left something behind"
     finally:
         context.close()
+
+
+def test_following_a_tall_block_tracks_the_word_not_the_block(live_words, browser):
+    """A paragraph taller than the band can never be "inside" it, so the
+    block-level rule pinned its first line to the top of the band and then
+    had nothing left to do. The read-along walked off the bottom of the
+    screen for the rest of the block, which on a phone is most of them, and a
+    quote carrying several paragraphs is one block too."""
+    base, slug, manifest = live_words
+    target = max(manifest.sections[0].blocks, key=lambda b: len(b.words))
+    assert len(target.words) >= 6, "fixture block needs enough words to run off a screen"
+
+    context = browser.new_context(viewport={"width": 420, "height": 640})
+    page = context.new_page()
+    try:
+        page.goto(f"{base}/a/{slug}", wait_until="domcontentloaded")
+        page.wait_for_function(
+            "() => { const a = document.getElementById('audio');"
+            " return a && a.textTracks.length && a.textTracks[0].cues"
+            " && a.textTracks[0].cues.length > 0; }",
+            timeout=20000,
+        )
+        # Make this one block several screens tall, which is what a long
+        # paragraph already is at a phone's width.
+        page.evaluate(
+            f"() => {{ const el = document.getElementById('{target.id}');"
+            " el.style.fontSize = '40px'; el.style.lineHeight = '5'; }"
+        )
+
+        last = target.words[-1]
+        page.evaluate(
+            "document.getElementById('audio').currentTime = "
+            f"{(last.start_ms + last.dur_ms / 2) / 1000}"
+        )
+        page.wait_for_function(
+            f"() => {{ const el = document.querySelector('#{target.id} .w.on');"
+            f" return el && el.dataset.w === '{len(target.words) - 1}'; }}",
+            timeout=10000,
+        )
+        # It has to settle: the scroll that brings the word back is smooth.
+        page.wait_for_timeout(1200)
+
+        visible = page.evaluate(
+            f"""() => {{
+                const el = document.querySelector('#{target.id} .w.on');
+                const header = document.querySelector('header');
+                const player = document.getElementById('player');
+                const box = el.getBoundingClientRect();
+                const top = header ? header.getBoundingClientRect().bottom : 0;
+                const bottom = (window.visualViewport || window).height
+                    - (player && !player.hidden ? player.getBoundingClientRect().height : 0);
+                return {{ ok: box.top >= top && box.bottom <= bottom,
+                          wordTop: box.top, bandTop: top, bandBottom: bottom }};
+            }}"""
+        )
+        assert visible["ok"], f"the lit word is outside the readable band: {visible}"
+    finally:
+        context.close()
