@@ -81,6 +81,9 @@ class EngineSpec:
     #: ask would load the weights.
     g2p: str = "misaki"
     accepts_phonemes: bool = True
+    #: Fixed by the model architecture, known without building the engine —
+    #: the align job needs it and must not load a model to ask.
+    sample_rate: int = 24000
 
 
 def silence(sample_rate: int, ms: int) -> np.ndarray:

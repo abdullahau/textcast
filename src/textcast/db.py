@@ -18,7 +18,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from .audio import AudioManifest
+from .audio import AudioManifest, BlockTiming, SectionAudio, WordTiming
 from .document import Article, Block, BlockKind, Section, slugify
 from .settings import get_settings
 
@@ -393,11 +393,104 @@ def save_manifest(
             )
             conn.executemany(
                 """
-                UPDATE block SET start_ms = ?, dur_ms = ?, speech_ms = ?
+                UPDATE block SET start_ms = ?, dur_ms = ?, speech_ms = ?, speech_start_ms = ?
                  WHERE article_id = ? AND block_id = ?
                 """,
                 [
-                    (b.start_ms, b.dur_ms, b.speech_ms, article_id, b.id)
+                    (b.start_ms, b.dur_ms, b.speech_ms, b.speech_start_ms, article_id, b.id)
+                    for b in section.blocks
+                ],
+            )
+
+
+def load_manifest(article_id: int, conn: sqlite3.Connection | None = None) -> AudioManifest | None:
+    """Rebuild just enough of a build's own manifest for the align job.
+
+    No file, no model: `sample_rate` comes from the engine registry (a fixed
+    class attribute, the same reason `build_payload` never loads one either)
+    and everything else is already sitting in `article`/`block`, written by
+    `save_manifest`. `title`/`file`/`duration_ms`/`bitrate` are left blank —
+    `align_article` never reads them, only `engine`, `sample_rate`, and each
+    block's own timing.
+
+    None if this article has never had a successful build: nothing for an
+    align job to read yet.
+    """
+    from .tts import spec_for
+
+    conn = conn or connect()
+    row = conn.execute("SELECT engine, voice FROM article WHERE id = ?", (article_id,)).fetchone()
+    if row is None or not row["engine"]:
+        return None
+
+    blocks = conn.execute(
+        """
+        SELECT block_id, section_idx, kind, start_ms, dur_ms, speech_ms, speech_start_ms, words
+          FROM block
+         WHERE article_id = ? AND start_ms IS NOT NULL
+         ORDER BY section_idx, idx
+        """,
+        (article_id,),
+    ).fetchall()
+    if not blocks:
+        return None
+
+    by_section: dict[int, list[BlockTiming]] = {}
+    for b in blocks:
+        words = [WordTiming(text=w[0], start_ms=w[1], dur_ms=w[2]) for w in json.loads(b["words"])] \
+            if b["words"] else []
+        by_section.setdefault(b["section_idx"], []).append(
+            BlockTiming(
+                id=b["block_id"], kind=b["kind"], start_ms=b["start_ms"], dur_ms=b["dur_ms"],
+                speech_ms=b["speech_ms"], speech_start_ms=b["speech_start_ms"] or 0, words=words,
+            )
+        )
+
+    try:
+        sample_rate = spec_for(row["engine"]).sample_rate
+    except ValueError:
+        sample_rate = 24000  # an engine since retired; every shipped one has agreed on this so far
+
+    return AudioManifest(
+        engine=row["engine"],
+        voice=row["voice"] or "",
+        sample_rate=sample_rate,
+        bitrate="",
+        total_ms=0,
+        sections=[
+            SectionAudio(idx=idx, title="", file="", duration_ms=0, blocks=timings)
+            for idx, timings in sorted(by_section.items())
+        ],
+    )
+
+
+def save_word_timings(
+    article_id: int, manifest: AudioManifest, conn: sqlite3.Connection | None = None
+) -> None:
+    """Write word-level timings onto the blocks `save_manifest` already placed.
+
+    Its own function, not folded into `save_manifest`: they run in different
+    processes at different times — a `build` job calls `save_manifest` when
+    synthesis finishes, and only later, in a separate `align` job (its own
+    lane, so it never shares a process with the TTS engine), does anything
+    have word timings to write. A block with no words for this build (a
+    figure, or one alignment failed on) is set to NULL rather than left
+    holding a stale array from a previous build.
+    """
+    conn = conn or connect()
+    with transaction(conn):
+        for section in manifest.sections:
+            conn.executemany(
+                "UPDATE block SET words = ? WHERE article_id = ? AND block_id = ?",
+                [
+                    (
+                        json.dumps(
+                            [[w.text, w.start_ms, w.dur_ms] for w in b.words],
+                            ensure_ascii=False, separators=(",", ":"),
+                        ) if b.words else None,
+                        article_id,
+                        b.id,
+                    )
                     for b in section.blocks
                 ],
             )

@@ -48,9 +48,11 @@ from .tts import ENGINES, TTSEngine, get_engine, publish_engine
 
 log = logging.getLogger("textcast.jobs")
 
-#: One thread each. Synthesis is CPU-bound and long; summarising is a handful
-#: of network calls. Nothing is gained by making either wait for the other.
-LANES = (("build",), ("summarise",))
+#: One thread each. Synthesis is CPU-bound and long, summarising is a
+#: handful of network calls, and aligning is CPU-bound but must never share
+#: a process with a build's own engine pool -- see Worker._aligner. Nothing
+#: is gained by making any of the three wait for another.
+LANES = (("build",), ("summarise",), ("align",))
 
 
 def drain_jobs(settings: Settings, kinds: tuple[str, ...]) -> None:
@@ -93,6 +95,11 @@ class Worker:
         #: The engine this process is bound to, set by the first build job it
         #: takes. A child never loads a second one beside it.
         self._engine_name: str | None = None
+        #: Built once, kept for the life of an align-lane child process --
+        #: the same reason self._engines is. Never resident alongside
+        #: self._engines: the two are different lanes, drained by different
+        #: child processes, and this one is never touched by a build child.
+        self._aligner = None
         self._stop = threading.Event()
         self._threads: list[threading.Thread] = []
         self._children: dict[str, multiprocessing.process.BaseProcess] = {}
@@ -335,6 +342,8 @@ class Worker:
         try:
             if job["kind"] == "summarise":
                 self._summarise(conn, job)
+            elif job["kind"] == "align":
+                self._align(conn, job)
             else:
                 self._build(conn, job)
             db.update_job(job["id"], conn, state="done", progress=1.0, finished_at=db.now(), message="")
@@ -405,6 +414,75 @@ class Worker:
             raise SummaryError(
                 f"{run.added} of {run.total} sections summarised, {run.failed} failed. {detail}"
             )
+
+    def _aligner_instance(self):
+        """One aligner, kept for the life of this align-lane child process.
+
+        Lazy-built on first use, same reason `engines_for` is: loading the
+        model costs real time and memory, and a process draining several
+        queued align jobs should pay that once, not per article. Never
+        called from a build-lane process -- `step` only reaches `_align` for
+        an `align`-kind job, and those two kinds never share a child.
+        """
+        if self._aligner is None:
+            from .tts.aligner import Aligner
+
+            path = self.settings.aligner_dir
+            log.info("loading the word-alignment model")
+            self._aligner = Aligner(path / "model_int8.onnx", path / "vocab.json")
+        return self._aligner
+
+    def _align(self, conn, job) -> None:
+        """Word-level timings for a build this process did not run.
+
+        Runs in its own lane, its own child process -- never the one that
+        built the audio, so the TTS engine and the aligner are never
+        resident together. Reads the manifest `save_manifest` already wrote
+        to the database (`db.load_manifest`), never a file, and never
+        resynthesizes: `align_article` reads each block's audio back from
+        the cache the build already wrote.
+        """
+        from .audio import align_article
+
+        article_id = job["article_id"]
+        article = db.load_article(article_id, conn)
+        if article is None:
+            raise ValueError(f"article {article_id} is gone")
+
+        manifest = db.load_manifest(article_id, conn)
+        if manifest is None:
+            log.warning("no manifest for article %s; skipping alignment", article_id)
+            return
+
+        job_options = json.loads(job["options"] or "{}")
+        aligner = self._aligner_instance()
+
+        last_write = [0.0]
+        throttle = threading.Lock()
+
+        def progress(done: int, total: int, block_id: str) -> None:
+            now = time.monotonic()
+            with throttle:
+                if now - last_write[0] < 1.0 and done != total:
+                    return
+                last_write[0] = now
+            db.update_job(
+                job["id"], db.connect(self.settings.db_path),
+                progress=done / total, message=f"block {done} of {total}",
+            )
+
+        align_article(
+            article, manifest, aligner,
+            voice=job_options.get("voice") or "",
+            quote_voice=job_options.get("quote_voice") or None,
+            speed=float(job_options.get("speed") or 1.0),
+            cache_dir=self.settings.cache_dir,
+            progress=progress,
+        )
+        db.save_word_timings(article_id, manifest, conn)
+        aligned = sum(1 for s in manifest.sections for b in s.blocks if b.words)
+        total = sum(len(s.blocks) for s in manifest.sections)
+        log.info("aligned %s: %d of %d block(s) got word timings", article_id, aligned, total)
 
     def _options_for(self, conn, job) -> dict:
         """Three layers, most specific first: the job, the article, the default."""
@@ -500,6 +578,20 @@ class Worker:
         audio_bytes = sum(f.stat().st_size for f in out_dir.glob("*.opus"))
         db.save_manifest(article_id, manifest, audio_bytes, conn)
         log.info("built %s: %.1f min, %.1f MB", row["slug"], manifest.total_ms / 60000, audio_bytes / 1e6)
+
+        # Word-level timing is its own job, its own lane, its own child
+        # process -- never this one, which is bound to engine_name for its
+        # whole life. The resolved voice/quote_voice/speed ride on the job's
+        # own options rather than being re-read from defaults when align
+        # runs, or a default changed in between would align against audio
+        # built with different settings than the ones actually in force now.
+        word_highlight = bool(options.get("word_highlight", chosen.word_highlight))
+        if word_highlight:
+            db.enqueue(
+                article_id, kind="align",
+                options={"voice": voice, "quote_voice": quote_voice or "", "speed": speed},
+                conn=conn,
+            )
 
 
 def row_has_audio(conn, article_id: int) -> bool:

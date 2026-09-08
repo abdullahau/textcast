@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import shutil
 
 import numpy as np
@@ -166,7 +165,6 @@ def test_render_produces_one_file_per_section_and_a_gapless_timeline(tmp_path):
         assert all(b.speech_ms < b.dur_ms for b in section.blocks)
 
     assert manifest.total_ms == sum(s.duration_ms for s in manifest.sections)
-    assert json.loads((tmp_path / "manifest.json").read_text())["engine"] == "fake"
 
 
 @pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not installed")

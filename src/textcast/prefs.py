@@ -23,6 +23,7 @@ KEY_ENGINE = "default_engine"
 KEY_VOICE = "default_voice"
 KEY_QUOTE_VOICE = "default_quote_voice"
 KEY_SPEED = "default_speed"
+KEY_WORD_HIGHLIGHT = "default_word_highlight"
 
 #: Outside this a voice stops sounding like speech.
 MIN_SPEED, MAX_SPEED = 0.5, 2.0
@@ -34,6 +35,10 @@ class Defaults:
     voice: str
     quote_voice: str
     speed: float
+    #: Off by default -- not because the measured cost is bad, but because
+    #: every number so far is from short synthetic clips, not a real built
+    #: article; see docs/superpowers/specs/2026-09-08-word-level-highlighting-design.md.
+    word_highlight: bool = False
 
     @property
     def speed_label(self) -> str:
@@ -69,6 +74,7 @@ def voice_defaults(conn=None, settings: Settings | None = None) -> Defaults:
         voice=_stored(KEY_VOICE, conn) or settings.voice,
         quote_voice=_stored(KEY_QUOTE_VOICE, conn) or settings.quote_voice,
         speed=min(MAX_SPEED, max(MIN_SPEED, speed_value)),
+        word_highlight=_stored(KEY_WORD_HIGHLIGHT, conn) == "1",
     )
 
 
@@ -79,6 +85,7 @@ def save_voice_defaults(
     voice: str | None = None,
     quote_voice: str | None = None,
     speed: str | float | None = None,
+    word_highlight: bool | None = None,
 ) -> None:
     """Store whichever fields were given. An empty string clears one."""
     from . import db
@@ -96,3 +103,5 @@ def save_voice_defaults(
         except (TypeError, ValueError):
             return
         db.set_setting(KEY_SPEED, f"{value:.1f}", conn)
+    if word_highlight is not None:
+        db.set_setting(KEY_WORD_HIGHLIGHT, "1" if word_highlight else "0", conn)

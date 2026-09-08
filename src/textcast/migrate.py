@@ -38,6 +38,8 @@ def run(conn: sqlite3.Connection) -> None:
     _seed_account(conn)
     _add_block_media(conn)
     _add_block_rich(conn)
+    _add_block_words(conn)
+    _add_block_speech_start_ms(conn)
     _add_built_at(conn)
     _retire_embed_blocks(conn)
     _add_phoneme_columns(conn)
@@ -276,6 +278,31 @@ def _add_block_rich(conn: sqlite3.Connection) -> None:
         return
     conn.execute("ALTER TABLE block ADD COLUMN rich TEXT")
     log.info("added block.rich")
+
+
+def _add_block_words(conn: sqlite3.Connection) -> None:
+    """A block can now be highlighted word by word, not just as a whole.
+
+    Nothing backfills: an article built before word_highlight existed has no
+    alignment to show. Its next real build queues an align job, the same as
+    it would for any other article once the setting is on.
+    """
+    if not has_table(conn, "block") or has_column(conn, "block", "words"):
+        return
+    conn.execute("ALTER TABLE block ADD COLUMN words TEXT")
+    log.info("added block.words")
+
+
+def _add_block_speech_start_ms(conn: sqlite3.Connection) -> None:
+    """Where a block's own speech begins, for the align job to anchor word
+    timings to. Nothing backfills: an article built before this existed has
+    no word timings to place either, so the column being NULL for it is
+    exactly as absent as `words` already is.
+    """
+    if not has_table(conn, "block") or has_column(conn, "block", "speech_start_ms"):
+        return
+    conn.execute("ALTER TABLE block ADD COLUMN speech_start_ms INTEGER")
+    log.info("added block.speech_start_ms")
 
 
 def _seed_account(conn: sqlite3.Connection) -> None:

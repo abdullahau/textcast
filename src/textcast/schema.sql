@@ -81,6 +81,14 @@ CREATE TABLE IF NOT EXISTS block (
     start_ms     INTEGER,
     dur_ms       INTEGER,
     speech_ms    INTEGER,
+    -- Where this block's own speech begins -- start_ms plus the run-up
+    -- silence in front of it. The align job anchors word timings to this,
+    -- not to start_ms; see audio.BlockTiming.speech_start_ms.
+    speech_start_ms INTEGER,
+    -- Word-level timings, filled in by the align job when word_highlight is
+    -- on. JSON, same shape as media/rich: NULL wherever alignment has not
+    -- run or failed for this block.
+    words        TEXT,
     UNIQUE (article_id, block_id)
 );
 

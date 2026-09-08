@@ -1,7 +1,8 @@
-"""The build worker: the two job kinds, and what runs on which thread."""
+"""The build worker: its job kinds, and what runs on which thread."""
 
 from __future__ import annotations
 
+import json
 import shutil
 from types import SimpleNamespace
 
@@ -499,3 +500,119 @@ def test_a_dying_build_child_leaves_the_summary_beside_it_alone(conn, settings):
     assert db.get_article(summarising.article_id, conn)["status"] != "queued", (
         "a summary does not claim the audio is coming"
     )
+
+
+# --- word_highlight: the align job -----------------------------------------
+
+
+class FakeAligner:
+    """Evenly spaces one AlignedWord per target word across the clip.
+
+    The same stand-in test_align_article.py uses: what these tests check is
+    that a build enqueues align correctly and that _align wires the result
+    into the database, not alignment quality -- test_aligner.py and the
+    corpus-wide parity check already cover that against real audio.
+    """
+
+    def align(self, waveform, sample_rate, text):
+        from textcast.tts.aligner import AlignedWord, to_target_text
+
+        target_words = [w for w in to_target_text(text).split("|") if w]
+        if not target_words:
+            return []
+        dur_ms = round(len(waveform) / sample_rate * 1000)
+        step = dur_ms / len(target_words)
+        return [
+            AlignedWord(text=w, start_ms=round(i * step), end_ms=round((i + 1) * step))
+            for i, w in enumerate(target_words)
+        ]
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not installed")
+def test_a_build_enqueues_an_align_job_when_word_highlight_is_on(conn, settings):
+    from textcast import prefs
+
+    prefs.save_voice_defaults(conn, word_highlight=True)
+    stored = ingest(text=LONG_NOTE, title="Highlighted")
+    worker = Worker(settings)
+    stub_pool(worker)
+
+    assert worker.step() is True  # the build
+
+    align_job = conn.execute(
+        "SELECT * FROM job WHERE article_id = ? AND kind = 'align'", (stored.article_id,)
+    ).fetchone()
+    assert align_job is not None
+    assert align_job["state"] == "queued"
+    options = json.loads(align_job["options"])
+    assert options["voice"]  # the build's own resolved voice, not re-derived later
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not installed")
+def test_a_build_does_not_enqueue_an_align_job_by_default(conn, settings):
+    stored = ingest(text=LONG_NOTE, title="Not highlighted")
+    worker = Worker(settings)
+    stub_pool(worker)
+
+    assert worker.step() is True  # the build
+
+    align_job = conn.execute(
+        "SELECT 1 FROM job WHERE article_id = ? AND kind = 'align'", (stored.article_id,)
+    ).fetchone()
+    assert align_job is None
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not installed")
+def test_the_align_job_fills_in_block_words_and_speech_start_ms(conn, settings):
+    from textcast import prefs
+
+    prefs.save_voice_defaults(conn, word_highlight=True)
+    stored = ingest(text=LONG_NOTE, title="End to end")
+    worker = Worker(settings)
+    stub_pool(worker)
+    worker._aligner = FakeAligner()
+
+    assert worker.step() is True  # the build, which enqueues align
+    assert worker.step() is True  # the align job itself
+
+    align_job = conn.execute(
+        "SELECT state, error FROM job WHERE article_id = ? AND kind = 'align'",
+        (stored.article_id,),
+    ).fetchone()
+    assert align_job["state"] == "done", align_job["error"]
+
+    rows = conn.execute(
+        "SELECT speech_start_ms, words FROM block WHERE article_id = ? AND start_ms IS NOT NULL",
+        (stored.article_id,),
+    ).fetchall()
+    assert rows, "no built blocks to check"
+    assert any(r["words"] for r in rows), "no block got word timings"
+    assert all(r["speech_start_ms"] is not None for r in rows)
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not installed")
+def test_the_reader_payload_carries_delta_encoded_words(conn, settings):
+    from textcast import prefs
+    from textcast.web.app import build_payload
+
+    prefs.save_voice_defaults(conn, word_highlight=True)
+    stored = ingest(text=LONG_NOTE, title="Payload check")
+    worker = Worker(settings)
+    stub_pool(worker)
+    worker._aligner = FakeAligner()
+    worker.step()  # build
+    worker.step()  # align
+
+    payload = build_payload(stored.article_id)
+    block_entries = [b for section in payload["sections"] for b in section["blocks"]]
+    assert block_entries, "no blocks in the payload"
+    # [id, start_ms, dur_ms, words] -- every entry carries a words array, even
+    # an empty one, so the player never has to branch on the shape.
+    assert all(len(b) == 4 and isinstance(b[3], list) for b in block_entries)
+    with_words = [b for b in block_entries if b[3]]
+    assert with_words, "no block carried word timings in the payload"
+    block_id, block_start, _dur, words = with_words[0]
+    first_word_text, first_word_delta, first_word_dur = words[0]
+    assert isinstance(first_word_text, str) and first_word_text
+    assert first_word_delta >= 0  # delta from the block's own start_ms, never negative
+    assert first_word_dur > 0

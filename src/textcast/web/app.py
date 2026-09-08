@@ -782,7 +782,7 @@ def build_payload(article_id: int) -> dict:
         return file.rsplit(".", 1)[0] + ".vtt" + stamp
     blocks = conn.execute(
         """
-        SELECT block_id, section_idx, start_ms, dur_ms
+        SELECT block_id, section_idx, start_ms, dur_ms, words
           FROM block
          WHERE article_id = ? AND start_ms IS NOT NULL
          ORDER BY section_idx, idx
@@ -792,8 +792,16 @@ def build_payload(article_id: int) -> dict:
 
     by_section: dict[int, list] = {}
     for b in blocks:
+        # Delta-encoded against the block's own start_ms to keep the payload
+        # small on a long article -- word_highlight is off by default, so
+        # most blocks carry an empty array rather than nothing at all, which
+        # is what lets the player treat "aligned" and "not yet" the same way.
+        words = [
+            [text, start_ms - b["start_ms"], dur_ms]
+            for text, start_ms, dur_ms in json.loads(b["words"])
+        ] if b["words"] else []
         by_section.setdefault(b["section_idx"], []).append(
-            [b["block_id"], b["start_ms"], b["dur_ms"]]
+            [b["block_id"], b["start_ms"], b["dur_ms"], words]
         )
 
     return {

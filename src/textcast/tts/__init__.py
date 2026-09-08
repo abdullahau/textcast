@@ -36,6 +36,7 @@ ENGINES: dict[str, EngineSpec] = {
         description="Kokoro-82M — StyleTTS2, 20 American and 8 British voices",
         default_voice="af_heart",
         g2p="misaki",
+        sample_rate=24000,
     ),
     # The same weights without torch. Registered whether or not its model
     # files are present: `is_installed` tests the package, and the engine
@@ -49,6 +50,7 @@ ENGINES: dict[str, EngineSpec] = {
         description="Kokoro-82M through onnxruntime — the same voices, no PyTorch",
         default_voice="af_heart",
         g2p="espeak",
+        sample_rate=24000,
     ),
 }
 

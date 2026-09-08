@@ -259,19 +259,22 @@ is enough, and giving it a disk cache would be a second cache to keep
 in step with pronunciation-rule edits for no measured benefit.
 
 **Where the composed result actually lives — found by reading `web/app.py`
-rather than assumed.** The reader's JSON payload
-(`build_payload`) is built from the **database**, not from
-`media/<slug>/manifest.json` on disk — that file is `render_article`'s own
-durable record (`SectionAudio`/`BlockTiming`, `speech_start_ms` included)
-but nothing currently reads it back. So: a new `block.words` column
-(`TEXT`, JSON, `NULL` when absent — the same shape as the existing
-`block.media`/`block.rich` columns), written by the `align` job once
-per block after alignment succeeds, read by `build_payload` alongside
-the `start_ms`/`dur_ms` it already selects. `manifest.json` on disk gets
-the composed words too, written back after `align` runs — it is the one
-place `speech_start_ms` survives between the `build` job that computed it
-and the `align` job that needs it, since the database never stored that
-field.
+rather than assumed, and revised again once it turned out to matter more
+than expected.** The reader's JSON payload (`build_payload`) is built from
+the **database**, not from `media/<slug>/manifest.json` on disk. Checking
+what *did* read that file turned up nothing at all — not the player, not
+the service worker, only one test asserting it existed — so rather than
+teach the `align` job to read it (the original plan here), `render_article`
+stops writing it. Two new columns on `block`, the same shape as the
+existing `start_ms`/`dur_ms`/`speech_ms` trio: `speech_start_ms` (written
+by `save_manifest`, the same call that already writes its siblings) and
+`words` (`TEXT`, JSON, `NULL` when absent — the same shape as
+`block.media`/`block.rich`, written by the `align` job once alignment
+succeeds for a block). `db.load_manifest` rebuilds exactly what
+`align_article` needs — `engine`, each block's own timing — from these
+columns alone; `sample_rate` comes from the engine registry, a fixed
+constant that was never data to begin with. One source of truth, not two
+copies that could drift; see `docs/decisions.md`, "Where the data lives".
 
 ---
 

@@ -105,9 +105,6 @@ class AudioManifest:
     sections: list[SectionAudio] = field(default_factory=list)
     included_kinds: list[str] = field(default_factory=list)
 
-    def to_json(self) -> str:
-        return json.dumps(asdict(self), ensure_ascii=False, separators=(",", ":"))
-
 
 def ffmpeg_path() -> str:
     path = shutil.which("ffmpeg")
@@ -477,7 +474,6 @@ def render_article(
 
     manifest.total_ms = sum(s.duration_ms for s in manifest.sections)
     _drop_stale_sections(out_dir, manifest)
-    (out_dir / "manifest.json").write_text(manifest.to_json(), encoding="utf-8")
     return manifest
 
 

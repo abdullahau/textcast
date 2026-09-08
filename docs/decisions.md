@@ -28,9 +28,15 @@ it. Only *text* is stored: `block.text` is what is shown, and `Block.spoken()`
 derives what is said at build time, so a pronunciation rule takes effect on the
 next build without rewriting anything.
 
-**`media/<slug>/`** is what the player fetches: `section-000.opus`,
-`section-000.vtt` (cue ids = block ids) and `manifest.json`. Safe to delete;
-the next build writes it again.
+**`media/<slug>/`** is what the player fetches: `section-000.opus` and
+`section-000.vtt` (cue ids = block ids). Safe to delete; the next build
+writes it again. `render_article` used to also write a `manifest.json`
+here — dropped once word-level highlighting's `align` job needed to read
+a build's own timings back and it turned out nothing, ever, read the file:
+not the player, not the service worker, only one test asserting it existed.
+The database was already the real source of truth (`build_payload` reads
+`block.start_ms`/`dur_ms` straight from it); the file was a second copy of
+data that could only ever drift from the one that mattered.
 
 **`media/<slug>/images/`** is the exception. Every picture an article cites is
 fetched once at ingest and named for a hash of its address. A build does *not*
