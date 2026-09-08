@@ -66,3 +66,32 @@ def test_the_table_of_keys_cannot_grow_without_bound():
     assert len(limiter._hits) <= 9, "the sweep did not run"
     # The newest key is one of the ones kept.
     assert limiter.check("client-199", now=200.0) > 0
+
+
+def test_a_spray_of_addresses_is_evicted_in_batches_not_one_a_request():
+    """The eviction sorted the whole table on every call once it was full,
+    and skipped the current key while still counting it against the number to
+    remove -- so the table sat one over the cap for ever, re-sorting every
+    time round."""
+    limiter = RateLimiter(allowed=5, per_seconds=60, max_keys=100)
+
+    for i in range(400):
+        limiter.spend(f"10.0.0.{i}")
+
+    assert len(limiter._hits) <= limiter.max_keys, "the table grew past its cap"
+
+    # The cap holds, and the key being asked about is never the one thrown
+    # out to make room for itself.
+    limiter.spend("here")
+    for _ in range(50):
+        limiter.spend(f"other-{_}")
+        assert limiter.check("here") == 0.0 or "here" in limiter._hits
+
+
+def test_the_key_being_asked_about_is_never_evicted_to_make_room_for_itself():
+    limiter = RateLimiter(allowed=1, per_seconds=60, max_keys=4)
+    for i in range(20):
+        key = f"caller-{i}"
+        limiter.spend(key)
+        assert key in limiter._hits, f"{key} evicted itself"
+        assert len(limiter._hits) <= limiter.max_keys

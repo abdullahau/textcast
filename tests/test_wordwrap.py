@@ -88,3 +88,28 @@ def test_wrap_rich_decodes_entities_to_track_plain_text_offsets():
 def test_word_wrap_uses_rich_when_present_and_there_are_words():
     out = word_wrap("It was huge news.", "It was <b>huge</b> news.", ["huge"])
     assert out == 'It was <b><span class="w" data-w="0">huge</span></b> news.'
+
+
+def test_a_word_is_found_across_a_different_run_of_whitespace():
+    """A stored word is a slice of `block.text` and is looked for in the text
+    of `block.rich`. The two carry the same words laid out by a different
+    pass, and whitespace is where they disagree -- measured over one library,
+    16 of the 234 blocks that have `rich` at all."""
+    assert find_word_ranges("Commitments \n\nWe have", ["Commitments\n\n", "We"]) == [
+        (0, 11), (14, 16)
+    ]
+    assert find_word_ranges("Further reading: \n— Just", ["reading: —", "Just"]) == [
+        (8, 19), (20, 24)
+    ]
+
+
+def test_trailing_whitespace_is_not_part_of_the_highlight():
+    """A word whose slice ran to the end of a paragraph would otherwise light
+    the blank line after it."""
+    (start, end), = find_word_ranges("Commitments\n\nWe have", ["Commitments\n\n"])
+    assert (start, end) == (0, 11)
+
+
+def test_a_word_that_is_really_missing_still_gives_up():
+    """Loose whitespace must not become loose everything."""
+    assert find_word_ranges("Markets steadied", ["Markets", "collapsed"]) is None

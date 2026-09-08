@@ -98,13 +98,27 @@ class RateLimiter:
             hits.popleft()
 
         if len(self._hits) > self.max_keys:
-            for stale, _ in sorted(
-                ((k, v[-1] if v else 0.0) for k, v in self._hits.items()),
-                key=lambda pair: pair[1],
-            )[: len(self._hits) - self.max_keys]:
-                if stale != key:
-                    self._hits.pop(stale, None)
+            self._evict(key)
         return hits
+
+    def _evict(self, keep: str) -> None:
+        """Make room, oldest last hit first. Called under the lock.
+
+        Two things this got wrong while it was inline. It sorted the whole
+        table on *every* call once the table was full, and it skipped ``keep``
+        while still counting it against the number to remove -- so the table
+        stayed one over the cap for ever, sorting every time round. Now it
+        clears a tenth of the cap at once and never counts the key it is
+        keeping, so the sort is paid once per few thousand new addresses
+        rather than once per request.
+        """
+        spare = len(self._hits) - self.max_keys + max(1, self.max_keys // 10)
+        oldest = sorted(
+            ((k, v[-1] if v else 0.0) for k, v in self._hits.items() if k != keep),
+            key=lambda pair: pair[1],
+        )
+        for stale, _last in oldest[:spare]:
+            self._hits.pop(stale, None)
 
 
 #: Wrong or missing credentials on the ingest route. Small, because a person
