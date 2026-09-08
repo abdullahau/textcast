@@ -500,6 +500,61 @@ def _drop_stale_sections(out_dir: Path, manifest: AudioManifest) -> None:
 #: with the one computation it already does.
 WORDS_CACHE_SUFFIX = ".words.json"
 
+#: What the file holds. Version 1 was a bare list of *absolute* `WordTiming`s
+#: -- shifted by the block's `speech_start_ms` before it was written -- which
+#: made the contents a function of where the block happened to sit in its
+#: section as well as of the key's four inputs. Editing any earlier block
+#: moved every later one and the cache went on answering with the previous
+#: build's offsets: measured at six seconds adrift after a one-paragraph
+#: edit. Version 2 stores clip-relative times, which really are a function of
+#: the key alone, and `align_one` shifts them on the way out.
+WORDS_CACHE_VERSION = 2
+
+
+def _read_cached_words(path: Path) -> list[WordTiming] | None:
+    """A block's cached clip-relative timings, or None to align it again.
+
+    None for every doubt there is: no file, unreadable, not JSON, not this
+    version. A version 1 file (a bare list) reads as None and is overwritten
+    by the fresh alignment that follows, so nothing has to sweep them.
+    """
+    try:
+        payload = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict) or payload.get("v") != WORDS_CACHE_VERSION:
+        return None
+    try:
+        return [WordTiming(**entry) for entry in payload["words"]]
+    except (KeyError, TypeError):
+        return None
+
+
+def _write_cached_words(path: Path, words: list[WordTiming], block_id: str) -> None:
+    """Cache one block's clip-relative timings.
+
+    Written under a name only this call knows and moved into place, for the
+    reason `_speak`'s own cache write does it: two builds can be aligning the
+    same shared render at once, and a reader must never see half a file.
+    """
+    payload = {"v": WORDS_CACHE_VERSION, "words": [asdict(w) for w in words]}
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.part")
+    try:
+        tmp.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
+        tmp.replace(path)
+    except OSError:
+        log.warning("could not cache word timings for %s", block_id)
+        tmp.unlink(missing_ok=True)
+
+
+def _shifted(words: list[WordTiming], offset_ms: int) -> list[WordTiming]:
+    """Clip-relative timings made absolute within their section."""
+    if not offset_ms:
+        return list(words)
+    return [
+        WordTiming(text=w.text, start_ms=w.start_ms + offset_ms, dur_ms=w.dur_ms) for w in words
+    ]
+
 
 def _find_block(article: Article, block_id: str) -> Block | None:
     for _section, block in article.blocks():
@@ -509,7 +564,7 @@ def _find_block(article: Article, block_id: str) -> Block | None:
 
 
 def compose_word_timings(
-    block_text: str, tracked: TrackedText, aligned: list[AlignedWord], offset_ms: int = 0
+    block_text: str, tracked: TrackedText, aligned: list[AlignedWord]
 ) -> list[WordTiming]:
     """Zip a block's source map against its aligner output into `WordTiming`s.
 
@@ -521,11 +576,12 @@ def compose_word_timings(
     origin at all (a quote marker, a footnote's own inserted label) has
     nothing on the page to highlight and is dropped.
 
-    ``aligned`` times are relative to the block's own trimmed clip;
-    ``offset_ms`` shifts them to be absolute within the section, the same
-    convention `BlockTiming` itself uses -- pass the block's own
-    `BlockTiming.speech_start_ms`, since that is where the trimmed clip
-    `Aligner.align` timed against actually begins.
+    Times come out relative to the block's own trimmed clip, the same way
+    ``aligned`` arrives -- deliberately, and this function used to take an
+    ``offset_ms`` instead. Nothing here knows where the block sits in its
+    section, so what it returns is a function of the block alone and is safe
+    to cache under the block's own key. `_shifted` makes it absolute at the
+    one point that does know: `align_article`, per build.
 
     Raises `ValueError` on a word-count mismatch between the two lists
     rather than guessing which word is which -- the caller treats that as
@@ -555,7 +611,7 @@ def compose_word_timings(
             )
 
     for (_word, orig), timing in zip(pairs, aligned, strict=True):
-        start_ms, end_ms = timing.start_ms + offset_ms, timing.end_ms + offset_ms
+        start_ms, end_ms = timing.start_ms, timing.end_ms
         if orig is None:
             flush()
             group_orig = None
@@ -634,14 +690,10 @@ def align_article(
 
             pcm_path = cache_dir / f"{_cache_key(text, manifest.engine, block_voice, speed)}{CACHE_SUFFIX}"
             words_path = pcm_path.with_name(pcm_path.stem + WORDS_CACHE_SUFFIX)
-            if words_path.exists():
-                try:
-                    timing.words = [
-                        WordTiming(**entry) for entry in json.loads(words_path.read_text())
-                    ]
-                    return
-                except (OSError, json.JSONDecodeError, TypeError):
-                    pass  # a corrupt cache entry is re-aligned below, not trusted
+            cached = _read_cached_words(words_path)
+            if cached is not None:
+                timing.words = _shifted(cached, timing.speech_start_ms)
+                return
             if not pcm_path.exists():
                 return  # the block cache was swept between render and align; rare
 
@@ -653,9 +705,8 @@ def align_article(
                 if tracked.text != text:
                     raise AlignmentError("tracked text diverged from the spoken text")
                 aligned = aligner.align(samples, manifest.sample_rate, text)
-                words = compose_word_timings(
-                    block.text, tracked, aligned, offset_ms=timing.speech_start_ms
-                )
+                # Clip-relative, and cached that way. See _read_cached_words.
+                words = compose_word_timings(block.text, tracked, aligned)
             except AlignmentError as exc:
                 log.warning("alignment skipped for %s: %s", timing.id, exc)
                 return
@@ -663,13 +714,8 @@ def align_article(
                 log.exception("alignment failed for %s", timing.id)
                 return
 
-            timing.words = words
-            try:
-                words_path.write_text(
-                    json.dumps([asdict(w) for w in words], ensure_ascii=False, separators=(",", ":"))
-                )
-            except OSError:
-                log.warning("could not cache word timings for %s", timing.id)
+            timing.words = _shifted(words, timing.speech_start_ms)
+            _write_cached_words(words_path, words, timing.id)
         finally:
             with counter:
                 done += 1

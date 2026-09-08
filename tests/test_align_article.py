@@ -181,3 +181,56 @@ def test_align_article_is_a_noop_on_an_article_with_no_manifest_blocks(tmp_path,
     manifest = AudioManifest(engine="fake", voice="v1", sample_rate=24000, bitrate="32k", total_ms=0)
     align_article(article, manifest, FakeAligner(), voice="v1", cache_dir=tmp_path / "cache")
     assert manifest.sections == []
+
+
+def test_cached_word_timings_follow_the_block_when_an_earlier_one_changes(tmp_path):
+    """The cache is keyed on the spoken text, which says nothing about where
+    the block sits. It once stored absolute times, so editing any earlier
+    block left every later one aligned to the previous build's layout --
+    measured at six seconds adrift after one paragraph changed."""
+    cache = tmp_path / "cache"
+
+    def article_after(opening: str) -> Article:
+        return Article(title="T", sections=[Section(title="One", blocks=[
+            Block(kind=BlockKind.PARA, text=opening),
+            Block(kind=BlockKind.PARA, text="Markets steadied on Thursday."),
+        ])]).renumber()
+
+    first = article_after("Short one.")
+    m1 = render_article(first, FakeEngine(), tmp_path / "o1", voice="v1", cache_dir=cache)
+    align_article(first, m1, FakeAligner(), voice="v1", cache_dir=cache)
+
+    # Only the *first* block's text changes, so the second block's audio and
+    # its word timings are both cache hits -- and its speech_start_ms moves.
+    second = article_after("A very much longer opening paragraph than before, by some margin.")
+    m2 = render_article(second, FakeEngine(), tmp_path / "o2", voice="v1", cache_dir=cache)
+    aligner = FakeAligner()
+    align_article(second, m2, aligner, voice="v1", cache_dir=cache)
+
+    unchanged = m2.sections[0].blocks[1]
+    assert aligner.calls == 1, "the unchanged block should have come from the cache"
+    assert m2.sections[0].blocks[1].speech_start_ms > m1.sections[0].blocks[1].speech_start_ms
+    assert unchanged.words[0].start_ms == unchanged.speech_start_ms
+
+
+def test_a_version_one_words_file_is_ignored_rather_than_trusted(tmp_path):
+    """The old format was a bare list of absolute times. Reading one as if it
+    were relative would shift it twice, so it is discarded and realigned."""
+    import json
+
+    article = sample_article()
+    cache = tmp_path / "cache"
+    manifest = render_article(article, FakeEngine(), tmp_path / "out", voice="v1", cache_dir=cache)
+    align_article(article, manifest, FakeAligner(), voice="v1", cache_dir=cache)
+
+    stale = sorted(cache.glob("*.words.json"))[0]
+    stale.write_text(json.dumps([{"text": "x", "start_ms": 999999, "dur_ms": 1}]))
+
+    manifest2 = render_article(article, FakeEngine(), tmp_path / "out2", voice="v1", cache_dir=cache)
+    aligner = FakeAligner()
+    align_article(article, manifest2, aligner, voice="v1", cache_dir=cache)
+
+    assert aligner.calls == 1, "the version 1 file should have forced one realignment"
+    assert all(
+        w.start_ms < 999999 for s in manifest2.sections for b in s.blocks for w in b.words
+    )
