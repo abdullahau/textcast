@@ -56,6 +56,8 @@
 
   var current = -1;
   var activeEl = null;
+  var activeWordEls = null;
+  var activeWordIdx = -1;
   var track = null;
   var follow = store("follow", "1") === "1";
   var sleepAtSectionEnd = false;
@@ -87,12 +89,39 @@
     if (pausedAt && pausedAt !== blockId) pausedAt = null;
     var el = blockId ? document.getElementById(blockId) : null;
     if (el === activeEl) return;
+    /* A word belongs to the block leaving, not the one arriving — clear it
+       before the swap, using the references already in hand rather than a
+       lookup inside an element about to stop being "the" active one. */
+    highlightWord(-1);
     if (activeEl) activeEl.classList.remove("on");
     activeEl = el;
     if (!el) return;
     el.classList.add("on");
     keepInView(true);
     stopToLook(el);
+  }
+
+  /* Word-level, layered on top of the block highlight above it — never in
+     place of it. `idx` is a position in the active block's own `words`
+     array; -1 clears without lighting anything, which is what leaving a
+     block, or a block with no word timings at all, both want.
+
+     `querySelectorAll`, not a single lookup: a merged word ("$4.4tn" for
+     every spoken word it expands to, a footnote's own body) can wrap more
+     than one <span> when its range straddled a `rich` HTML tag boundary —
+     see web/wordwrap.py — and every piece shares one data-w. */
+  function highlightWord(idx) {
+    if (idx === activeWordIdx) return;
+    if (activeWordEls) {
+      for (var i = 0; i < activeWordEls.length; i++) activeWordEls[i].classList.remove("on");
+    }
+    activeWordIdx = idx;
+    activeWordEls = null;
+    if (idx < 0 || !activeEl) return;
+    var els = activeEl.querySelectorAll('[data-w="' + idx + '"]');
+    if (!els.length) return;
+    for (var j = 0; j < els.length; j++) els[j].classList.add("on");
+    activeWordEls = els;
   }
 
   /* Stop at a chart or a table, so it can be looked at rather than talked
@@ -109,7 +138,10 @@
 
   /* Which block covers this moment, from the timing map the page already
      carries. A binary search over contiguous cues: the last one that has
-     started is the one being read. */
+     started is the one being read. Returns the block's own entry — [id,
+     start_ms, dur_ms, words] — not just the id, so a word-level lookup one
+     level down (wordAt) does not have to search the array a second time
+     for the same block. */
   function blockAt(ms) {
     var blocks = sections[current] && sections[current].blocks;
     if (!blocks || !blocks.length) return null;
@@ -119,12 +151,33 @@
       if (blocks[mid][1] <= ms) { found = blocks[mid]; lo = mid + 1; }
       else { hi = mid - 1; }
     }
-    return found ? found[0] : null;
+    return found;
+  }
+
+  /* Same bisection as blockAt, one level down. `block[3]` is delta-encoded
+     against the block's own start_ms (block[1]) to keep the payload small
+     on a long article, so the offset is added back before comparing. Empty
+     for a block that was never aligned, or that alignment skipped — -1
+     there is exactly "nothing to light", the same as leaving the block. */
+  function wordAt(block, ms) {
+    var words = block[3];
+    if (!words || !words.length) return -1;
+    var base = block[1];
+    var lo = 0, hi = words.length - 1, found = -1;
+    while (lo <= hi) {
+      var mid = (lo + hi) >> 1;
+      if (base + words[mid][1] <= ms) { found = mid; lo = mid + 1; }
+      else { hi = mid - 1; }
+    }
+    return found;
   }
 
   function syncHighlight() {
-    var id = blockAt((audio.currentTime || 0) * 1000 - offsetMs());
-    if (id) highlight(id);
+    var ms = (audio.currentTime || 0) * 1000 - offsetMs();
+    var block = blockAt(ms);
+    if (!block) return;
+    highlight(block[0]);
+    highlightWord(wordAt(block, ms));
   }
 
   /* Ask the browser what the output device costs.

@@ -132,6 +132,93 @@ def live(tmp_path_factory):
     proc.wait(timeout=10)
 
 
+class EvenlySpacedAligner:
+    """Stands in for the real ONNX aligner: one word per target word, spaced
+    evenly across the clip. ToneEngine's audio is a sine wave, not speech,
+    so there is nothing for a real aligner to find here -- what this fixture
+    tests is the browser's word-level highlight loop, not alignment
+    quality, which test_aligner.py and test_sourcemap.py already cover
+    against real audio and the real corpus."""
+
+    def align(self, waveform, sample_rate, text):
+        from textcast.tts.aligner import AlignedWord, to_target_text
+
+        target_words = [w for w in to_target_text(text).split("|") if w]
+        if not target_words:
+            return []
+        dur_ms = round(len(waveform) / sample_rate * 1000)
+        step = dur_ms / len(target_words)
+        return [
+            AlignedWord(text=w, start_ms=round(i * step), end_ms=round((i + 1) * step))
+            for i, w in enumerate(target_words)
+        ]
+
+
+@pytest.fixture(scope="module")
+def live_words(tmp_path_factory):
+    """A running app with one article built *and* word-aligned.
+
+    Its own database, its own port: the module-scoped `live` fixture is
+    shared by tests that must not see word_highlight data appear underneath
+    them mid-module.
+    """
+    from textcast.audio import align_article
+
+    data = tmp_path_factory.mktemp("data_words")
+    import os
+
+    os.environ["TEXTCAST_DATA_DIR"] = str(data)
+    os.environ["TEXTCAST_WORKERS"] = "0"
+
+    from textcast.settings import get_settings
+
+    settings = get_settings(refresh=True)
+    settings.ensure_dirs()
+    db.close()
+    conn = db.init(settings.db_path)
+
+    article = sample_article()
+    article_id = db.save_article(article, conn)
+    row = db.get_article(article_id, conn)
+
+    manifest = render_article(
+        article, ToneEngine(), settings.media_dir / row["slug"], voice="t1", gap_ms=200,
+        cache_dir=settings.cache_dir,
+    )
+    db.save_manifest(article_id, manifest, audio_bytes=1, conn=conn)
+    align_article(
+        article, manifest, EvenlySpacedAligner(), voice="t1", cache_dir=settings.cache_dir,
+    )
+    db.save_word_timings(article_id, manifest, conn)
+    db.close()
+
+    port = free_port()
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "uvicorn", "textcast.web.app:app",
+         "--host", "127.0.0.1", "--port", str(port), "--log-level", "warning"],
+        env={**os.environ},
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+    base = f"http://127.0.0.1:{port}"
+    for _ in range(100):
+        try:
+            import urllib.request
+
+            urllib.request.urlopen(base + "/health", timeout=1)
+            break
+        except Exception:
+            time.sleep(0.2)
+    else:
+        proc.terminate()
+        pytest.fail("the app did not start")
+
+    yield base, row["slug"], manifest
+    proc.terminate()
+    proc.wait(timeout=10)
+
+
 @pytest.fixture(scope="module")
 def browser():
     """One browser for the module.
@@ -203,6 +290,93 @@ def still_page(live, browser):
     )
     yield page
     context.close()
+
+
+@pytest.fixture
+def still_page_words(live_words, browser):
+    """The word-highlighted article's own still page — see `still_page`."""
+    base, slug, _ = live_words
+    context = browser.new_context()
+    page = context.new_page()
+    page.goto(f"{base}/a/{slug}", wait_until="domcontentloaded")
+    page.wait_for_function(
+        "() => { const a = document.getElementById('audio');"
+        " return a && a.textTracks.length && a.textTracks[0].cues"
+        " && a.textTracks[0].cues.length > 0; }",
+        timeout=20000,
+    )
+    yield page
+    context.close()
+
+
+def test_word_level_highlight_sits_on_top_of_the_block_highlight(still_page_words, live_words):
+    """Word-level lights one <span data-w="N"> inside the already-highlighted
+    block, on top of it -- never in place of it, and never before the block
+    itself is the active one."""
+    _base, _slug, manifest = live_words
+    target = manifest.sections[0].blocks[2]
+    word = target.words[1]
+    at = (word.start_ms + word.dur_ms / 2) / 1000
+
+    still_page_words.evaluate(f"document.getElementById('audio').currentTime = {at}")
+    still_page_words.wait_for_function(
+        "() => { const el = document.querySelector('.w.on');"
+        " return el && el.dataset.w === '1'; }",
+        timeout=10000,
+    )
+
+    assert still_page_words.evaluate("(document.querySelector('#doc .b.on') || {}).id") == target.id
+    on_words = still_page_words.evaluate(
+        "Array.from(document.querySelectorAll('.w.on')).map(el => el.dataset.w)"
+    )
+    assert on_words == ["1"], f"expected only word 1 lit, got {on_words}"
+    # It is inside the highlighted block, not merely on the page somewhere.
+    assert still_page_words.evaluate(
+        f"!!document.querySelector('#{target.id} .w.on')"
+    )
+
+
+def test_word_level_highlight_moves_forward_with_the_clock(still_page_words, live_words):
+    _base, _slug, manifest = live_words
+    target = manifest.sections[0].blocks[2]
+    assert len(target.words) >= 3, "fixture block needs at least three words for this test"
+    third = target.words[2]
+    at = (third.start_ms + third.dur_ms / 2) / 1000
+
+    still_page_words.evaluate(f"document.getElementById('audio').currentTime = {at}")
+    still_page_words.wait_for_function(
+        "() => { const el = document.querySelector('.w.on');"
+        " return el && el.dataset.w === '2'; }",
+        timeout=10000,
+    )
+
+
+def test_word_level_highlight_clears_when_the_block_changes(still_page_words, live_words):
+    """Leaving a block for one with no word timings (or a different one)
+    must not leave a stale word lit behind."""
+    _base, _slug, manifest = live_words
+    first_block = manifest.sections[0].blocks[2]
+    next_block = manifest.sections[0].blocks[3]  # the footnote, right after it
+    word = first_block.words[0]
+
+    still_page_words.evaluate(
+        f"document.getElementById('audio').currentTime = {(word.start_ms + word.dur_ms / 2) / 1000}"
+    )
+    still_page_words.wait_for_function(
+        "() => document.querySelector('.w.on') !== null", timeout=10000
+    )
+
+    still_page_words.evaluate(
+        f"document.getElementById('audio').currentTime = {next_block.start_ms / 1000 + 0.05}"
+    )
+    still_page_words.wait_for_function(
+        f"() => (document.querySelector('#doc .b.on') || {{}}).id === '{next_block.id}'",
+        timeout=10000,
+    )
+    stale = still_page_words.evaluate(
+        f"!!document.querySelector('#{first_block.id} .w.on')"
+    )
+    assert not stale, "a word from the block just left is still lit"
 
 
 def active_id(page):

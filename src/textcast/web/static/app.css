@@ -1155,6 +1155,18 @@ p.b { white-space: pre-line; }
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
 }
 
+/* Word-level highlight, layered on top of the block's own wash -- not a
+   second version of it. `--accent` is the ink-on-paper emphasis colour
+   already used for a quote's border and a summary's; softened through
+   color-mix the same way `.b.on`'s own ring is, since a word this small
+   reads better as a tint than as a filled block. No transition on `.w`
+   itself: a word lights for well under a second, and animating that many
+   toggles a minute is wasted paint, not polish. */
+.w.on {
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+  border-radius: 2px;
+}
+
 .b .seek {
   position: absolute;
   left: -2.1rem;
