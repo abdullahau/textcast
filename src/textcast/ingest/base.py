@@ -12,7 +12,7 @@ import re
 from typing import Protocol
 
 from ..document import Article, Block, BlockKind, Section
-from .dom import Node, Tree, ancestor_tags, attr, children, clean, parse, text_of
+from .dom import Node, Tree, ancestor_tags, attr, children, clean, parse, same, text_of
 from .visuals import NO_VISUALS, VisualRules, drop_furniture, visual_block
 
 BLOCK_SELECTOR = "h1, h2, h3, h4, blockquote, p, ol, ul"
@@ -72,7 +72,7 @@ def blocks_from_dom(
         # lexbor's `css` searches the node as well as its subtree, so the
         # container matches its own selectors. Left in, an article whose
         # wrapper is called "...no-full-width-graphics" is one figure.
-        if elem == container or _within(elem, consumed):
+        if same(elem, container) or _within(elem, consumed):
             continue
 
         if elem.tag not in _BLOCK_TAGS:
@@ -273,11 +273,10 @@ def _within(node: Node, containers: list[Node]) -> bool:
     """True when ``node`` sits inside something already emitted."""
     if not containers:
         return False
-    # lexbor hands out a fresh wrapper per lookup, so two objects for one
-    # node are not `is` each other. They compare equal; identity does not.
+    done = {node.mem_id for node in containers}
     current = node.parent
     while current is not None:
-        if any(current == done for done in containers):
+        if current.mem_id in done:
             return True
         current = current.parent
     return False

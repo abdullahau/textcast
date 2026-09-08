@@ -23,7 +23,7 @@ from dataclasses import dataclass, replace
 from urllib.parse import urljoin
 
 from ..document import Block, BlockKind
-from .dom import Node, ancestor_tags, attr, clean, text_of
+from .dom import Node, ancestor_tags, attr, clean, same, text_of
 
 #: Containers that hold a picture. A bare `img` is last on purpose: matched
 #: first it would take the picture out of its own figure and lose the caption.
@@ -220,7 +220,7 @@ def _matches_self(node: Node, selector: str) -> bool:
     matches is its own first hit.
     """
     try:
-        return node.css_first(selector) == node
+        return same(node.css_first(selector), node)
     except Exception:
         return False
 
@@ -228,7 +228,7 @@ def _matches_self(node: Node, selector: str) -> bool:
 def _ancestor_matches(node: Node, selector: str, stop: Node | None) -> bool:
     current: Node | None = node
     depth = 0
-    while current is not None and current != stop and depth < 6:
+    while current is not None and not same(current, stop) and depth < 6:
         if _matches_self(current, selector):
             return True
         current = current.parent
@@ -244,7 +244,7 @@ def _furniture(node: Node, stop: Node | None) -> bool:
     """
     current: Node | None = node
     depth = 0
-    while current is not None and current != stop and depth < 6:
+    while current is not None and not same(current, stop) and depth < 6:
         if current.tag in ("aside", "nav", "footer", "header"):
             return True
         if JUNK_CLASS.search(_classes(current)):
@@ -331,7 +331,7 @@ def _caption_match(node: Node, rules: VisualRules, *, bare: bool) -> Node | None
             found = node.css_first(selector)
         except Exception:
             continue
-        if found is None or found == node:
+        if found is None or same(found, node):
             continue
         text = text_of(found)
         if text and bool(BARE_CREDIT.match(text)) == bare:

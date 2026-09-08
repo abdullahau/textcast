@@ -47,7 +47,7 @@ from urllib.parse import urlparse
 
 from ..document import Article
 from .base import blocks_from_dom, finish, text_of
-from .dom import Node, Tree, attr, meta, parse, select_one
+from .dom import Node, Tree, attr, meta, parse, same, select_one
 from .visuals import DEFAULT_RULES
 
 #: Above this many characters a bold line is a paragraph in bold, not a title.
@@ -135,7 +135,9 @@ _BLOCK_LEVEL = "div, p, table, ol, ul, blockquote, h1, h2, h3, h4, h5, h6, figur
 
 def _promote_bare_divs_to_paragraphs(container: Node) -> None:
     for node in container.css("div"):
-        if node == container or any(found != node for found in node.css(_BLOCK_LEVEL)):
+        if same(node, container) or any(
+            not same(found, node) for found in node.css(_BLOCK_LEVEL)
+        ):
             continue
         fragment = parse(f"<div><p>{node.inner_html}</p></div>")
         node.replace_with(fragment.css_first("p"))

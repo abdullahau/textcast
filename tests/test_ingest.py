@@ -9,6 +9,7 @@ from textcast.document import Article, BlockKind
 from textcast.ingest import adapter_names, parse_html, pick_adapter
 from textcast.ingest.base import is_junk_block
 from textcast.ingest.dom import parse as parse_tree
+from textcast.ingest.dom import same
 from textcast.ingest.newsletter import article_from_eml, is_cutoff, parse_eml
 
 CORPUS = Path(__file__).with_name("corpus")
@@ -350,3 +351,39 @@ def test_every_page_in_the_corpus_has_a_byline():
             assert not article.author, "the leaders are unsigned; a name here came from somewhere"
             continue
         assert article.author, f"{page.name} parsed without an author"
+
+
+def test_node_identity_does_not_serialize_the_subtree():
+    """`dom.same` must stay a `mem_id` compare, not fall back to `==`.
+
+    `==` on two lexbor nodes serializes both subtrees and compares the
+    markup. It gives the right answer, so nothing fails when someone writes
+    it — the page just takes eighteen seconds to parse instead of a
+    thirtieth of one, because `_within` asks the question tens of thousands
+    of times. Timing it is the only way the difference shows up, and the
+    gap is four orders of magnitude, so the threshold does not need to be
+    tight.
+    """
+    import time
+
+    tree = parse_tree("<div><p>x</p></div>" + "<section><p>y</p></section>" * 1500)
+    body = tree.css_first("body")
+    other = tree.css_first("body")
+
+    start = time.perf_counter()
+    for _ in range(2000):
+        assert same(body, other)
+    elapsed = time.perf_counter() - start
+
+    assert elapsed < 0.5, f"2000 identity tests took {elapsed:.2f}s; same() is serializing"
+
+
+def test_same_tells_two_different_nodes_apart():
+    """Cheap is no use if it is also wrong."""
+    tree = parse_tree("<div id='a'><p>x</p></div><div id='b'><p>x</p></div>")
+    first, second = tree.css("div")
+
+    assert same(first, first)
+    assert not same(first, second), "identical markup is not the same node"
+    assert not same(first, None)
+    assert same(None, None)

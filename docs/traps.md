@@ -43,11 +43,20 @@ section you are about to touch**, and add to it when something bites you.
   `article-grid--no-full-width-graphics` matched `[class*="graphic"]`.
   `css_matches` and `any_css_matches` are no help — both are true when a
   *descendant* matches, which is how every wrapper on an FT page "matched"
-  `.o-table`. The only self-only test is `node.css_first(sel) == node`.
-- **Two lexbor nodes for one element are not `is` each other.** lexbor hands
-  out a fresh wrapper per lookup; they compare equal by `mem_id`. Every
-  ancestor walk and every `stop=container` guard uses `==`. `ancestor_tags`
-  had the identity bug from the start and walked past its stop to the root.
+  `.o-table`. The only self-only test is `same(node.css_first(sel), node)`.
+- **Two lexbor nodes for one element are not `is` each other, and `==` is
+  not the way to ask.** lexbor hands out a fresh wrapper per lookup, so `is`
+  is never true for one node reached twice — `ancestor_tags` had that bug
+  from the start and walked past its stop to the root. `==` gives the right
+  answer for the wrong reason: it serializes both subtrees and compares the
+  markup, so one comparison against a `<body>` costs a couple of
+  milliseconds. `_within` asks it once per ancestor per emitted container,
+  and a 190 KB blog post took **18 seconds** to parse, 98% of it inside that
+  one generator expression — while a 890 KB Bloomberg page took two, because
+  it has fewer nested containers, not less markup. `dom.same` compares
+  `mem_id`, the node's own address: unique, stable across wrappers, and an
+  integer compare. Use it for every identity test and every `stop=container`
+  guard. Never `==`.
 - **A srcset is not quite comma-separated.** Substack serves pictures through
   Cloudinary, whose path is `w_1456,c_limit,f_webp`, so `split(",")` cut one
   candidate into three. The separating comma has whitespace after it; a comma

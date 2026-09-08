@@ -62,15 +62,35 @@ def drop(scope: Node | Tree, selectors: list[str]) -> None:
             continue
 
 
+def same(a: Node | None, b: Node | None) -> bool:
+    """True when two wrappers stand for the same node.
+
+    lexbor hands out a fresh wrapper object per lookup, so ``is`` is never
+    true for one node reached twice, and every walk that has to recognise a
+    node it already holds needs this instead.
+
+    ``==`` also answers it, but by serializing both subtrees and comparing
+    the markup. On a page whose body is a few hundred kilobytes that is
+    milliseconds per comparison, and `base._within` makes tens of thousands
+    of them: one blog post in the corpus took eighteen seconds to parse, and
+    ninety-eight per cent of it was this question asked with ``==``.
+    ``mem_id`` is the node's own address — unique per node, stable across
+    wrappers, and an integer compare.
+    """
+    if a is None or b is None:
+        return a is b
+    return a.mem_id == b.mem_id
+
+
 def ancestor_tags(node: Node, tags: set[str], stop: Node | None = None) -> bool:
     """True when any ancestor of ``node`` has one of ``tags``.
 
-    ``stop`` is compared with ``!=``. lexbor hands out a fresh wrapper object
-    per lookup, so the container a caller holds is never ``is`` the one this
-    walk arrives at, and an identity test would walk past it to the root.
+    The walk stops at ``stop`` by `same`, not by ``is``: the container a
+    caller holds is never the same wrapper as the one this walk arrives at,
+    and an identity test would walk past it to the root.
     """
     current = node.parent
-    while current is not None and current != stop:
+    while current is not None and not same(current, stop):
         if current.tag in tags:
             return True
         current = current.parent
