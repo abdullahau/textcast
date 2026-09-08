@@ -15,6 +15,7 @@ made-up frames as on a real spectrogram.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from pathlib import Path
 
 import numpy as np
@@ -176,6 +177,53 @@ def test_viterbi_raises_rather_than_guessing_when_no_path_fits():
     log_probs = _emissions_favoring([0, 1, 2], vocab_size=4)
     with pytest.raises(AlignmentError):
         _viterbi_align(log_probs, np.array([1, 2, 3, 1, 2]), blank=0)
+
+
+def test_viterbi_keeps_one_row_of_scores_not_one_per_frame():
+    """The scores used to be a (frames x states) float64 array and nothing
+    read a row of it but the one before. Frames and characters both scale
+    with a block's duration, so it was quadratic in it: the longest block in
+    a real library wanted 370 MB, and `align_article` runs four decodes at
+    once. The path must not change, only what it costs to find."""
+    import tracemalloc
+
+    rng = np.random.default_rng(11)
+    frames, states = 1200, 180
+    logits = rng.normal(size=(frames, 32))
+    log_probs = (logits - np.log(np.sum(np.exp(logits), axis=-1, keepdims=True))).astype(np.float32)
+    targets = rng.integers(1, 32, size=states)
+
+    tracemalloc.start()
+    path = _viterbi_align(log_probs, targets, blank=0)
+    peak = tracemalloc.get_traced_memory()[1]
+    tracemalloc.stop()
+
+    assert len(path) == frames
+    # One byte a cell for the backpointers, plus slack for the working rows.
+    # The old shape would need eight times that for the scores alone.
+    assert peak < frames * (2 * states + 1) * 3, f"peak was {peak} bytes"
+
+
+def test_viterbi_refuses_a_block_too_long_to_decode_rather_than_running_out():
+    """The backpointers are still quadratic in duration, just eight times
+    smaller. A block long enough to matter keeps block-level highlighting;
+    the alternative is the OOM killer taking the whole align process."""
+    from textcast.tts import aligner as aligner_module
+
+    log_probs = _emissions_favoring([0, 1, 0, 2, 0], vocab_size=4)
+    with pytest.raises(AlignmentError, match="too long to align"):
+        with _lattice_cap(aligner_module, 4):
+            _viterbi_align(log_probs, np.array([1, 2]), blank=0)
+
+
+@contextmanager
+def _lattice_cap(module, cells: int):
+    was = module.MAX_LATTICE_CELLS
+    module.MAX_LATTICE_CELLS = cells
+    try:
+        yield
+    finally:
+        module.MAX_LATTICE_CELLS = was
 
 
 def test_merge_repeats_and_words_from_segments_split_on_the_boundary_token():

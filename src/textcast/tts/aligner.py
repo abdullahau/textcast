@@ -58,6 +58,15 @@ VOCAB_URL = "https://huggingface.co/onnx-community/wav2vec2-base-960h-ONNX/resol
 SAMPLE_RATE = 16000
 NOMINAL_STRIDE_MS = 20.0
 
+#: The most lattice the Viterbi decode may allocate for one block, one byte
+#: a cell. Frames and characters both scale with the block's duration, so the
+#: lattice is quadratic in it, and `audio.align_article` runs four decodes at
+#: once. 128 MB is about five minutes of unbroken speech in a single block --
+#: two and a half times the longest one in a real library, and well short of
+#: what a small box can lose to four of them at once. A block over it keeps
+#: block-level highlighting; see `_viterbi_align`.
+MAX_LATTICE_CELLS = 128 << 20
+
 
 @dataclass(frozen=True)
 class AlignedWord:
@@ -351,6 +360,15 @@ def _viterbi_align(log_probs: np.ndarray, targets: np.ndarray, blank: int) -> np
     inner state dimension is vectorized; only the T (frame) dimension is a
     Python loop, which is what keeps this fast enough without a compiled
     extension at the token counts one block ever produces.
+
+    Only the backpointers are kept for every frame. The scores were too, in
+    a (frames x states) float64 array, and nothing ever read a row of it but
+    the one before — so the cost of a long block was eight bytes per lattice
+    cell where one will do. Frames and characters both scale with duration,
+    so that array was quadratic in it: the longest block in one real library
+    (2,684 characters, about three minutes of speech) wanted 370 MB, and
+    `audio.align_article` runs four of these at once over one shared session.
+    A single row costs nothing and the answer is identical.
     """
     t_total = log_probs.shape[0]
     targets = np.asarray(targets, dtype=np.int64)
@@ -363,24 +381,32 @@ def _viterbi_align(log_probs: np.ndarray, targets: np.ndarray, blank: int) -> np
 
     if t_total < 1:
         raise AlignmentError("no frames to align against")
+    # What is left after the row above is still quadratic, just eight times
+    # smaller. A block long enough to matter is one nobody wrote; refusing it
+    # costs that block its word highlighting and costs the build nothing,
+    # which is the whole degradation contract. See AlignmentError.
+    if t_total * length > MAX_LATTICE_CELLS:
+        raise AlignmentError(
+            f"too long to align: {t_total} frames over {length} states "
+            f"needs more than {MAX_LATTICE_CELLS >> 20} MB"
+        )
 
     neg_inf = -1e9
-    alpha = np.full((t_total, length), neg_inf, dtype=np.float64)
     backptr = np.zeros((t_total, length), dtype=np.int8)
 
-    alpha[0, 0] = log_probs[0, blank]
+    alpha = np.full(length, neg_inf, dtype=np.float64)
+    alpha[0] = log_probs[0, blank]
     if length > 1:
-        alpha[0, 1] = log_probs[0, ext[1]]
+        alpha[1] = log_probs[0, ext[1]]
 
     can_skip = np.zeros(length, dtype=bool)
     can_skip[2:] = (ext[2:] != blank) & (ext[2:] != ext[:-2])
 
     for t in range(1, t_total):
-        prev = alpha[t - 1]
-        stay = prev
-        step1 = np.concatenate(([neg_inf], prev[:-1]))
-        step2 = np.concatenate(([neg_inf, neg_inf], prev[:-2])) if length > 1 else np.array([])
+        stay = alpha
+        step1 = np.concatenate(([neg_inf], alpha[:-1]))
         if length > 1:
+            step2 = np.concatenate(([neg_inf, neg_inf], alpha[:-2]))
             step2 = np.where(can_skip, step2, neg_inf)
             stacked = np.stack([stay, step1, step2])
         else:
@@ -388,12 +414,12 @@ def _viterbi_align(log_probs: np.ndarray, targets: np.ndarray, blank: int) -> np
         choice = np.argmax(stacked, axis=0)
         best = np.take_along_axis(stacked, choice[None, :], axis=0)[0]
         backptr[t] = choice
-        alpha[t] = best + log_probs[t, ext]
+        alpha = best + log_probs[t, ext]
 
     # A valid path must end on the final blank or the final real token —
     # anywhere else means the target sequence was not fully consumed.
-    end = length - 1 if length == 1 else (length - 2) + int(np.argmax(alpha[t_total - 1, -2:]))
-    if alpha[t_total - 1, end] <= neg_inf / 2:
+    end = length - 1 if length == 1 else (length - 2) + int(np.argmax(alpha[-2:]))
+    if alpha[end] <= neg_inf / 2:
         raise AlignmentError("no valid path reached the end of the target sequence")
 
     states = np.empty(t_total, dtype=np.int64)
