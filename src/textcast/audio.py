@@ -3,14 +3,18 @@
 Audio is built one block at a time and encoded one file per *section*. Three
 things follow from that: playback can start on section one while section four
 is still rendering, a failed block re-renders in seconds, and every block's
-duration comes back from the engine for free — which is the timing map the
-read-along player needs, with no forced aligner.
+duration comes back from the engine for free — which is the block-level
+timing map needs, with no forced aligner. Word-level timing is a second
+phase, `align_article`, that runs after this one and does need an aligner —
+see its own docstring and
+`docs/superpowers/specs/2026-09-08-word-level-highlighting-design.md`.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import shutil
 import subprocess
@@ -20,17 +24,39 @@ from collections.abc import Callable, Iterable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 from .document import OPTIONAL_KINDS, Article, Block, BlockKind
+from .sourcemap import TrackedText
 from .tts import TTSEngine, g2p_of, silence
+
+if TYPE_CHECKING:
+    from .tts.aligner import AlignedWord, Aligner
+
+log = logging.getLogger("textcast.audio")
 
 ProgressFn = Callable[[int, int, str], None]
 
 
 class EncodeError(RuntimeError):
     pass
+
+
+@dataclass(frozen=True)
+class WordTiming:
+    """Where one displayed word sits inside its section's audio file.
+
+    Absolute within the section, the same convention as `BlockTiming` itself.
+    ``text`` is the displayed word (or run of words a rewrite collapsed onto
+    one displayed word — see `align.compose_word_timings`), not what was
+    spoken; the player never shows this string, it only uses the timing.
+    """
+
+    text: str
+    start_ms: int
+    dur_ms: int
 
 
 @dataclass
@@ -46,6 +72,16 @@ class BlockTiming:
     start_ms: int
     dur_ms: int
     speech_ms: int
+    #: Where this block's own speech begins, absolute within the section —
+    #: `start_ms` plus the run-up silence in front of it. Phase two (word
+    #: alignment) anchors every `WordTiming` to this, not to `start_ms`,
+    #: because `Aligner.align` times are relative to the trimmed audio that
+    #: begins here, not to the run-up before it.
+    speech_start_ms: int = 0
+    #: Empty when word alignment was not run, was skipped for this block, or
+    #: failed — the player falls back to block-level highlighting exactly as
+    #: it did before this field existed.
+    words: list[WordTiming] = field(default_factory=list)
 
 
 @dataclass
@@ -417,6 +453,7 @@ def render_article(
                     start_ms=starts[i],
                     dur_ms=end - starts[i],
                     speech_ms=speech_for[i],
+                    speech_start_ms=speech_at[i],
                 )
             )
 
@@ -458,6 +495,172 @@ def _drop_stale_sections(out_dir: Path, manifest: AudioManifest) -> None:
     for path in out_dir.glob("section-*"):
         if path.is_file() and path.name not in written:
             path.unlink(missing_ok=True)
+
+
+#: Suffix for a block's word-level timings, cached beside its `.i16` PCM
+#: under the *same* key -- both are a function of exactly the same inputs
+#: (engine, voice, rate, spoken text), so a cache hit on one is a cache hit
+#: on the other, and `cache.sweep_cache`'s reachability walk covers both
+#: with the one computation it already does.
+WORDS_CACHE_SUFFIX = ".words.json"
+
+
+def _find_block(article: Article, block_id: str) -> Block | None:
+    for _section, block in article.blocks():
+        if block.id == block_id:
+            return block
+    return None
+
+
+def compose_word_timings(
+    block_text: str, tracked: TrackedText, aligned: list[AlignedWord], offset_ms: int = 0
+) -> list[WordTiming]:
+    """Zip a block's source map against its aligner output into `WordTiming`s.
+
+    Consecutive spoken words whose displayed origins overlap merge into one
+    `WordTiming` -- this is where "four point four trillion dollars" (six
+    spoken words) becomes one highlight over the single displayed "$4.4tn"
+    the source map traced them back to, with no case written for money or
+    any other expansion anywhere in this function. A spoken word with no
+    origin at all (a quote marker, a footnote's own inserted label) has
+    nothing on the page to highlight and is dropped.
+
+    ``aligned`` times are relative to the block's own trimmed clip;
+    ``offset_ms`` shifts them to be absolute within the section, the same
+    convention `BlockTiming` itself uses -- pass the block's own
+    `BlockTiming.speech_start_ms`, since that is where the trimmed clip
+    `Aligner.align` timed against actually begins.
+
+    Raises `ValueError` on a word-count mismatch between the two lists
+    rather than guessing which word is which -- the caller treats that as
+    alignment failure for the whole block. See `sourcemap.words` and
+    `tts.aligner.survives_tokenization` for why the lists can disagree in
+    length if either side is filtered differently than the other.
+    """
+    from .sourcemap import words as sourcemap_word_list
+    from .tts.aligner import survives_tokenization
+
+    pairs = [(word, orig) for word, orig in sourcemap_word_list(tracked) if survives_tokenization(word)]
+    if len(pairs) != len(aligned):
+        raise ValueError(f"word count mismatch: {len(pairs)} displayed words, {len(aligned)} aligned")
+
+    out: list[WordTiming] = []
+    group_orig: tuple[int, int] | None = None
+    group_start = group_end = 0
+
+    def flush() -> None:
+        if group_orig is not None:
+            out.append(
+                WordTiming(
+                    text=block_text[group_orig[0] : group_orig[1]],
+                    start_ms=group_start,
+                    dur_ms=group_end - group_start,
+                )
+            )
+
+    for (_word, orig), timing in zip(pairs, aligned, strict=True):
+        start_ms, end_ms = timing.start_ms + offset_ms, timing.end_ms + offset_ms
+        if orig is None:
+            flush()
+            group_orig = None
+            continue
+        overlaps = group_orig is not None and not (orig[1] <= group_orig[0] or group_orig[1] <= orig[0])
+        if overlaps:
+            group_orig = (min(group_orig[0], orig[0]), max(group_orig[1], orig[1]))
+            group_end = end_ms
+        else:
+            flush()
+            group_orig = orig
+            group_start = start_ms
+            group_end = end_ms
+    flush()
+    return out
+
+
+def align_article(
+    article: Article,
+    manifest: AudioManifest,
+    aligner: Aligner,
+    *,
+    voice: str,
+    quote_voice: str | None = None,
+    speed: float = 1.0,
+    cache_dir: Path,
+    progress: ProgressFn | None = None,
+) -> None:
+    """Word-level timings for every block a build already rendered.
+
+    Runs after `render_article` and after the caller has released whatever
+    TTS engine pool that used -- `aligner` is built by the caller for
+    exactly this reason, not by this function, so the two models are never
+    resident at once. See the phase-order section of
+    `docs/superpowers/specs/2026-09-08-word-level-highlighting-design.md`.
+
+    Reads each block's audio back from the cache `render_article` already
+    wrote -- never resynthesizes -- so a cache hit here is exactly the audio
+    a listener will hear. Mutates `manifest` in place: every `BlockTiming`
+    gets its `words` filled in, or left empty on any failure, which is
+    never a reason to fail the whole build.
+    """
+    from .tts import g2p_of
+    from .tts.aligner import AlignmentError
+
+    g2p, takes_ipa = g2p_of(manifest.engine)
+    done = 0
+    total = sum(len(section.blocks) for section in manifest.sections)
+
+    for section in manifest.sections:
+        for timing in section.blocks:
+            done += 1
+            if progress:
+                progress(done, total, timing.id)
+
+            block = _find_block(article, timing.id)
+            if block is None:
+                continue  # not expected -- the manifest names a block this article no longer has
+
+            use_quote_voice = block.kind is BlockKind.QUOTE and quote_voice
+            block_voice = quote_voice if use_quote_voice else voice
+            text = block.spoken(quote_markers=not use_quote_voice, g2p=g2p, phonemes=takes_ipa)
+            if not text.strip():
+                continue
+
+            pcm_path = cache_dir / f"{_cache_key(text, manifest.engine, block_voice, speed)}{CACHE_SUFFIX}"
+            words_path = pcm_path.with_name(pcm_path.stem + WORDS_CACHE_SUFFIX)
+            if words_path.exists():
+                try:
+                    timing.words = [
+                        WordTiming(**entry) for entry in json.loads(words_path.read_text())
+                    ]
+                    continue
+                except (OSError, json.JSONDecodeError, TypeError):
+                    pass  # a corrupt cache entry is re-aligned below, not trusted
+            if not pcm_path.exists():
+                continue  # the block cache was swept between render and align; rare
+
+            try:
+                samples = from_int16(np.fromfile(pcm_path, dtype=np.int16))
+                tracked = block.spoken_tracked(
+                    quote_markers=not use_quote_voice, g2p=g2p, phonemes=takes_ipa
+                )
+                if tracked.text != text:
+                    raise AlignmentError("tracked text diverged from the spoken text")
+                aligned = aligner.align(samples, manifest.sample_rate, text)
+                words = compose_word_timings(block.text, tracked, aligned, offset_ms=timing.speech_start_ms)
+            except AlignmentError as exc:
+                log.warning("alignment skipped for %s: %s", timing.id, exc)
+                continue
+            except Exception:
+                log.exception("alignment failed for %s", timing.id)
+                continue
+
+            timing.words = words
+            try:
+                words_path.write_text(
+                    json.dumps([asdict(w) for w in words], ensure_ascii=False, separators=(",", ":"))
+                )
+            except OSError:
+                log.warning("could not cache word timings for %s", timing.id)
 
 
 def encode_opus_bytes(samples: np.ndarray, sample_rate: int, bitrate: str = "48k") -> bytes:
