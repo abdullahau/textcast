@@ -110,6 +110,17 @@ class Settings:
         """
         return self.data_dir / "models"
 
+    @property
+    def aligner_dir(self) -> Path:
+        """The word-alignment model: wav2vec2-base-960h, ONNX, int8.
+
+        Unlike `models_dir`, this one *is* written to at runtime — fetched
+        from Hugging Face on first use inside a build's own child process,
+        the same as any other model weight, and kept afterwards rather than
+        fetched again per build.
+        """
+        return self.data_dir / "models" / "aligner"
+
     def engine_options(self) -> dict:
         """Constructor arguments for the engine, from the environment."""
         return {"threads": self.threads} if self.threads else {}

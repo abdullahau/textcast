@@ -145,14 +145,21 @@ every other number in `decisions.md` is from), aligning real espeak-ng
 clips end to end, with `/proc/<pid>/maps` checked for `torch/lib` after
 each run:
 
-| | MMS_FA, `window_length=30` (a package default, unexamined) | MMS_FA, tuned window | **wav2vec2-base-960h, int8, tuned window (chosen)** |
-| --- | --- | --- | --- |
-| Align time, 5.2 s clip | 13.1 s | 3.2 s | **1.3 s** |
-| Align time, 18.2 s clip | — | — | **3.4 s (RTF 0.186)** |
-| Peak RSS | 2.4–3.1 GB | same | **570–830 MB** |
-| Params / file size | 300 M | same | **94 M, ~95 MB int8** |
-| License | CC-BY-NC 4.0 | same | **Apache-2.0** |
-| Word boundaries | baseline | — | within ~20–40 ms of MMS_FA's own |
+| | MMS_FA, `window_length=30` (a package default, unexamined) | MMS_FA, tuned window | wav2vec2-base-960h, compiled decoder, tuned window | **wav2vec2-base-960h, this module's own decoder (shipped)** |
+| --- | --- | --- | --- | --- |
+| Align time, 5.2 s clip | 13.1 s | 3.2 s | 1.3 s | **2.3 s (RTF 0.437)** |
+| Align time, 18.2 s clip | — | — | 3.4 s (RTF 0.186) | **6.6 s (RTF 0.361)** |
+| Peak RSS | 2.4–3.1 GB | same | 570–830 MB | **~661 MB** |
+| New dependencies | — | — | `ctc-forced-aligner` (+ `librosa`, `numba`, `scikit-learn`, `scipy`) | **none — `onnxruntime`/`numpy`/`requests` already ship** |
+| Params / file size | 300 M | same | 94 M, ~95 MB int8 | same |
+| License | CC-BY-NC 4.0 | same | Apache-2.0 | same |
+| Word boundaries | baseline | — | within ~20–40 ms of MMS_FA's own | within a few ms of the compiled decoder's own |
+
+The shipped decoder is slower than the compiled one (a Python loop over
+frames against a C++ extension) but still comfortably under real-time,
+and the dependency column is why it is the one that shipped: a pure
+Python/numpy Viterbi, verified against the compiled reference before
+being trusted, costs some CPU time and nothing else.
 
 **The model:** `onnx-community/wav2vec2-base-960h-ONNX`
 (`onnx/model_int8.onnx`), an export of Meta's own
@@ -165,21 +172,30 @@ article adds an estimated 4–6 minutes to a build that already takes
 9–11 — not the ~49 minutes MMS_FA's unexamined default would have
 cost.
 
-**What's reused from `ctc-forced-aligner` and what isn't.** Only the
-model-agnostic pieces: `generate_emissions` (windowing + ONNX inference,
-takes any session), `forced_align` (the compiled `.so` Viterbi decoder,
-takes any log-probs/targets/blank), `merge_repeats` (collapses a raw
-per-frame path into labelled segments). **Not** reused:
-`preprocess_text`/`get_alignments`/`get_spans`/`postprocess_results` —
-those encode MMS_FA's own vocabulary and word-boundary convention
-(implicit, via known word lengths). `wav2vec2-base-960h` predicts word
-boundaries explicitly, as its own `|` token, which is simpler to work
-with, not harder: tokenize the transcript as
-`uppercase, non-letters stripped, whitespace → "|"`, force-align the
-flat character sequence directly, then split the merged segments on
-`|`. This adapter — `textcast/tts/aligner.py` in the implementation —
-is under 60 lines and was written and run against real audio as part of
-this spec's verification, not left as a promise.
+**`ctc-forced-aligner` is not a dependency of the shipped code at all —
+only of the spike that found the model.** Its two ideas worth keeping,
+the windowing scheme and grouping a raw per-frame path into runs, are
+each under twenty lines; the one piece that looked like it needed the
+package — the compiled `.so` Viterbi decoder — turned out not to.
+`wav2vec2-base-960h` predicts word boundaries explicitly, as its own `|`
+token (unlike MMS_FA, which has none and must recover boundaries from
+each target word's known length instead), so the decoder is an ordinary
+CTC forced-alignment lattice: tokenize the transcript as
+`uppercase, non-letters stripped, whitespace → "|"`, run a one-best-path
+Viterbi over the emissions constrained to that exact character sequence,
+group the result on `|`. Implemented in plain numpy — vectorized across
+the small state dimension, a Python loop only over frames — in
+`textcast/tts/aligner.py`, and **verified against the compiled reference
+implementation before being trusted**: run on the same two clips, its
+word count matched exactly and its timestamps landed within a few
+milliseconds of the package's own decoder, at RTF 0.36–0.44 (slower
+than the compiled decoder's 0.19–0.29, still under real-time). The
+payoff is not just avoiding one package: `librosa`, its own dependency,
+pulls in `numba`, `scikit-learn` and `scipy`. The shipped code needs
+none of it — only `onnxruntime`, `numpy` and `requests`, all three
+already dependencies (`onnxruntime` ships in every real deployment via
+the `cpu`/`cuda` extras, which `CLAUDE.md` already calls non-optional).
+**This feature adds nothing to `pyproject.toml`.**
 
 **Why `window_length` is a design parameter, not the package's
 default.** `generate_emissions` zero-pads any clip shorter than
