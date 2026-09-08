@@ -386,6 +386,14 @@ def save_manifest(
             """,
             (manifest.total_ms, audio_bytes, manifest.engine, manifest.voice, article_id),
         )
+        # Word timings belong to the audio that was measured, and this build
+        # has just replaced it. Nothing else dropped them: a rebuild with
+        # `word_highlight` off queues no align job, so the previous build's
+        # words survived it and the reader highlighted them against a
+        # different voice's audio. Cleared for every block, not only the ones
+        # this manifest names -- a block dropped from the build by
+        # `included_kinds` is exactly one nothing else would reach.
+        conn.execute("UPDATE block SET words = NULL WHERE article_id = ?", (article_id,))
         for section in manifest.sections:
             conn.execute(
                 "UPDATE section SET file = ?, duration_ms = ? WHERE article_id = ? AND idx = ?",
@@ -501,7 +509,9 @@ def forget_audio(article_id: int, conn: sqlite3.Connection | None = None) -> Non
 
     For when the files are gone but the database still points at them — media
     deleted by hand, or a volume that did not come back. The timings are what
-    the player seeks by, so stale ones are worse than none.
+    the player seeks by, so stale ones are worse than none. All of them: the
+    word-level ones and `speech_start_ms` were left behind here for as long
+    as they have existed, which is the same fault one line up.
     """
     conn = conn or connect()
     with transaction(conn):
@@ -513,7 +523,12 @@ def forget_audio(article_id: int, conn: sqlite3.Connection | None = None) -> Non
             "UPDATE section SET file = NULL, duration_ms = 0 WHERE article_id = ?", (article_id,)
         )
         conn.execute(
-            "UPDATE block SET start_ms = NULL, dur_ms = NULL, speech_ms = NULL WHERE article_id = ?",
+            """
+            UPDATE block
+               SET start_ms = NULL, dur_ms = NULL, speech_ms = NULL,
+                   speech_start_ms = NULL, words = NULL
+             WHERE article_id = ?
+            """,
             (article_id,),
         )
 

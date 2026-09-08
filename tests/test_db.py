@@ -597,3 +597,62 @@ def test_a_like_wildcard_in_a_pattern_means_itself():
     assert _like_literal(r"back\slash") == r"back\\slash"
     assert _like_literal("EBITDA") == "EBITDA"
 
+
+
+def test_a_build_drops_the_word_timings_of_the_build_before_it(conn):
+    """`save_word_timings` is the only writer of block.words, and a rebuild
+    with word_highlight off queues no align job. Nothing dropped them, so the
+    previous build's word timings were served against the new audio -- a
+    different voice, a different length, the same rows."""
+    from textcast.audio import AudioManifest, BlockTiming, SectionAudio, WordTiming
+
+    article = Article(title="T", sections=[Section(title="S", blocks=[
+        Block(kind=BlockKind.PARA, text="Markets steadied on Thursday."),
+    ])]).renumber()
+    article_id = db.save_article(article, conn)
+
+    def manifest_of(voice: str, start_ms: int) -> AudioManifest:
+        return AudioManifest(
+            engine="fake", voice=voice, sample_rate=24000, bitrate="32k", total_ms=start_ms + 1000,
+            sections=[SectionAudio(idx=0, title="S", file="section-000.opus", duration_ms=1000,
+                blocks=[BlockTiming(id="b0-0", kind="para", start_ms=start_ms, dur_ms=1000,
+                                    speech_ms=900, speech_start_ms=start_ms)])],
+        )
+
+    first = manifest_of("v1", 0)
+    db.save_manifest(article_id, first, audio_bytes=1, conn=conn)
+    first.sections[0].blocks[0].words = [WordTiming(text="Markets", start_ms=10, dur_ms=100)]
+    db.save_word_timings(article_id, first, conn)
+    assert db.load_manifest(article_id, conn).sections[0].blocks[0].words
+
+    # A second build, another voice, no align job behind it.
+    db.save_manifest(article_id, manifest_of("v2", 500), audio_bytes=1, conn=conn)
+    assert db.load_manifest(article_id, conn).sections[0].blocks[0].words == []
+
+
+def test_forget_audio_drops_the_word_timings_too(conn):
+    """It exists because stale timings are worse than none, and left the
+    word-level ones and speech_start_ms behind."""
+    from textcast.audio import AudioManifest, BlockTiming, SectionAudio, WordTiming
+
+    article = Article(title="T", sections=[Section(title="S", blocks=[
+        Block(kind=BlockKind.PARA, text="Markets steadied on Thursday."),
+    ])]).renumber()
+    article_id = db.save_article(article, conn)
+    manifest = AudioManifest(
+        engine="fake", voice="v1", sample_rate=24000, bitrate="32k", total_ms=1000,
+        sections=[SectionAudio(idx=0, title="S", file="section-000.opus", duration_ms=1000,
+            blocks=[BlockTiming(id="b0-0", kind="para", start_ms=0, dur_ms=1000,
+                                speech_ms=900, speech_start_ms=40)])],
+    )
+    db.save_manifest(article_id, manifest, audio_bytes=1, conn=conn)
+    manifest.sections[0].blocks[0].words = [WordTiming(text="Markets", start_ms=10, dur_ms=100)]
+    db.save_word_timings(article_id, manifest, conn)
+
+    db.forget_audio(article_id, conn)
+
+    row = conn.execute(
+        "SELECT words, speech_start_ms FROM block WHERE article_id = ?", (article_id,)
+    ).fetchone()
+    assert row["words"] is None
+    assert row["speech_start_ms"] is None
