@@ -15,8 +15,12 @@
   --accent:    #18181b;   /* buttons and emphasis read as ink on paper */
   --accent-fg: #fafafa;
   --ring:      #a1a1aa;
-  --highlight: #ececef;   /* the read-along wash */
   --tick:      #18181b;   /* checkboxes and other small controls */
+  /* The read-along's own accent, kept apart from --tick: that one also
+     colours every checkbox in the app, and turning those blue was never
+     asked for. Same blue as --info, already this theme's "something is
+     live" colour. */
+  --read-accent: #2563eb;
   --knob:      #ffffff;   /* the theme switch's sliding knob */
   --info:      #2563eb;   /* status: not built yet */
   --good:      #16a34a;
@@ -51,8 +55,8 @@
     --accent:    #fafafa;   /* white accent on black */
     --accent-fg: #09090b;
     --ring:      #52525b;
-    --highlight: #26262d;
     --tick:      #60a5fa;
+    --read-accent: #60a5fa;
     --knob:      #52525b;
     --info:      #60a5fa;
     --good:      #4ade80;
@@ -75,8 +79,8 @@
   --accent:    #fafafa;
   --accent-fg: #09090b;
   --ring:      #52525b;
-  --highlight: #26262d;
   --tick:      #60a5fa;
+  --read-accent: #60a5fa;
   --knob:      #52525b;
   --info:      #60a5fa;
   --good:      #4ade80;
@@ -1148,23 +1152,34 @@ p.b { white-space: pre-line; }
 /* On black a wash alone disappears. The edge does the work, the wash
    confirms it, and the ring lifts it off the page. */
 .b.on {
-  background: var(--highlight);
-  border-left-color: var(--tick);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--tick) 22%, transparent),
+  background: color-mix(in srgb, var(--read-accent) 16%, var(--bg));
+  border-left-color: var(--read-accent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--read-accent) 22%, transparent),
               0 2px 10px rgb(0 0 0 / .18);
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
 }
 
 /* Word-level highlight, layered on top of the block's own wash -- not a
-   second version of it. `--accent` is the ink-on-paper emphasis colour
-   already used for a quote's border and a summary's; softened through
-   color-mix the same way `.b.on`'s own ring is, since a word this small
-   reads better as a tint than as a filled block. No transition on `.w`
-   itself: a word lights for well under a second, and animating that many
-   toggles a minute is wasted paint, not polish. */
+   second version of it. The same --read-accent blue as the block's own
+   border and ring, mixed stronger (38% against 16%) so the word reading
+   right now visibly stands out from the paragraph already marked as
+   playing, rather than the two blurring into one wash. No transition on
+   `.w` itself: a word lights for well under a second, and animating that
+   many toggles a minute is wasted paint, not polish. */
 .w.on {
-  background: color-mix(in srgb, var(--accent) 30%, transparent);
+  background: color-mix(in srgb, var(--read-accent) 38%, transparent);
   border-radius: 2px;
+  /* A quote block is the one place this box meets italic text, and an
+     italic glyph's ink does not fill its own advance-width box the way an
+     upright one does: the slant leans the first letter's stroke right of
+     where the box starts and carries the last letter's past where it
+     ends, so a tight-fitted background reads as "the space before is lit,
+     the last letter isn't". Padding grows the box past the optical
+     overhang on both edges; the matching negative margin keeps the
+     element's own layout width unchanged, so a word lighting up does not
+     nudge the rest of the line sideways. */
+  padding: 0 .12em;
+  margin: 0 -.12em;
 }
 
 .b .seek {
