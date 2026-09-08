@@ -234,3 +234,29 @@ def test_a_version_one_words_file_is_ignored_rather_than_trusted(tmp_path):
     assert all(
         w.start_ms < 999999 for s in manifest2.sections for b in s.blocks for w in b.words
     )
+
+
+def test_a_block_that_cannot_be_aligned_loses_the_last_build_s_words(tmp_path):
+    """`db.load_manifest` pre-fills every block's words from the last build,
+    and four paths return without touching them -- the block is gone, its
+    text is empty, its audio was swept, the aligner refused it.
+    `save_word_timings` wrote those straight back, so a block whose alignment
+    failed on the second build kept the first build's timings against the
+    second build's audio."""
+    from textcast.audio import WordTiming
+
+    article = sample_article()
+    cache = tmp_path / "cache"
+    manifest = render_article(article, FakeEngine(), tmp_path / "out", voice="v1", cache_dir=cache)
+
+    stale = [WordTiming(text="from the build before", start_ms=1, dur_ms=2)]
+    for section in manifest.sections:
+        for timing in section.blocks:
+            timing.words = list(stale)
+
+    # No cache at all, so every block takes the "its audio was swept" path.
+    align_article(article, manifest, FakeAligner(), voice="v1", cache_dir=tmp_path / "empty")
+
+    for section in manifest.sections:
+        for timing in section.blocks:
+            assert timing.words == [], f"{timing.id} kept the previous build's words"

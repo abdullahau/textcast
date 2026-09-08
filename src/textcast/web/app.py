@@ -2110,11 +2110,22 @@ def media(slug: str, name: str):
 # but it costs hours of synthesis.
 
 
+#: Suffixes DEFLATE cannot make smaller, because something already did.
+#: Opus is most of the audio export by weight.
+ALREADY_COMPRESSED = frozenset({".opus", ".pdf", ".docx", ".jpg", ".png", ".webp", ".gif", ".avif"})
+
+
 def _zip_response(files: Iterable[tuple[str, Path | bytes]], name: str) -> Response:
     """Build a zip in memory and hand it back as a download.
 
     The library is a few hundred megabytes at most, so nothing here streams.
-    Measure before that stops being true.
+    Measure before that stops being true -- and the measurement to make is
+    the *peak*, not the size: `getvalue()` copied the whole archive to hand
+    it on, so the audio export held it twice at once on top of whatever else
+    the process was doing. `getbuffer()` is a view of the same bytes.
+
+    The audio is already-compressed Opus, so DEFLATE only spends CPU to
+    match its own input. Stored, the zip is a container and nothing more.
     """
     import io
     import zipfile
@@ -2126,13 +2137,20 @@ def _zip_response(files: Iterable[tuple[str, Path | bytes]], name: str) -> Respo
             if isinstance(item, bytes):
                 archive.writestr(arcname, item)
             else:
-                archive.write(item, arcname)
+                how = (
+                    zipfile.ZIP_STORED
+                    if item.suffix.lower() in ALREADY_COMPRESSED
+                    else zipfile.ZIP_DEFLATED
+                )
+                archive.write(item, arcname, compress_type=how)
             empty = False
     if empty:
         raise HTTPException(status_code=404, detail="there is nothing to export")
 
     return Response(
-        buffer.getvalue(),
+        # A view of the archive, not a copy of it: `getvalue()` doubled the
+        # peak for the length of the response.
+        buffer.getbuffer(),
         media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="{name}"'},
     )

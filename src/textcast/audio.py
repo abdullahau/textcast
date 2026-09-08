@@ -678,6 +678,14 @@ def align_article(
     def align_one(timing: BlockTiming) -> None:
         nonlocal done
         block = _find_block(article, timing.id)
+        # Cleared first, because `db.load_manifest` pre-fills this from the
+        # last build's stored timings and four paths below return without
+        # touching it: the block is gone, its text is empty, its audio was
+        # swept, or the aligner refused it. `save_word_timings` then wrote
+        # those back, under a docstring promising the opposite -- so a block
+        # that failed on the second build kept the first build's timings
+        # against the second build's audio.
+        timing.words = []
         try:
             if block is None:
                 return  # not expected -- the manifest names a block this article no longer has
