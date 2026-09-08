@@ -304,21 +304,33 @@ def _generate_emissions(
 ) -> tuple[np.ndarray, float]:
     """Run the model over ``waveform``, windowed to the clip's own length.
 
-    ``window_length`` defaults to the clip's own duration (a two-second
-    floor, so a one-word block still gets the model's expected minimum
-    context) rather than a fixed constant either way: the alignment-cost
-    spike behind this module found the package's own 30-second default pads
-    a five-second block up to encoding 34 seconds of mostly silence, and
-    that a window much *smaller* than the clip re-pays its own 2-second
-    context on every extra window it needs, which is worse than one bigger
-    window for anything over a few seconds.
-    """
-    duration = len(waveform) / SAMPLE_RATE
-    window_length = window_length or max(2.0, duration)
-    context = int(context_s * SAMPLE_RATE)
-    window = int(window_length * SAMPLE_RATE)
+    ``window_length`` defaults to the clip's own length (a two-second floor,
+    so a one-word block still gets the model's expected minimum context)
+    rather than a fixed constant either way: the alignment-cost spike behind
+    this module found the package's own 30-second default pads a five-second
+    block up to encoding 34 seconds of mostly silence, and that a window much
+    *smaller* than the clip re-pays its own 2-second context on every extra
+    window it needs, which is worse than one bigger window for anything over
+    a few seconds.
 
-    extension = (-len(waveform)) % window if window else 0
+    So one window is the ordinary case and the multi-window path is only
+    reached by an explicit ``window_length``. It used to be reachable by
+    accident, which is how its arithmetic stayed wrong: see the two comments
+    below.
+    """
+    context = int(context_s * SAMPLE_RATE)
+    if window_length is None:
+        # The clip's own sample count, not `int(duration * SAMPLE_RATE)`.
+        # Dividing by the rate and multiplying back does not round-trip:
+        # for about one clip length in a hundred it truncated one sample
+        # short, which made `extension` nearly a whole window and split a
+        # clip that fits in one window across two -- silently, into the
+        # path below that then mistimed it.
+        window = max(2 * SAMPLE_RATE, len(waveform))
+    else:
+        window = max(1, int(window_length * SAMPLE_RATE))
+
+    extension = (-len(waveform)) % window
     padded = np.pad(waveform, (context, context + extension), mode="constant")
     n_windows = max(1, (len(padded) - 2 * context) // window)
 
@@ -326,24 +338,32 @@ def _generate_emissions(
     for i in range(n_windows):
         chunk = padded[i * window : i * window + window + 2 * context]
         outputs = session.run(["logits"], {"input_values": chunk[None, :].astype(np.float32)})
-        frames.append(outputs[0][0])
+        block = outputs[0][0]
+        # Each window's context is trimmed off here, from that window, not
+        # once from the ends of the concatenation. The context *between* two
+        # windows is interior to it and so was never removed at all, and the
+        # frames-per-second the outer trim measured with counted the run's
+        # context once for the whole run rather than once per window -- 1.5x
+        # out at two windows, which then over-trimmed both ends by that much.
+        edge = round(block.shape[0] * context / (window + 2 * context))
+        if edge and 2 * edge < block.shape[0]:
+            block = block[edge:-edge]
+        frames.append(block)
     emissions = np.concatenate(frames, axis=0)
 
+    # What is left covers `window * n_windows` samples: the clip, plus
+    # whatever silence `extension` padded the last window out with.
+    if extension and emissions.shape[0]:
+        drop = round(emissions.shape[0] * extension / (window * n_windows))
+        if 0 < drop < emissions.shape[0]:
+            emissions = emissions[:-drop]
+
+    if not emissions.shape[0]:
+        raise AlignmentError("windowing produced no frames")
     # Measured from this run's own output shape, not assumed from
     # `NOMINAL_STRIDE_MS`: windowing arithmetic (the padding, the context)
     # can shift the frame count by one or two either way, and a stride off
     # by even a few percent drifts a long block's timings visibly.
-    total_audio_s = window_length * n_windows + 2 * context_s
-    frames_per_sec = emissions.shape[0] / total_audio_s if total_audio_s else 0
-    context_frames = round(context_s * frames_per_sec)
-    if context_frames:
-        emissions = emissions[context_frames:-context_frames]
-    extension_frames = round(extension / SAMPLE_RATE * frames_per_sec)
-    if extension_frames:
-        emissions = emissions[:-extension_frames]
-
-    if not emissions.shape[0]:
-        raise AlignmentError("windowing produced no frames")
     stride_ms = len(waveform) * 1000 / emissions.shape[0] / SAMPLE_RATE
     log_probs = emissions - np.log(np.sum(np.exp(emissions), axis=-1, keepdims=True))
     return log_probs.astype(np.float32), stride_ms

@@ -25,6 +25,7 @@ from textcast.document import Block, BlockKind
 from textcast.ingest import parse_html
 from textcast.sourcemap import words as sm_words
 from textcast.tts.aligner import (
+    SAMPLE_RATE,
     AlignmentError,
     _merge_repeats,
     _viterbi_align,
@@ -177,6 +178,69 @@ def test_viterbi_raises_rather_than_guessing_when_no_path_fits():
     log_probs = _emissions_favoring([0, 1, 2], vocab_size=4)
     with pytest.raises(AlignmentError):
         _viterbi_align(log_probs, np.array([1, 2, 3, 1, 2]), blank=0)
+
+
+class RampSession:
+    """A stand-in for the ONNX session, with a known right answer.
+
+    One frame per 320 samples, and each frame votes for the quarter of the
+    0..1 ramp its own samples sit in. Run over a ramp, the argmax sequence
+    that comes back must climb 0,1,2,3 and never go backwards -- so a frame
+    returned twice, or a stretch of a window trimmed that should not have
+    been, shows up as a step down.
+    """
+
+    stride = 320
+
+    def run(self, names, feed):
+        chunk = feed["input_values"][0]
+        n = len(chunk) // self.stride
+        out = np.full((max(n, 1), 4), -10.0, dtype=np.float32)
+        for i in range(n):
+            mean = float(chunk[i * self.stride : (i + 1) * self.stride].mean())
+            out[i, min(3, max(0, int(mean * 4)))] = 10.0
+        return [out[None, ...]]
+
+
+def test_windowing_hands_back_each_stretch_of_the_clip_once():
+    """The multi-window path never trimmed the context *between* two
+    windows -- it is interior to the concatenation, and only the two ends
+    were cut -- and measured frames-per-second by counting the run's context
+    once for the whole run rather than once per window, 1.5x out at two
+    windows. Both were silent: the decode still found a path, and the block
+    got wrong timings rather than falling back."""
+    from textcast.tts.aligner import _generate_emissions
+
+    waveform = np.linspace(0.0, 1.0, 6 * SAMPLE_RATE, dtype=np.float32)
+    emissions, stride_ms = _generate_emissions(RampSession(), waveform, window_length=2.0)
+
+    steps = np.argmax(emissions, axis=1)
+    assert np.all(np.diff(steps) >= 0), "the clip came back out of order or twice over"
+    assert set(steps.tolist()) == {0, 1, 2, 3}, "a stretch of the clip went missing"
+    assert 15.0 < stride_ms < 25.0, stride_ms
+
+
+def test_a_clip_that_fits_one_window_is_never_split_across_two():
+    """`int(len(waveform) / SAMPLE_RATE * SAMPLE_RATE)` does not round-trip.
+    For about one clip length in a hundred it came back one sample short, so
+    `extension` became nearly a whole window and a clip that fits in one
+    window was split across two -- into the path above, which then mistimed
+    it."""
+    from textcast.tts.aligner import _generate_emissions
+
+    session = RampSession()
+    for samples in (2 * SAMPLE_RATE + 1, 2 * SAMPLE_RATE + 4, 3 * SAMPLE_RATE + 7):
+        calls = []
+        session.run = lambda names, feed, _c=calls: (
+            _c.append(1), RampSession.run(session, names, feed)
+        )[1]
+        emissions, _stride = _generate_emissions(
+            session, np.linspace(0.0, 1.0, samples, dtype=np.float32)
+        )
+        assert len(calls) == 1, f"{samples} samples ran the model {len(calls)} times"
+        steps = np.argmax(emissions, axis=1)
+        assert np.all(np.diff(steps) >= 0)
+        del session.run
 
 
 def test_viterbi_keeps_one_row_of_scores_not_one_per_frame():
