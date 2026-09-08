@@ -98,12 +98,19 @@ def _ensure_file(path: Path, url: str) -> None:
     # half-written file. Same reason `audio._speak`'s cache write does this.
     tmp = path.with_suffix(f".{os.getpid()}.part")
     log.info("fetching %s", url)
-    with requests.get(url, stream=True, timeout=180) as resp:
-        resp.raise_for_status()
-        with open(tmp, "wb") as f:
-            for chunk in resp.iter_content(chunk_size=1 << 20):
-                f.write(chunk)
-    tmp.replace(path)
+    try:
+        with requests.get(url, stream=True, timeout=180) as resp:
+            resp.raise_for_status()
+            with open(tmp, "wb") as f:
+                for chunk in resp.iter_content(chunk_size=1 << 20):
+                    f.write(chunk)
+        tmp.replace(path)
+    except BaseException:
+        # Nothing sweeps this directory: `cache.sweep_cache` walks the block
+        # cache, and a part file left by a failed download sat here for ever
+        # holding whatever it had managed to write of a 90 MB model.
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 _NOT_TARGET_CHARS = re.compile(r"[^A-Za-z' ]")
@@ -365,7 +372,14 @@ def _generate_emissions(
     # can shift the frame count by one or two either way, and a stride off
     # by even a few percent drifts a long block's timings visibly.
     stride_ms = len(waveform) * 1000 / emissions.shape[0] / SAMPLE_RATE
-    log_probs = emissions - np.log(np.sum(np.exp(emissions), axis=-1, keepdims=True))
+    # The row's own maximum comes out before the exponential and goes back in
+    # after. Without it `np.exp` is handed the raw logits, and a float32 exp
+    # overflows to `inf` above about 88 -- which makes the whole row `-inf`
+    # and turns a block the model read perfectly well into an
+    # `AlignmentError`. Nothing has been seen to reach that, and the standard
+    # form costs one subtraction to stop wondering.
+    peak = np.max(emissions, axis=-1, keepdims=True)
+    log_probs = emissions - (peak + np.log(np.sum(np.exp(emissions - peak), axis=-1, keepdims=True)))
     return log_probs.astype(np.float32), stride_ms
 
 

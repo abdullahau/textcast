@@ -199,6 +199,15 @@ async def _ingest_key_in_request(request: Request) -> bool:
         ("application/x-www-form-urlencoded", "multipart/form-data")
     ):
         return False
+    # Parsing the form is where an unauthenticated body starts costing
+    # something: the multipart parser spools every part before the token
+    # below has been compared at all. `BodySizeLimit` bounds a body that says
+    # how big it is; a chunked one says nothing, so one that has not declared
+    # itself is refused here rather than read to find out. Every browser and
+    # the Shortcut send a Content-Length on a form post, so nothing that
+    # belongs here is turned away.
+    if not request.headers.get("content-length", "").isdigit():
+        return False
     form = await request.form()
     offered = form.get("token")
     return isinstance(offered, str) and secrets.compare_digest(offered, current.ingest_key)

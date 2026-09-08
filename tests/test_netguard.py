@@ -126,3 +126,48 @@ def test_a_redirect_loop_gives_up_rather_than_following_it_forever(monkeypatch):
     )
     with pytest.raises(netguard.UnsafeURL):
         netguard.get("http://93.184.216.34/")
+
+
+def test_a_streamed_body_survives_the_session_being_closed(monkeypatch):
+    """`get` closes its session on the way out, and the two callers that
+    matter both stream: `pictures._download` and `service.fetch` read the
+    body a chunk at a time after this function has returned.
+
+    Closing a Session clears its connection *pools*; a connection checked out
+    by a response that has not been read is not in a pool. This test is what
+    says so rather than the docstring, because getting it wrong would break
+    every fetch in the app.
+    """
+    import http.server
+    import threading
+
+    body = b"x" * (256 * 1024)
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    port = server.server_address[1]
+    # The address checks are what this test is not about; it is about the
+    # session outliving `get` for exactly as long as the response needs it.
+    monkeypatch.setattr(netguard, "_is_public", lambda ip: True)
+
+    try:
+        response = netguard.get(f"http://127.0.0.1:{port}/page", stream=True, timeout=10)
+        with response:
+            read = b"".join(response.iter_content(16 * 1024))
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    assert read == body

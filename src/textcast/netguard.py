@@ -103,22 +103,33 @@ class _PinnedAdapter(HTTPAdapter):
 
 def get(url: str, **kwargs) -> requests.Response:
     """`requests.get`, with every hop — including a redirect's — resolved,
-    checked, and pinned to the address `_resolve` just validated."""
+    checked, and pinned to the address `_resolve` just validated.
+
+    The session is closed on every path out, including the one that returns a
+    body still being streamed: closing a `Session` releases its connection
+    pools and does not touch a response already read from one, and the caller
+    holds the response. It used to be dropped on the floor instead, which
+    left the whole pool to whenever the collector got to it, and mounted a
+    fresh adapter per redirect hop on top.
+    """
     kwargs["allow_redirects"] = False
     session = requests.Session()
-    for _ in range(MAX_REDIRECTS + 1):
-        parsed = _http_url(url)
-        ip = _resolve(parsed.hostname, url)[0]
-        https = parsed.scheme == "https"
-        session.mount(
-            f"{parsed.scheme}://", _PinnedAdapter(parsed.hostname, ip, https)
-        )
-        response = session.get(url, **kwargs)
-        if not response.is_redirect:
-            return response
-        location = response.headers.get("Location")
-        response.close()
-        if not location:
-            raise UnsafeURL(f"refused {url}: redirect with no location")
-        url = urljoin(url, location)
-    raise UnsafeURL(f"refused {url}: too many redirects")
+    try:
+        for _ in range(MAX_REDIRECTS + 1):
+            parsed = _http_url(url)
+            ip = _resolve(parsed.hostname, url)[0]
+            https = parsed.scheme == "https"
+            session.mount(
+                f"{parsed.scheme}://", _PinnedAdapter(parsed.hostname, ip, https)
+            )
+            response = session.get(url, **kwargs)
+            if not response.is_redirect:
+                return response
+            location = response.headers.get("Location")
+            response.close()
+            if not location:
+                raise UnsafeURL(f"refused {url}: redirect with no location")
+            url = urljoin(url, location)
+        raise UnsafeURL(f"refused {url}: too many redirects")
+    finally:
+        session.close()

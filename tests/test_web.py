@@ -2153,3 +2153,29 @@ def test_every_picture_gets_the_same_headers_not_only_the_svgs(client, settings)
     assert reply.headers["content-type"].startswith("image/png")
     assert "sandbox" in reply.headers["content-security-policy"]
 
+
+
+def test_an_undeclared_body_is_refused_before_its_form_is_parsed(client, settings):
+    """The key is compared *after* the form is parsed, and the multipart
+    parser spools every part it is given. `BodySizeLimit` bounds a body that
+    declares its size; a chunked one declares nothing, so an unauthenticated
+    caller could make the app spool whatever it liked before being told no.
+
+    A browser and the Shortcut both send a Content-Length on a form post, so
+    the good path is unaffected -- the test above proves that one still
+    works.
+    """
+    account = sign_in_required(settings)
+
+    def chunks():
+        yield b"kind=text&title=Chunked&text=A+paragraph.&token="
+        yield account.ingest_key.encode()
+
+    response = client.post(
+        "/api/ingest",
+        content=chunks(),   # httpx sends a generator with Transfer-Encoding: chunked
+        headers={"content-type": "application/x-www-form-urlencoded"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 401, response.text

@@ -299,3 +299,26 @@ def test_merge_repeats_and_words_from_segments_split_on_the_boundary_token():
     assert [w.text for w in words] == ["THE", "A"]
     assert words[0].start_ms == 0
     assert words[1].start_ms > words[0].end_ms
+
+
+def test_normalising_the_emissions_survives_a_logit_a_float32_exp_cannot_hold():
+    """`exp` on the raw logits overflows to inf above about 88 in float32,
+    which makes the whole row -inf and turns a block the model read perfectly
+    well into an AlignmentError. Nothing has been seen to reach that; the
+    standard max-subtracted form costs one subtraction."""
+    from textcast.tts.aligner import _generate_emissions
+
+    class HotSession(RampSession):
+        def run(self, names, feed):
+            out = super().run(names, feed)[0]
+            out += 120.0     # far past what float32 exp can hold
+            return [out]
+
+    waveform = np.linspace(0.0, 1.0, 3 * SAMPLE_RATE, dtype=np.float32)
+    log_probs, _stride = _generate_emissions(HotSession(), waveform)
+
+    assert np.all(np.isfinite(log_probs)), "the normalisation overflowed"
+    assert np.all(log_probs <= 0.0), "a log probability above one"
+    # Still a probability distribution, to float32's own tolerance.
+    total = np.sum(np.exp(log_probs.astype(np.float64)), axis=-1)
+    assert np.allclose(total, 1.0, atol=1e-4)
