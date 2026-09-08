@@ -400,12 +400,25 @@ real article — that is what remains for task 8):
   1,535 MB (Kokoro, shared), this is the same order of magnitude as one
   more engine, not a new tier of cost.
 
-**Still to measure, task 8:** a real article, both engines, with
-`window_length` sized per block as designed rather than by hand per
-clip — to confirm the per-block sizing logic behaves as well in
-aggregate as it did on two hand-picked clips, and to get the one number
-that decides the default: total build time with `word_highlight` on
-vs. off, on a representative article.
+**Task 8, done — real article, real numbers, in `docs/decisions.md`.**
+4,893 words, 59 blocks, 31.0 minutes of audio (`tests/corpus`, "A
+Drug-Trial Stock Sale"): build 21.4 min (RTF 0.691, measured under a
+confound — a real rebuild happened to share the box's four cores at
+the same time), align 13.2 min (RTF 0.425, matching the short-clip
+number, so that generalises). Align added 62% to this article's total
+processing time. All 59 blocks aligned. Peak RSS during align (2.58 GB)
+came in well above the short-clip estimate — the aligner does not
+release memory between blocks the way the build worker's own engine
+pool already does, and this is flagged in `decisions.md` as worth
+fixing, not yet done.
+
+**Decision:** `word_highlight` stays off by default. A 62% increase in
+total processing time is a real cost for every article, not a rounding
+error a bigger article would make disappear — this is a call for
+whoever runs the build to make deliberately, per article or as their
+own default, not one to flip silently now that a number exists. The
+Voice/settings page has no control for it yet; that is the next real
+gap, not the RTF.
 
 ---
 
