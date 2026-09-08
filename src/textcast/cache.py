@@ -14,7 +14,7 @@ import time
 from pathlib import Path
 
 from . import db
-from .audio import CACHE_SUFFIX, _cache_key
+from .audio import CACHE_SUFFIX, WORDS_CACHE_SUFFIX, _cache_key
 from .document import Block, BlockKind
 from .prefs import voice_defaults
 from .settings import Settings, get_settings
@@ -81,6 +81,12 @@ def cached_renders(article_id: int, conn, settings: Settings) -> list[Path]:
     paragraph share one render. Keys any *other* article still wants are held
     back, or dropping one article's audio would silently cost another its
     cheap rebuild.
+
+    Two files per key, when both exist: the audio itself, and its word-level
+    timings, which share a key because they are both a function of exactly
+    the same inputs (engine, voice, rate, spoken text). Listed together so a
+    caller deleting one article's audio does not leave the other behind for
+    the next sweep to find.
     """
     chosen = voice_defaults(conn, settings)
     mine = cache_keys(article_id, conn, settings, chosen)
@@ -89,7 +95,11 @@ def cached_renders(article_id: int, conn, settings: Settings) -> list[Path]:
         if not mine:
             # Every render this article reads is read by another one too.
             break
-    return [settings.cache_dir / f"{key}{CACHE_SUFFIX}" for key in sorted(mine)]
+    paths = []
+    for key in sorted(mine):
+        paths.append(settings.cache_dir / f"{key}{CACHE_SUFFIX}")
+        paths.append(settings.cache_dir / f"{key}{WORDS_CACHE_SUFFIX}")
+    return paths
 
 
 def sweep_cache(
@@ -125,8 +135,7 @@ def sweep_cache(
             # request, and a build may be part-way through writing one.
             if not _is_stale(path):
                 continue
-        # A file from an older format is unreachable whatever its name says.
-        elif path.stem in wanted and path.suffix == CACHE_SUFFIX:
+        elif _reachable(path, wanted):
             continue
         try:
             freed += path.stat().st_size
@@ -137,6 +146,20 @@ def sweep_cache(
     if removed:
         log.info("swept %d orphaned renders, freed %s", removed, _size(freed))
     return removed, freed
+
+
+def _reachable(path: Path, wanted: set[str]) -> bool:
+    """Whether a cache file's key is still wanted.
+
+    Checked for both suffixes a block's render can carry: the audio itself
+    (`.i16`) and its word-level timings (`.words.json`), which share one key
+    because both are a function of exactly the same inputs. A file whose
+    name matches neither shape is from an older format and unreachable
+    whatever its name says.
+    """
+    if path.name.endswith(WORDS_CACHE_SUFFIX):
+        return path.name[: -len(WORDS_CACHE_SUFFIX)] in wanted
+    return path.suffix == CACHE_SUFFIX and path.stem in wanted
 
 
 #: How long a `.part` must have sat still before it counts as abandoned. One
