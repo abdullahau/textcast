@@ -806,9 +806,9 @@ def build_payload(article_id: int) -> dict:
     by_section: dict[int, list] = {}
     for b in blocks:
         # Delta-encoded against the block's own start_ms to keep the payload
-        # small on a long article -- word_highlight is off by default, so
-        # most blocks carry an empty array rather than nothing at all, which
-        # is what lets the player treat "aligned" and "not yet" the same way.
+        # small on a long article. A block with no alignment carries an
+        # empty array rather than nothing at all, which is what lets the
+        # player treat "aligned" and "not yet" the same way.
         words = [
             [text, start_ms - b["start_ms"], dur_ms]
             for text, start_ms, dur_ms in json.loads(b["words"])
@@ -955,7 +955,7 @@ def reader(
     payload = build_payload(row["id"])
     # word_wrap needs only the text of each merged word, in order -- the
     # same payload the player gets, not a second query. A block missing
-    # here (never aligned, or word_highlight off) gets today's plain
+    # here (never aligned, or highlighting skipped) gets today's plain
     # rendering; word_wrap's own fallback is what makes that "just works".
     words_by_block = {
         b[0]: [w[0] for w in b[3]]
@@ -1561,7 +1561,7 @@ def _build_options(
     skip_visuals: bool = False,
     speed: str = "",
     engine: str = "",
-    word_highlight: bool = False,
+    skip_word_highlight: bool = False,
 ) -> dict:
     """Only what was actually chosen; blanks mean "use the default".
 
@@ -1592,8 +1592,8 @@ def _build_options(
         options["skip_visuals"] = True
     if summarize:
         options["summarize"] = True
-    if word_highlight:
-        options["word_highlight"] = True
+    if skip_word_highlight:
+        options["skip_word_highlight"] = True
     return options
 
 
@@ -1785,12 +1785,12 @@ def api_rebuild(
     skip_visuals: bool = Form(default=False),
     speed: str = Form(default=""),
     engine: str = Form(default=""),
-    word_highlight: bool = Form(default=False),
+    skip_word_highlight: bool = Form(default=False),
 ):
     options = _build_options(
         voice, quote_voice, skip_footnotes, skip_summaries=skip_summaries,
         skip_visuals=skip_visuals, speed=speed, engine=engine,
-        word_highlight=word_highlight,
+        skip_word_highlight=skip_word_highlight,
     )
     # Remember the choice, so a later rebuild does not silently revert.
     db.set_build_options(article_id, options)

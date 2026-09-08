@@ -35,10 +35,12 @@ class Defaults:
     voice: str
     quote_voice: str
     speed: float
-    #: Off by default -- not because the measured cost is bad, but because
-    #: every number so far is from short synthetic clips, not a real built
-    #: article; see docs/superpowers/specs/2026-09-08-word-level-highlighting-design.md.
-    word_highlight: bool = False
+    #: On unless it is switched off. It was off to begin with, when the only
+    #: numbers were from short synthetic clips; a real article measured at
+    #: about a fifth more build time, which is cheap enough that the
+    #: read-along should simply be there. An article turns it off for itself
+    #: with `skip_word_highlight`.
+    word_highlight: bool = True
 
     @property
     def speed_label(self) -> str:
@@ -74,7 +76,9 @@ def voice_defaults(conn=None, settings: Settings | None = None) -> Defaults:
         voice=_stored(KEY_VOICE, conn) or settings.voice,
         quote_voice=_stored(KEY_QUOTE_VOICE, conn) or settings.quote_voice,
         speed=min(MAX_SPEED, max(MIN_SPEED, speed_value)),
-        word_highlight=_stored(KEY_WORD_HIGHLIGHT, conn) == "1",
+        # `!= "0"`, not `== "1"`: unset means "never chosen", and the
+        # answer for that is now the default rather than off.
+        word_highlight=_stored(KEY_WORD_HIGHLIGHT, conn) != "0",
     )
 
 

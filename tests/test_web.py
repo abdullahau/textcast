@@ -569,9 +569,10 @@ def test_the_voice_page_saves_the_word_highlight_default(client, conn):
     assert prefs.voice_defaults(conn).word_highlight is False
 
 
-def test_rebuilding_one_article_can_turn_word_highlight_on_without_touching_the_default(
-    client, conn
-):
+def test_one_article_can_skip_word_highlighting_without_touching_the_default(client, conn):
+    """The same shape as the three skips beside it on the form: checked
+    writes an override this article keeps, unchecked writes nothing and
+    defers to the Voice page."""
     from textcast import prefs
     from textcast.document import Article, Block, BlockKind, Section
 
@@ -580,27 +581,15 @@ def test_rebuilding_one_article_can_turn_word_highlight_on_without_touching_the_
     ])]).renumber()
     article_id = db.save_article(doc, conn)
 
-    client.post(f"/api/articles/{article_id}/rebuild", data={"word_highlight": "true"})
+    client.post(f"/api/articles/{article_id}/rebuild", data={"skip_word_highlight": "true"})
 
-    options = db.get_build_options(article_id, conn)
-    assert options.get("word_highlight") is True
+    assert db.get_build_options(article_id, conn).get("skip_word_highlight") is True
     # The site-wide default is untouched -- this was one article's own choice.
-    assert prefs.voice_defaults(conn).word_highlight is False
+    assert prefs.voice_defaults(conn).word_highlight is True
 
-
-def test_rebuilding_without_the_checkbox_clears_a_previous_per_article_override(client, conn):
-    from textcast.document import Article, Block, BlockKind, Section
-
-    doc = Article(title="Reverts to the default", sections=[Section(title="One", blocks=[
-        Block(kind=BlockKind.PARA, text="The body of it."),
-    ])]).renumber()
-    article_id = db.save_article(doc, conn)
-
-    client.post(f"/api/articles/{article_id}/rebuild", data={"word_highlight": "true"})
-    assert db.get_build_options(article_id, conn).get("word_highlight") is True
-
+    # And unchecking it hands the article back to the default.
     client.post(f"/api/articles/{article_id}/rebuild", data={})
-    assert "word_highlight" not in db.get_build_options(article_id, conn)
+    assert "skip_word_highlight" not in db.get_build_options(article_id, conn)
 
 
 def test_a_saved_default_reaches_the_pages_that_offer_it(client, conn):

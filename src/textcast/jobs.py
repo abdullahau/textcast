@@ -653,8 +653,14 @@ class Worker:
         # own options rather than being re-read from defaults when align
         # runs, or a default changed in between would align against audio
         # built with different settings than the ones actually in force now.
-        word_highlight = bool(options.get("word_highlight", chosen.word_highlight))
-        if word_highlight:
+        #
+        # The article's own option is a *skip*, the same shape as the three
+        # beside it on the build form: set, it turns highlighting off for
+        # this article; absent, the Voice page's default decides, and that
+        # default is now on. An article carrying the older `word_highlight`
+        # key from before the sense flipped is simply one with no skip on
+        # it, which is the same answer the default gives.
+        if not options.get("skip_word_highlight", not chosen.word_highlight):
             db.enqueue(
                 article_id, kind="align",
                 options={"voice": voice, "quote_voice": quote_voice or "", "speed": speed},

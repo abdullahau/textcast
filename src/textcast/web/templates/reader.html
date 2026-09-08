@@ -124,13 +124,13 @@
         </div>
       </div>
       <div class="row mt-07">
-        <div class="titled narrow">
-          <label class="check"><input type="checkbox" name="word_highlight" value="true" {{ 'checked' if build.get('word_highlight') }}> Highlight words</label>
-          <span class="tip"><button type="button" class="q" aria-label="What word highlighting costs">?</button><span class="tip-body" role="tooltip">Adds about a fifth more time to this build. The Voice page sets the default; this checkbox is for this build alone.</span></span>
-        </div>
         <label class="check"><input type="checkbox" name="skip_footnotes" value="true" {{ 'checked' if build.get('skip_footnotes') }}> Skip footnotes</label>
         <label class="check"><input type="checkbox" name="skip_summaries" value="true" {{ 'checked' if build.get('skip_summaries') }}> Skip summaries</label>
         <label class="check"><input type="checkbox" name="skip_visuals" value="true" {{ 'checked' if build.get('skip_visuals') }}> Skip figure captions</label>
+        <div class="titled narrow">
+          <label class="check"><input type="checkbox" name="skip_word_highlight" value="true" {{ 'checked' if build.get('skip_word_highlight') }}> Skip word highlighting</label>
+          <span class="tip"><button type="button" class="q" aria-label="What skipping word highlighting saves">?</button><span class="tip-body" role="tooltip">The read-along lights each word as it is spoken. Making it costs about a fifth more build time, so it is on unless you skip it here. The Voice page sets the default for every article.</span></span>
+        </div>
       </div>
       <div class="row mt-09">
         <button class="narrow" type="submit">

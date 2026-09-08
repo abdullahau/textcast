@@ -1799,38 +1799,31 @@ def test_a_hint_opens_on_a_tap_that_does_not_focus_its_button(hints_page):
     ) == "true"
 
 
-def test_tapping_the_same_hint_again_closes_it(hints_page):
+def test_a_hint_closes_again_the_three_ways_it_can(hints_page):
+    """One test for the dismiss paths, because they are one mechanism: the
+    handler tracks a single open tip and clears it. A tap inside the bubble
+    is reading it -- they carry bold runs and the odd link -- not dismissing
+    it."""
     tap_without_focus(hints_page)
-    assert shown(hints_page)
     tap_without_focus(hints_page)
-    assert not shown(hints_page), "a second tap left it open"
+    assert not shown(hints_page), "a second tap on the same button left it open"
 
-
-def test_opening_one_hint_closes_the_one_before_it(hints_page):
     tap_without_focus(hints_page, 0)
     tap_without_focus(hints_page, 1)
     assert not shown(hints_page, 0), "two hints were open at once"
-    assert shown(hints_page, 1)
 
-
-def test_a_tap_outside_closes_a_hint_and_one_inside_does_not(hints_page):
-    tap_without_focus(hints_page)
-    hints_page.evaluate(
-        "() => document.querySelector('.tip-body').click()"   # reading it
-    )
+    hints_page.evaluate("() => document.querySelectorAll('.tip-body')[1].click()")
     hints_page.wait_for_timeout(120)
-    assert shown(hints_page), "reading the bubble dismissed it"
+    assert shown(hints_page, 1), "reading the bubble dismissed it"
 
     hints_page.evaluate("() => document.querySelector('h1').click()")
     hints_page.wait_for_timeout(120)
-    assert not shown(hints_page), "a tap outside left it open"
+    assert not shown(hints_page, 1), "a tap outside left it open"
 
-
-def test_escape_closes_a_hint(hints_page):
     tap_without_focus(hints_page)
     hints_page.keyboard.press("Escape")
     hints_page.wait_for_timeout(120)
-    assert not shown(hints_page)
+    assert not shown(hints_page), "Escape left it open"
 
 
 def test_a_hint_on_a_phone_opens_in_front_of_the_player(live, browser):

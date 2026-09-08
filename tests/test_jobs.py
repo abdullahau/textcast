@@ -553,12 +553,48 @@ def test_a_build_enqueues_an_align_job_when_word_highlight_is_on(conn, settings)
 
 
 @pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not installed")
-def test_a_build_does_not_enqueue_an_align_job_by_default(conn, settings):
-    stored = ingest(text=LONG_NOTE, title="Not highlighted")
+def test_a_build_enqueues_an_align_job_by_default(conn, settings):
+    """Word highlighting is on unless something turns it off. It began the
+    other way round, when the only cost figures were from short synthetic
+    clips; a real article measured at about a fifth more build time."""
+    stored = ingest(text=LONG_NOTE, title="Highlighted")
     worker = Worker(settings)
     stub_pool(worker)
 
     assert worker.step() is True  # the build
+
+    align_job = conn.execute(
+        "SELECT 1 FROM job WHERE article_id = ? AND kind = 'align'", (stored.article_id,)
+    ).fetchone()
+    assert align_job is not None
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not installed")
+def test_an_article_that_skips_highlighting_enqueues_no_align_job(conn, settings):
+    stored = ingest(text=LONG_NOTE, title="Not highlighted", build=False)
+    db.set_build_options(stored.article_id, {"skip_word_highlight": True}, conn)
+    db.enqueue(stored.article_id, kind="build", conn=conn)
+    worker = Worker(settings)
+    stub_pool(worker)
+
+    assert worker.step() is True
+
+    align_job = conn.execute(
+        "SELECT 1 FROM job WHERE article_id = ? AND kind = 'align'", (stored.article_id,)
+    ).fetchone()
+    assert align_job is None
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not installed")
+def test_turning_the_default_off_stops_every_build_asking_for_one(conn, settings):
+    from textcast import prefs
+
+    prefs.save_voice_defaults(conn, word_highlight=False)
+    stored = ingest(text=LONG_NOTE, title="Default off")
+    worker = Worker(settings)
+    stub_pool(worker)
+
+    assert worker.step() is True
 
     align_job = conn.execute(
         "SELECT 1 FROM job WHERE article_id = ? AND kind = 'align'", (stored.article_id,)
@@ -568,9 +604,6 @@ def test_a_build_does_not_enqueue_an_align_job_by_default(conn, settings):
 
 @pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not installed")
 def test_the_align_job_fills_in_block_words_and_speech_start_ms(conn, settings):
-    from textcast import prefs
-
-    prefs.save_voice_defaults(conn, word_highlight=True)
     stored = ingest(text=LONG_NOTE, title="End to end")
     worker = Worker(settings)
     stub_pool(worker)
