@@ -14,6 +14,8 @@ import re
 from dataclasses import asdict, dataclass, field
 from enum import StrEnum
 
+from .sourcemap import TrackedText
+
 
 class BlockKind(StrEnum):
     HEADING = "heading"
@@ -86,6 +88,28 @@ class Block:
         if self.kind is BlockKind.QUOTE and quote_markers:
             return f"Start quote. {spoken} End quote."
         return spoken
+
+    def spoken_tracked(
+        self,
+        quote_markers: bool = True,
+        g2p: str = "misaki",
+        phonemes: bool = True,
+    ) -> TrackedText:
+        """``spoken()``, carrying a record of which displayed word produced
+        each spoken one — for word-level highlighting, not for synthesis.
+
+        Must produce the same ``.text`` as ``spoken()`` given the same
+        arguments; the two are tested against each other for exactly that
+        reason. The quote markers get no displayed origin, the same as a
+        footnote's own inserted label — there is nothing on the page for
+        "Start quote" to highlight.
+        """
+        from .normalize import normalize_tracked
+
+        tracked = normalize_tracked(self.text, g2p=g2p, phonemes=phonemes)
+        if self.kind is BlockKind.QUOTE and quote_markers:
+            return tracked.wrap(prefix="Start quote. ", suffix=" End quote.")
+        return tracked
 
 
 @dataclass

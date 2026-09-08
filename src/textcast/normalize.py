@@ -17,6 +17,7 @@ from __future__ import annotations
 import re
 
 from . import pronounce
+from .sourcemap import TrackedText, tracked_replace, tracked_strip, tracked_sub
 
 CURRENCIES = {
     "$": "dollars",
@@ -307,6 +308,30 @@ EMOJI = re.compile(
 #: A line ending without terminal punctuation, followed by a blank line.
 PARAGRAPH_BREAK = re.compile(r"([^\s.!?:;\"'\u2019\u201d)\]])[ \t]*\n\s*\n\s*")
 
+#: An en dash with a digit on each side is a range; named here (rather than
+#: left as the literal in `normalize`) so `normalize_tracked` can share it.
+EN_DASH_RANGE = re.compile(r"(?<=\d)\s?\u2013\s?(?=\d)")
+
+#: The smart-punctuation swaps `normalize` applies with `str.replace`.
+#: A tuple, not a dict, so multi-character entries are never mangled by an
+#: earlier one and order is guaranteed \u2014 matching the sequence `normalize`
+#: itself replaces them in.
+SMART_PUNCTUATION = (
+    ("\u2014", ", "),
+    ("\u2013", ", "),
+    ("\u2026", "..."),
+    ("\u201c", '"'),
+    ("\u201d", '"'),
+    ("\u2019", "'"),
+    ("\u2018", "'"),
+)
+
+#: Tightened after the em/en dash swap can leave " , ", and the space before
+#: ordinary punctuation the rules above may have left behind.
+_TIGHTEN_PUNCT = re.compile(r"\s+([,;:!?])")
+_TIGHTEN_STOP = re.compile(r"(?<!\.)\s+\.(?!\.)")
+_MULTI_SPACE = re.compile(r"\s{2,}")
+
 
 def normalize(
     text: str,
@@ -380,16 +405,9 @@ def normalize(
     # "the best tip – not because ... but because" -- it is standing in for
     # an em dash, spaced the way British and newsletter style does it, and
     # gets the same comma an em dash gets. Digits decide which one it is.
-    text = re.sub(r"(?<=\d)\s?–\s?(?=\d)", " to ", text)
-    text = (
-        text.replace("—", ", ")
-        .replace("–", ", ")
-        .replace("…", "...")
-        .replace("“", '"')
-        .replace("”", '"')
-        .replace("’", "'")
-        .replace("‘", "'")
-    )
+    text = EN_DASH_RANGE.sub(" to ", text)
+    for old, new in SMART_PUNCTUATION:
+        text = text.replace(old, new)
 
     # Word-level rules come from the database, so they can be edited on the
     # settings page rather than only here.
@@ -408,6 +426,73 @@ def normalize(
 
     # Replacing an em dash with a comma can leave " , "; tighten it. The full
     # stop is handled separately so the space before an ellipsis survives.
-    text = re.sub(r"\s+([,;:!?])", r"\1", text)
-    text = re.sub(r"(?<!\.)\s+\.(?!\.)", ".", text)
-    return re.sub(r"\s{2,}", " ", text).strip()
+    text = _TIGHTEN_PUNCT.sub(r"\1", text)
+    text = _TIGHTEN_STOP.sub(".", text)
+    return _MULTI_SPACE.sub(" ", text).strip()
+
+
+def normalize_tracked(
+    text: str,
+    rules: list[pronounce.Rule] | None = None,
+    g2p: str = pronounce.DEFAULT_G2P,
+    phonemes: bool = True,
+) -> TrackedText:
+    """``normalize``, carrying a record of which displayed word produced each
+    spoken one — for word-level highlighting, not for synthesis.
+
+    Every transform below is the same rule against the same pattern as
+    ``normalize``, called through ``tracked_sub``/``tracked_replace`` instead
+    of ``re.sub``/``str.replace`` so a fix made to one cannot silently drift
+    from the other's understanding of it. This is not on the synthesis path
+    — nothing here computes the cache key or reaches the engine — so it is
+    not held to ``normalize``'s own measured performance budget; see
+    ``docs/superpowers/specs/2026-09-08-word-level-highlighting-design.md``.
+    """
+    tt = TrackedText.identity(text)
+    if not text:
+        return tt
+
+    for pattern, replacement in EMPHASIS:
+        tt = tracked_sub(pattern, replacement, tt)
+
+    tt = tracked_sub(YEAR_RANGE, _year_range, tt)
+    if g2p == "espeak":
+        tt = tracked_sub(YEAR_WORDS, _year_words, tt)
+
+    tt = tracked_sub(MONEY, _money, tt)
+    tt = tracked_sub(BPS, lambda m: f"{_strip_commas(m.group(1))} basis points", tt)
+    tt = tracked_sub(BARE_SCALE, _bare_scale, tt)
+    tt = tracked_sub(UNIT, _unit, tt)
+    tt = tracked_sub(PERCENT, lambda m: f"{_strip_commas(m.group(1))} percent", tt)
+    tt = tracked_sub(
+        QUARTER, lambda m: f"{'quarter' if m.group(1) == 'Q' else 'half'} {m.group(2)}", tt
+    )
+    tt = tracked_sub(
+        FISCAL,
+        lambda m: f"{'fiscal' if m.group(1) == 'FY' else 'calendar'} year {m.group(2)}",
+        tt,
+    )
+    tt = tracked_sub(TIMES, lambda m: f"{_strip_commas(m.group(1))} times", tt)
+    tt = tracked_sub(CLOCK, lambda m: f"{m.group(1)} {m.group(2).lower()}.m.", tt)
+    tt = tracked_sub(OCLOCK, r"\1", tt)
+
+    tt = tracked_sub(DECIMAL, _decimal, tt)
+
+    tt = tracked_sub(EMOJI, lambda m: " ", tt)
+
+    tt = tracked_sub(EN_DASH_RANGE, " to ", tt)
+    for old, new in SMART_PUNCTUATION:
+        tt = tracked_replace(old, new, tt)
+
+    tt = pronounce.apply_tracked(
+        tt, rules if rules is not None else pronounce.active(), g2p, phonemes
+    )
+
+    tt = tracked_sub(FOOTNOTE, r"... Footnote \1. \2. ...", tt)
+
+    tt = tracked_sub(PARAGRAPH_BREAK, r"\1. ", tt)
+
+    tt = tracked_sub(_TIGHTEN_PUNCT, r"\1", tt)
+    tt = tracked_sub(_TIGHTEN_STOP, ".", tt)
+    tt = tracked_sub(_MULTI_SPACE, lambda m: " ", tt)
+    return tracked_strip(tt)

@@ -34,6 +34,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from functools import lru_cache
 
+from .sourcemap import TrackedText, tracked_sub
+
 log = logging.getLogger("textcast.pronounce")
 
 KINDS = ("word", "phrase", "regex")
@@ -206,6 +208,37 @@ def apply(
             text = after
             lowered = text.lower()
     return text
+
+
+def apply_tracked(
+    tt: TrackedText,
+    rules: list[Rule],
+    g2p: str = DEFAULT_G2P,
+    phonemes: bool = True,
+) -> TrackedText:
+    """``apply``, carrying each rewrite's displayed origin through.
+
+    Same rules, same `_prepared` cache, same pre-filter — the only
+    difference from `apply` is `tracked_sub` in place of `pattern.sub`, so a
+    rule edited on the Voice page changes both paths identically rather than
+    needing to be kept in step by hand.
+    """
+    prepared = _prepared(tuple(rules), g2p, phonemes)
+    if not prepared:
+        return tt
+    lowered = tt.text.lower()
+    for needle, pattern, replacement in prepared:
+        if needle is not None and needle not in lowered:
+            continue
+        try:
+            after = tracked_sub(pattern, replacement, tt)
+        except re.error as exc:
+            log.warning("rule %r failed to substitute: %s", pattern.pattern, exc)
+            continue
+        if after.text != tt.text:
+            tt = after
+            lowered = tt.text.lower()
+    return tt
 
 
 def preview(
