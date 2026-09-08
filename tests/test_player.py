@@ -1697,3 +1697,38 @@ def test_following_a_tall_block_tracks_the_word_not_the_block(live_words, browse
         assert visible["ok"], f"the lit word is outside the readable band: {visible}"
     finally:
         context.close()
+
+
+def test_a_redirected_page_is_told_apart_from_the_one_that_was_asked_for(live, browser):
+    """`fetch` follows redirects and hands back the destination, so an
+    expired session turns a GET of /a/<slug> into a 200 for the sign-in page
+    -- which the worker stored under the article's own address, and the next
+    flight opened a kept article and found a form.
+
+    `response.redirected` is what tells the two apart, and this is the half
+    of the fix that can be pinned down without racing the cache: a page that
+    was served straight must not report it, or the guard would stop
+    refreshing every kept article instead of only the wrong ones.
+    """
+    base, slug, _manifest = live
+    context = browser.new_context()
+    page = context.new_page()
+    try:
+        page.goto(f"{base}/a/{slug}", wait_until="domcontentloaded")
+
+        straight = page.evaluate(
+            "async (url) => (await fetch(url)).redirected", f"/a/{slug}"
+        )
+        assert straight is False, "an ordinary article page reports itself redirected"
+
+        # Intercepted below the service worker, so this is a real redirect
+        # chain in the browser and not a stub of one.
+        context.route(f"**/a/{slug}", lambda route: route.fulfill(
+            status=303, headers={"location": "/login"}
+        ))
+        bounced = page.evaluate(
+            "async (url) => (await fetch(url)).redirected", f"/a/{slug}"
+        )
+        assert bounced is True, "a bounced page is indistinguishable from the real one"
+    finally:
+        context.close()

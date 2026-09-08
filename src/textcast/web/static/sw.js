@@ -349,7 +349,12 @@ self.addEventListener("fetch", (event) => {
   event.respondWith(
     fetch(request)
       .then((response) => {
-        if (response.ok && request.mode === "navigate") {
+        /* `!response.redirected`, because `fetch` follows redirects and
+           hands back the *destination*. An expired session turns a GET of
+           /a/<slug> into a 303 to /login and then a 200 for the sign-in
+           page, which was stored as the article's own offline copy — so the
+           next flight opened a kept article and found a sign-in form. */
+        if (response.ok && !response.redirected && request.mode === "navigate") {
           /* Cloned here, synchronously, and not inside the `match` below:
              the page starts reading `response` as soon as this returns, and
              a Response cannot be cloned once its body is being consumed.
