@@ -284,7 +284,7 @@ def still_page(live, browser):
     page.goto(f"{base}/a/{slug}", wait_until="domcontentloaded")
     page.wait_for_function(
         "() => { const a = document.getElementById('audio');"
-        " return a && a.textTracks.length && a.textTracks[0].cues"
+        " return a && a.readyState >= 1 && a.textTracks.length && a.textTracks[0].cues"
         " && a.textTracks[0].cues.length > 0; }",
         timeout=20000,
     )
@@ -301,12 +301,31 @@ def still_page_words(live_words, browser):
     page.goto(f"{base}/a/{slug}", wait_until="domcontentloaded")
     page.wait_for_function(
         "() => { const a = document.getElementById('audio');"
-        " return a && a.textTracks.length && a.textTracks[0].cues"
+        " return a && a.readyState >= 1 && a.textTracks.length && a.textTracks[0].cues"
         " && a.textTracks[0].cues.length > 0; }",
         timeout=20000,
     )
     yield page
     context.close()
+
+
+def seek_to(page, seconds: float) -> None:
+    """Put the clock somewhere and wait for it to have gone there.
+
+    `loadSection` positions the audio from `loadedmetadata`, which fires
+    after the track's cues have loaded -- so a test that waits only for the
+    cues can set `currentTime` and have the player set it straight back to
+    the section start. It is only ever visible on a loaded box, where the
+    metadata takes longer to arrive than the track does: measured at two
+    failures in six runs with six spinning processes beside them, and none
+    without.
+    """
+    page.evaluate("(want) => { document.getElementById('audio').currentTime = want; }", seconds)
+    page.wait_for_function(
+        "(want) => Math.abs(document.getElementById('audio').currentTime - want) < 0.05",
+        arg=seconds,
+        timeout=10000,
+    )
 
 
 def test_word_level_highlight_sits_on_top_of_the_block_highlight(still_page_words, live_words):
@@ -318,7 +337,7 @@ def test_word_level_highlight_sits_on_top_of_the_block_highlight(still_page_word
     word = target.words[1]
     at = (word.start_ms + word.dur_ms / 2) / 1000
 
-    still_page_words.evaluate(f"document.getElementById('audio').currentTime = {at}")
+    seek_to(still_page_words, at)
     still_page_words.wait_for_function(
         "() => { const el = document.querySelector('.w.on');"
         " return el && el.dataset.w === '1'; }",
@@ -343,7 +362,7 @@ def test_word_level_highlight_moves_forward_with_the_clock(still_page_words, liv
     third = target.words[2]
     at = (third.start_ms + third.dur_ms / 2) / 1000
 
-    still_page_words.evaluate(f"document.getElementById('audio').currentTime = {at}")
+    seek_to(still_page_words, at)
     still_page_words.wait_for_function(
         "() => { const el = document.querySelector('.w.on');"
         " return el && el.dataset.w === '2'; }",
@@ -359,16 +378,12 @@ def test_word_level_highlight_clears_when_the_block_changes(still_page_words, li
     next_block = manifest.sections[0].blocks[3]  # the footnote, right after it
     word = first_block.words[0]
 
-    still_page_words.evaluate(
-        f"document.getElementById('audio').currentTime = {(word.start_ms + word.dur_ms / 2) / 1000}"
-    )
+    seek_to(still_page_words, (word.start_ms + word.dur_ms / 2) / 1000)
     still_page_words.wait_for_function(
         "() => document.querySelector('.w.on') !== null", timeout=10000
     )
 
-    still_page_words.evaluate(
-        f"document.getElementById('audio').currentTime = {next_block.start_ms / 1000 + 0.05}"
-    )
+    seek_to(still_page_words, next_block.start_ms / 1000 + 0.05)
     still_page_words.wait_for_function(
         f"() => (document.querySelector('#doc .b.on') || {{}}).id === '{next_block.id}'",
         timeout=10000,
@@ -413,7 +428,7 @@ def test_highlight_follows_the_audio(page, live):
     third = manifest.sections[0].blocks[2]
     at = (third.start_ms + third.dur_ms / 2) / 1000
 
-    page.evaluate(f"document.getElementById('audio').currentTime = {at}")
+    seek_to(page, at)
     # Wait for the expected id, not merely for "something is highlighted":
     # the first block is already highlighted at load, so a loose check races.
     page.wait_for_function(
@@ -428,7 +443,7 @@ def test_highlight_moves_during_playback(page, live):
     _base, _slug, manifest = live
     first, second = manifest.sections[0].blocks[0], manifest.sections[0].blocks[1]
 
-    page.evaluate(f"document.getElementById('audio').currentTime = {first.start_ms / 1000}")
+    seek_to(page, first.start_ms / 1000)
     page.wait_for_function(
         f"() => {{ const el = document.querySelector('#doc .b.on');"
         f" return el && el.id === '{first.id}'; }}",
@@ -814,7 +829,7 @@ def test_a_stray_seek_does_not_start_playback(still_page, live):
     target = manifest.sections[0].blocks[2]
 
     still_page.evaluate("document.getElementById('audio').pause()")
-    still_page.evaluate(f"document.getElementById('audio').currentTime = {target.start_ms / 1000}")
+    seek_to(still_page, target.start_ms / 1000)
     still_page.evaluate("document.getElementById('audio').currentTime = 0")
     still_page.wait_for_timeout(300)
 
@@ -832,7 +847,7 @@ def test_seeking_to_a_block_highlights_that_block_not_the_one_before(still_page,
     blocks = manifest.sections[0].blocks
 
     for target in blocks[1:5]:
-        still_page.evaluate(f"document.getElementById('audio').currentTime = {target.start_ms / 1000}")
+        seek_to(still_page, target.start_ms / 1000)
         still_page.wait_for_timeout(250)
         got = still_page.evaluate("(document.querySelector('#doc .b.on') || {}).id || null")
         assert got == target.id, f"seeking to {target.id} highlighted {got}"
@@ -915,7 +930,7 @@ def test_the_highlight_needs_no_cues_at_all(still_page, live):
     target = manifest.sections[0].blocks[2]
 
     still_page.evaluate("document.getElementById('audio').textTracks[0].mode = 'disabled'")
-    still_page.evaluate(f"document.getElementById('audio').currentTime = {target.start_ms / 1000 + 0.3}")
+    seek_to(still_page, target.start_ms / 1000 + 0.3)
     still_page.wait_for_timeout(250)
 
     assert still_page.evaluate("(document.querySelector('#doc .b.on') || {}).id") == target.id
