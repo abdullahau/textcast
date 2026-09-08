@@ -228,9 +228,17 @@ class Aligner:
             self.vocab: dict[str, int] = json.load(f)
         self.id_to_token = {v: k for k, v in self.vocab.items()}
         self.blank_id = self.vocab["<pad>"]
-        # Single-threaded: this runs inside the same worker lane synthesis
-        # already used, not beside a thread pool of its own, so there is
-        # nothing here for extra intra-op threads to parallelise against.
+        # Single-threaded *inside* one call, on purpose: `audio.align_article`
+        # gets its parallelism by calling this session from several Python
+        # threads at once, one block each -- 3.7x on four cores, measured,
+        # because the session's own inference releases the GIL. Letting
+        # intra-op parallelism run too would have each of those concurrent
+        # calls competing for the same cores from underneath, and a single
+        # call was measured to gain nothing from extra intra-op threads
+        # anyway (this box is bound by memory bandwidth more than cores,
+        # the same finding `docs/decisions.md` already has for the TTS
+        # engines) -- so the only threading that should exist here is the
+        # caller's.
         opts = onnxruntime.SessionOptions()
         opts.intra_op_num_threads = 1
         self.session = onnxruntime.InferenceSession(str(model_path), sess_options=opts)

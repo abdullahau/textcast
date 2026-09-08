@@ -1172,13 +1172,17 @@ def pronunciations_defaults(
     voice: str = Form(default=""),
     quote_voice: str = Form(default=""),
     speed: str = Form(default=""),
+    word_highlight: bool = Form(default=False),
 ):
     """What every future build uses unless an article names its own.
 
     Nothing is queued. Existing audio keeps the engine and voice it was made
     with until you rebuild it, which is why the article says which they were.
     """
-    save_voice_defaults(engine=engine, voice=voice, quote_voice=quote_voice, speed=speed)
+    save_voice_defaults(
+        engine=engine, voice=voice, quote_voice=quote_voice, speed=speed,
+        word_highlight=word_highlight,
+    )
     return RedirectResponse("/pronunciations?saved=1", status_code=303)
 
 
@@ -1548,8 +1552,17 @@ def _build_options(
     skip_visuals: bool = False,
     speed: str = "",
     engine: str = "",
+    word_highlight: bool = False,
 ) -> dict:
-    """Only what was actually chosen; blanks mean "use the default"."""
+    """Only what was actually chosen; blanks mean "use the default".
+
+    Same shape as the skip_* checkboxes: checked writes an explicit
+    override this article keeps until changed again, unchecked writes
+    nothing and defers to whatever the Voice page's own default says —
+    `set_build_options` replaces the whole stored dict on every save, so an
+    unchecked box correctly clears a previous override rather than leaving
+    it stuck on.
+    """
     options = {"voice": voice.strip(), "quote_voice": quote_voice.strip()}
     # An unregistered name is silently dropped rather than saved and warned
     # about on every later build.
@@ -1570,6 +1583,8 @@ def _build_options(
         options["skip_visuals"] = True
     if summarize:
         options["summarize"] = True
+    if word_highlight:
+        options["word_highlight"] = True
     return options
 
 
@@ -1761,10 +1776,12 @@ def api_rebuild(
     skip_visuals: bool = Form(default=False),
     speed: str = Form(default=""),
     engine: str = Form(default=""),
+    word_highlight: bool = Form(default=False),
 ):
     options = _build_options(
         voice, quote_voice, skip_footnotes, skip_summaries=skip_summaries,
         skip_visuals=skip_visuals, speed=speed, engine=engine,
+        word_highlight=word_highlight,
     )
     # Remember the choice, so a later rebuild does not silently revert.
     db.set_build_options(article_id, options)

@@ -101,7 +101,13 @@ def save_voice_defaults(
         try:
             value = min(MAX_SPEED, max(MIN_SPEED, float(speed)))
         except (TypeError, ValueError):
-            return
-        db.set_setting(KEY_SPEED, f"{value:.1f}", conn)
+            # An unparsable speed (an empty string from a form field left
+            # blank, mainly) skips *only* speed -- it used to `return` here,
+            # which silently dropped every field after it too. That went
+            # unnoticed as long as speed was the last parameter; it stopped
+            # being harmless the moment word_highlight was added after it.
+            value = None
+        if value is not None:
+            db.set_setting(KEY_SPEED, f"{value:.1f}", conn)
     if word_highlight is not None:
         db.set_setting(KEY_WORD_HIGHLIGHT, "1" if word_highlight else "0", conn)

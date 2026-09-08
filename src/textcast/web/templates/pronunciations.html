@@ -208,6 +208,16 @@
         </select>
       </div>
     </div>
+    <div class="row mt-07">
+      <div class="titled narrow">
+        <label class="check"><input type="checkbox" name="word_highlight" value="true" {{ 'checked' if chosen.word_highlight }}> Highlight words by default</label>
+        <span class="tip">
+          <button type="button" class="q" aria-label="What word highlighting costs">?</button>
+          <span class="tip-body" role="tooltip">Adds about a fifth more time to every build. Any
+          article can turn it on or off for one build of its own, on its own page.</span>
+        </span>
+      </div>
+    </div>
     <div class="row mt-09">
       <button class="narrow" type="submit">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8"/><path d="M7 3v5h8"/></svg>

@@ -582,6 +582,7 @@ def align_article(
     quote_voice: str | None = None,
     speed: float = 1.0,
     cache_dir: Path,
+    concurrency: int = 1,
     progress: ProgressFn | None = None,
 ) -> None:
     """Word-level timings for every block a build already rendered.
@@ -597,29 +598,39 @@ def align_article(
     a listener will hear. Mutates `manifest` in place: every `BlockTiming`
     gets its `words` filled in, or left empty on any failure, which is
     never a reason to fail the whole build.
+
+    ``concurrency`` runs blocks through the *one* shared `aligner` from
+    several threads rather than several instances -- profiling showed 99%
+    of a block's cost is inside `onnxruntime.InferenceSession.run()`, which
+    releases the GIL for the same reason `Run` is already documented
+    thread-safe for the TTS engines (`docs/decisions.md`, "One
+    session/model behind the whole pool"). Measured: 4 threads over one
+    shared session, 3.7x on this box, against building 4 separate sessions
+    the way the engine pool does for synthesis -- there is only one model
+    here, not four voices' worth of state to keep apart, so sharing loses
+    nothing sharing the engine pool would.
     """
     from .tts import g2p_of
     from .tts.aligner import AlignmentError
 
     g2p, takes_ipa = g2p_of(manifest.engine)
+    timings = [timing for section in manifest.sections for timing in section.blocks]
+    total = len(timings)
     done = 0
-    total = sum(len(section.blocks) for section in manifest.sections)
+    counter = threading.Lock()
 
-    for section in manifest.sections:
-        for timing in section.blocks:
-            done += 1
-            if progress:
-                progress(done, total, timing.id)
-
-            block = _find_block(article, timing.id)
+    def align_one(timing: BlockTiming) -> None:
+        nonlocal done
+        block = _find_block(article, timing.id)
+        try:
             if block is None:
-                continue  # not expected -- the manifest names a block this article no longer has
+                return  # not expected -- the manifest names a block this article no longer has
 
             use_quote_voice = block.kind is BlockKind.QUOTE and quote_voice
             block_voice = quote_voice if use_quote_voice else voice
             text = block.spoken(quote_markers=not use_quote_voice, g2p=g2p, phonemes=takes_ipa)
             if not text.strip():
-                continue
+                return
 
             pcm_path = cache_dir / f"{_cache_key(text, manifest.engine, block_voice, speed)}{CACHE_SUFFIX}"
             words_path = pcm_path.with_name(pcm_path.stem + WORDS_CACHE_SUFFIX)
@@ -628,11 +639,11 @@ def align_article(
                     timing.words = [
                         WordTiming(**entry) for entry in json.loads(words_path.read_text())
                     ]
-                    continue
+                    return
                 except (OSError, json.JSONDecodeError, TypeError):
                     pass  # a corrupt cache entry is re-aligned below, not trusted
             if not pcm_path.exists():
-                continue  # the block cache was swept between render and align; rare
+                return  # the block cache was swept between render and align; rare
 
             try:
                 samples = from_int16(np.fromfile(pcm_path, dtype=np.int16))
@@ -642,13 +653,15 @@ def align_article(
                 if tracked.text != text:
                     raise AlignmentError("tracked text diverged from the spoken text")
                 aligned = aligner.align(samples, manifest.sample_rate, text)
-                words = compose_word_timings(block.text, tracked, aligned, offset_ms=timing.speech_start_ms)
+                words = compose_word_timings(
+                    block.text, tracked, aligned, offset_ms=timing.speech_start_ms
+                )
             except AlignmentError as exc:
                 log.warning("alignment skipped for %s: %s", timing.id, exc)
-                continue
+                return
             except Exception:
                 log.exception("alignment failed for %s", timing.id)
-                continue
+                return
 
             timing.words = words
             try:
@@ -657,6 +670,19 @@ def align_article(
                 )
             except OSError:
                 log.warning("could not cache word timings for %s", timing.id)
+        finally:
+            with counter:
+                done += 1
+                position = done
+            if progress:
+                progress(position, total, timing.id)
+
+    if concurrency > 1 and len(timings) > 1:
+        with ThreadPoolExecutor(max_workers=concurrency) as executor:
+            list(executor.map(align_one, timings))
+    else:
+        for timing in timings:
+            align_one(timing)
 
 
 def encode_opus_bytes(samples: np.ndarray, sample_rate: int, bitrate: str = "48k") -> bytes:

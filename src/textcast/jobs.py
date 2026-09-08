@@ -477,6 +477,12 @@ class Worker:
             quote_voice=job_options.get("quote_voice") or None,
             speed=float(job_options.get("speed") or 1.0),
             cache_dir=self.settings.cache_dir,
+            # One shared session, several threads: profiling showed the
+            # session's own onnxruntime call, not this process's Python,
+            # is where the time goes -- see align_article's own docstring.
+            # The align lane has the whole box to itself, unlike a build
+            # sharing cores with its own engine pool.
+            concurrency=self.settings.build_concurrency(),
             progress=progress,
         )
         db.save_word_timings(article_id, manifest, conn)

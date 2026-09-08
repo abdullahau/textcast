@@ -542,6 +542,67 @@ def test_the_voice_page_saves_a_default_without_queueing_anything(client, conn):
     assert db.active_jobs(conn) == [], "no build was queued"
 
 
+def test_an_unparsable_speed_does_not_block_other_fields_from_saving(conn):
+    """`save_voice_defaults` used to `return` on a bad speed, which silently
+    dropped every parameter after it in the function -- invisible as long
+    as speed was the last one, and it stopped being harmless the moment
+    word_highlight was added after it. An empty string is exactly what an
+    unfilled form field sends."""
+    from textcast import prefs
+
+    prefs.save_voice_defaults(conn, speed="", word_highlight=True, voice="bm_george")
+    chosen = prefs.voice_defaults(conn)
+    assert chosen.word_highlight is True
+    assert chosen.voice == "bm_george"
+
+
+def test_the_voice_page_saves_the_word_highlight_default(client, conn):
+    from textcast import prefs
+
+    client.post("/pronunciations/defaults", data={"word_highlight": "true"})
+    assert prefs.voice_defaults(conn).word_highlight is True
+
+    # Unchecked means the form sends nothing for it -- same as every other
+    # checkbox here -- and that must turn a previously-saved "on" back off,
+    # not leave it stuck.
+    client.post("/pronunciations/defaults", data={})
+    assert prefs.voice_defaults(conn).word_highlight is False
+
+
+def test_rebuilding_one_article_can_turn_word_highlight_on_without_touching_the_default(
+    client, conn
+):
+    from textcast import prefs
+    from textcast.document import Article, Block, BlockKind, Section
+
+    doc = Article(title="One article's own choice", sections=[Section(title="One", blocks=[
+        Block(kind=BlockKind.PARA, text="The body of it."),
+    ])]).renumber()
+    article_id = db.save_article(doc, conn)
+
+    client.post(f"/api/articles/{article_id}/rebuild", data={"word_highlight": "true"})
+
+    options = db.get_build_options(article_id, conn)
+    assert options.get("word_highlight") is True
+    # The site-wide default is untouched -- this was one article's own choice.
+    assert prefs.voice_defaults(conn).word_highlight is False
+
+
+def test_rebuilding_without_the_checkbox_clears_a_previous_per_article_override(client, conn):
+    from textcast.document import Article, Block, BlockKind, Section
+
+    doc = Article(title="Reverts to the default", sections=[Section(title="One", blocks=[
+        Block(kind=BlockKind.PARA, text="The body of it."),
+    ])]).renumber()
+    article_id = db.save_article(doc, conn)
+
+    client.post(f"/api/articles/{article_id}/rebuild", data={"word_highlight": "true"})
+    assert db.get_build_options(article_id, conn).get("word_highlight") is True
+
+    client.post(f"/api/articles/{article_id}/rebuild", data={})
+    assert "word_highlight" not in db.get_build_options(article_id, conn)
+
+
 def test_a_saved_default_reaches_the_pages_that_offer_it(client, conn):
     from textcast import prefs
     from textcast.document import Article, Block, BlockKind, Section
