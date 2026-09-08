@@ -24,7 +24,7 @@ docker compose logs -f worker  # builds and mail polling land here
 
 uv sync --extra cpu --extra kokoro --extra kokoro-onnx --extra web \
         --extra documents --extra summaries --group dev
-uv run pytest
+uv run pytest                  # four workers by default; `-n 0` to run serially
 uv run ruff check src tests    # before committing; formatting is not enforced
 uv run playwright install chromium   # once, for the player tests
 ```

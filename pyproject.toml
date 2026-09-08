@@ -74,6 +74,8 @@ summaries = [
 [dependency-groups]
 dev = [
     "pytest>=9.1",
+    # The suite is parallel by default; see `addopts` for why it is `loadfile`.
+    "pytest-xdist>=3.6",
     "ruff>=0.16",
     # Browser tests for the read-along player; run `playwright install chromium`.
     "playwright>=1.62",
@@ -130,3 +132,13 @@ ignore = ["E501"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# `loadfile`, not the default `load`: the browser, the live uvicorn app and the
+# built article behind the player tests are all module-scoped, and the default
+# hands single tests to whichever worker is free, so each one would pay for a
+# browser launch and a rebuilt article of its own. Keeping a file on one worker
+# keeps every module fixture built once, as it is serially.
+#
+# `-p no:randomly` is not set: pytest-randomly is not installed. If it ever is,
+# it must be seeded per run, not per worker, or `loadfile` collects differently
+# on each and xdist refuses to start.
+addopts = "-n auto --dist loadfile"

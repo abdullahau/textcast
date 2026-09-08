@@ -13,7 +13,6 @@ Skipped unless playwright and its Chromium build are present:
 from __future__ import annotations
 
 import shutil
-import socket
 import subprocess
 import sys
 import threading
@@ -21,6 +20,7 @@ import time
 
 import numpy as np
 import pytest
+from conftest import free_port
 
 from textcast import db
 from textcast.audio import render_article
@@ -71,12 +71,6 @@ def sample_article() -> Article:
             )]),
         ],
     ).renumber()
-
-
-def free_port() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
 
 
 @pytest.fixture(scope="module")

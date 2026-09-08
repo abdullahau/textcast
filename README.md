@@ -359,7 +359,8 @@ matches and so must stay last.
 ## Tests
 
 ```bash
-uv run pytest
+uv run pytest                        # four workers by default
+uv run pytest -n 0                   # serially, when a failure is hard to read
 uv run playwright install chromium   # once, for the browser tests
 ```
 

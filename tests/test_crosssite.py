@@ -31,6 +31,7 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
+from conftest import free_port
 
 from textcast import db
 
@@ -38,14 +39,6 @@ pytest.importorskip("playwright", reason="playwright not installed")
 from playwright.sync_api import sync_playwright  # noqa: E402
 
 PASSWORD = "open-sesame"
-
-
-def free_port() -> int:
-    import socket
-
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
 
 
 @pytest.fixture(scope="module")

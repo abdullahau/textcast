@@ -994,6 +994,21 @@ Each cost an afternoon once; the incident is in git, the rule is here.
 
 ## Tests
 
+- **The suite runs on four workers by default.** `addopts` in `pyproject.toml`
+  sets `-n auto --dist loadfile`; a bare `uv run pytest` is parallel. The
+  distribution must stay `loadfile`: the browser, the live uvicorn app and the
+  built article are all module-scoped, and the default `load` hands single
+  tests to whichever worker is free, so each would launch a browser and
+  rebuild the article of its own. Use `-p no:xdist` or `-n 0` to run serially
+  when a failure's output is interleaved and you need to read it.
+- **Two workers standing up a server at once will collide on a port.** The
+  usual `free_port` binds port 0, reads the port back and closes the socket,
+  then hands the number to a server that binds it a moment later. Nothing
+  holds it in between. That gap never mattered serially; under `-n auto` it is
+  a fortnightly "address already in use" in whichever file happened to lose.
+  `conftest.free_port` gives each worker a disjoint 500-port slice above the
+  ephemeral range, keyed off `PYTEST_XDIST_WORKER`. Anything that opens a
+  socket must take its port from there, never from `bind(("127.0.0.1", 0))`.
 - **The player tests share one page.** A test that pauses the audio breaks a
   later one that assumed it was playing. State what a test depends on; do not
   inherit it.
