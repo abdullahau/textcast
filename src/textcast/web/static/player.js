@@ -626,6 +626,32 @@
     });
   }
 
+  /* Tell the lock screen where we are, and how fast.
+
+     Without it the OS draws its scrubber by guessing, and the guess assumes
+     1x: at 1.75x the bar crawled a third of the way through a section while
+     the audio finished it. The OS extrapolates between updates *using the
+     rate we give it*, so this is called when something changes the state --
+     not every frame, and not on `timeupdate`.
+
+     The section is the track, the same as `previoustrack` and the time on
+     the page. Reporting the whole article would need a position that can
+     legitimately run past the manifest's total (a decoded section does; see
+     "A position at the end is the end"), and `setPositionState` throws on a
+     position beyond its duration. */
+  function updatePositionState() {
+    if (!("mediaSession" in navigator) || !navigator.mediaSession.setPositionState) return;
+    var duration = audio.duration;
+    if (!isFinite(duration) || duration <= 0) return;
+    try {
+      navigator.mediaSession.setPositionState({
+        duration: duration,
+        playbackRate: audio.playbackRate || 1,
+        position: Math.max(0, Math.min(audio.currentTime || 0, duration))
+      });
+    } catch (e) { /* a browser that dislikes the shape of it */ }
+  }
+
   function wireMediaSession() {
     if (!("mediaSession" in navigator)) return;
     var handlers = {
@@ -644,6 +670,14 @@
       },
       nexttrack: function () {
         if (current + 1 < sections.length) loadSection(current + 1, 0, !audio.paused);
+      },
+      /* Dragging the lock screen's own scrubber. `fastSeek` is the drag
+         itself -- imprecise on purpose, and no place for the pause-and-wait
+         `seekWithin` does; the release is a real seek and gets the real one. */
+      seekto: function (details) {
+        if (!details || typeof details.seekTime !== "number") return;
+        if (details.fastSeek) { audio.currentTime = details.seekTime; return; }
+        seekWithin(details.seekTime * 1000, !audio.paused);
       }
     };
     Object.keys(handlers).forEach(function (name) {
@@ -780,6 +814,10 @@
      so the highlight moves the moment the rate does — not at the next frame
      if the page is paused, and not at the next boundary if it is hidden. */
   audio.addEventListener("ratechange", syncHighlight);
+  /* Everything that moves the playhead, changes its speed, or changes what
+     it is playing. The lock screen fills in the gaps between these itself. */
+  ["loadedmetadata", "durationchange", "play", "pause", "seeked", "ratechange"]
+    .forEach(function (name) { audio.addEventListener(name, updatePositionState); });
   audio.addEventListener("timeupdate", function () {
     savePosition(false);
     // A hidden tab runs no frames and the audio keeps playing. timeupdate

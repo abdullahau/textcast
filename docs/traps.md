@@ -434,6 +434,18 @@ section you are about to touch**, and add to it when something bites you.
   is not the fault**: over a nine-minute section, cue starts matched the
   decoded audio to within the measurement's own resolution, and the total to
   the millisecond. Do not go looking there again.
+- **The lock screen needs `setPositionState`, and it needs the rate.** Without
+  it the OS draws its scrubber by guessing, and the guess assumes 1x: at
+  1.75x the bar crawled a third of the way through a section while the audio
+  finished it. The OS extrapolates *from the rate it is given*, so the call
+  belongs on the events that change the state — `loadedmetadata`,
+  `durationchange`, `play`, `pause`, `seeked`, `ratechange` — and not on
+  `timeupdate` or a frame timer. Report the **section**, not the article: a
+  decoded section legitimately runs past the manifest's total (see "A
+  position at the end is the end") and `setPositionState` throws when the
+  position is beyond the duration. Wire `seekto` too, or the scrubber is
+  drawn and does nothing; its `fastSeek` is the drag, which sets
+  `currentTime` directly, and the release is a real seek through `seekWithin`.
 - **The hold-back is wall-clock; the clock it comes off is media time.**
   `offsetMs()` must be multiplied by `playbackRate`. What sits between the
   decoder and the speaker is a fixed amount of *real* time, so at 2x it is

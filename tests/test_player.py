@@ -2036,3 +2036,77 @@ def test_the_measured_latency_is_remembered_for_the_next_listen(live_words, brow
     context.close()
 
     assert "180" in shown, f"the remembered 180 ms was not picked up: {shown!r}"
+
+
+def test_the_lock_screen_is_told_the_playback_rate(still_page):
+    """Without a rate the OS draws its scrubber assuming 1x.
+
+    `setPositionState` is what the lock screen extrapolates from between
+    updates. Given no rate it assumes one, so at 1.75x its bar crawled a
+    third of the way through a section while the audio finished it.
+    """
+    still_page.evaluate(
+        "() => { window.__pos = null;"
+        " navigator.mediaSession.setPositionState = (s) => { window.__pos = s; }; }"
+    )
+    seek_to(still_page, 4)
+    still_page.evaluate("() => { document.getElementById('audio').playbackRate = 1.75; }")
+    still_page.wait_for_function("() => window.__pos !== null", timeout=5000)
+
+    state = still_page.evaluate("() => window.__pos")
+    real = still_page.evaluate(
+        "() => ({ d: document.getElementById('audio').duration,"
+        " t: document.getElementById('audio').currentTime })"
+    )
+
+    assert state["playbackRate"] == 1.75
+    assert state["duration"] == pytest.approx(real["d"], abs=0.01)
+    assert state["position"] == pytest.approx(real["t"], abs=0.5)
+    assert state["position"] <= state["duration"], "a position past the duration throws"
+
+
+def test_the_lock_screen_scrubber_can_seek(live, browser):
+    """A `seekto` handler, or the OS draws a scrubber that does nothing.
+
+    The handler is caught as the page registers it, which is the only way to
+    drive it: the real one is invoked by the operating system.
+    """
+    base, slug, _ = live
+    context = browser.new_context()
+    context.add_init_script("""
+      (() => {
+        window.__actions = {};
+        const ms = navigator.mediaSession;
+        if (!ms || !ms.setActionHandler) return;
+        const real = ms.setActionHandler.bind(ms);
+        ms.setActionHandler = (name, fn) => {
+          window.__actions[name] = fn;
+          try { real(name, fn); } catch (e) { /* unsupported action */ }
+        };
+      })();
+    """)
+    page = context.new_page()
+    page.goto(f"{base}/a/{slug}", wait_until="domcontentloaded")
+    page.wait_for_function(
+        "() => { const a = document.getElementById('audio');"
+        " return a && a.readyState >= 1 && a.textTracks.length && a.textTracks[0].cues"
+        " && a.textTracks[0].cues.length > 0; }",
+        timeout=20000,
+    )
+    try:
+        page.evaluate("document.getElementById('audio').pause()")
+        seek_to(page, 2)
+
+        assert page.evaluate("() => typeof window.__actions.seekto === 'function'"), (
+            "the lock screen was given no way to seek"
+        )
+        page.evaluate("() => window.__actions.seekto({ seekTime: 9 })")
+        page.wait_for_function(
+            "() => Math.abs(document.getElementById('audio').currentTime - 9) < 0.3",
+            timeout=10000,
+        )
+        assert page.evaluate("document.getElementById('audio').paused"), (
+            "seeking from the lock screen started playback on its own"
+        )
+    finally:
+        context.close()
