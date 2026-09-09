@@ -8,7 +8,9 @@ which is the hardest kind of failure to trace back.
 
 from __future__ import annotations
 
+import re
 import socket
+from pathlib import Path
 
 import pytest
 from conftest import _PORT_BASE, _PORT_CEILING, _PORT_SLICE, _PORT_SLOTS, free_port
@@ -69,3 +71,33 @@ def test_a_port_already_taken_is_not_handed_out(monkeypatch):
         held.bind(("127.0.0.1", taken))
         held.listen(1)
         assert all(free_port() != taken for _ in range(200))
+
+
+def test_no_test_waits_on_an_async_predicate():
+    """`page.wait_for_function` does not await a promise-returning predicate.
+
+    It sees the Promise, a Promise is truthy, and it returns at once: measured
+    at 0.06 s for a predicate that only turns true after two seconds, and no
+    timeout at all for one that is never true. The wait becomes a no-op, the
+    test races whatever it meant to wait for, and it passes on a quiet machine
+    and fails on a busy one -- which is how the offline test came to fail
+    about one run in four with the build worker running beside it.
+
+    There is nothing in the syntax to notice, so it is checked here instead.
+    Use `test_player.wait_until` and the helpers on it; `page.evaluate` awaits
+    correctly, and they poll it from Python.
+    """
+    offenders = []
+    for path in sorted(Path(__file__).parent.glob("test_*.py")):
+        lines = path.read_text().split("\n")
+        for i, line in enumerate(lines):
+            if "wait_for_function" not in line:
+                continue
+            # The predicate is the first argument, on this line or just below.
+            window = "\n".join(lines[i:i + 3])
+            if re.search(r'"""?async |"async ', window):
+                offenders.append(f"{path.name}:{i + 1}")
+
+    assert not offenders, (
+        "these wait on a promise and so do not wait at all: " + ", ".join(offenders)
+    )

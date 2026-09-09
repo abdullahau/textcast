@@ -1086,14 +1086,24 @@ Each cost an afternoon once; the incident is in git, the rule is here.
   `browser` fixture; a test needing isolation takes a context from it. A second
   `sync_playwright()` does not fail loudly — it raises inside the `chromium
   unavailable` guard and the test silently skips.
-- **`test_keeping_an_article_offline_survives_losing_the_network` fails on a
-  busy box.** It registers a worker, fills a cache, pulls the network out and
-  reloads; on a loaded machine the reload can beat the cache and the reader
-  comes back empty. Measured at roughly one run in four with the build worker
-  synthesising beside it, and never on its own — and at the same rate with and
-  without the change in hand, so it is the box, not the diff. Check
-  `uptime` before believing it: `docker compose logs worker` will say whether
-  something is being built.
+- **`page.wait_for_function` does not await a promise-returning predicate.**
+  It sees the Promise, a Promise is truthy, and it returns at once. Measured
+  against Playwright 1.62: a predicate that only turned true after two seconds
+  returned in **0.06 s**, and one that was *never* true returned instead of
+  timing out, while the same predicate written synchronously waited the full
+  two seconds. So every wait built on `caches.match` or `fetch` was a no-op.
+  Eleven of them were. That is what made
+  `test_keeping_an_article_offline_survives_losing_the_network` fail about one
+  run in four with the build worker running beside it: the wait for the page
+  to reach the cache returned immediately, the test went offline and reloaded,
+  and the reader came back empty. Measured directly — asked at the instant the
+  old wait returned, the page was **not yet cached in two attempts out of
+  three**, on an idle box. It passed at all only because `set_offline` and
+  `reload` took long enough afterwards for the caching to finish; load ate
+  that grace. `test_player.wait_until` and the `wait_until_cached` /
+  `wait_until_page_cached` / `wait_until_uncached` helpers poll `page.evaluate`
+  from Python, which does await. There is nothing in the syntax to notice, so
+  `test_no_test_waits_on_an_async_predicate` fails the suite if one comes back.
 - **`test_seeking_to_a_block_highlights_that_block` is the flaky one.** It
   shares the module's page, so a slow frame in a test before it leaves the
   playhead somewhere else. It passes on its own and on a re-run; check that

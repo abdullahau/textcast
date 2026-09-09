@@ -622,19 +622,11 @@ def test_keeping_an_article_offline_survives_losing_the_network(live, browser):
         page.check("#opt-offline")
 
         audio_url = first_audio_url(page, slug)
-        page.wait_for_function(
-            "async (url) => !!(await caches.match(new Request(url)))",
-            arg=audio_url,
-            timeout=20000,
-        )
+        wait_until_cached(page, audio_url)
 
         # The page itself is cached in the same write as the audio, but ask for
         # it by name: it is what the reload below has to find.
-        page.wait_for_function(
-            "async (url) => !!(await caches.match(url))",
-            arg=f"/a/{slug}",
-            timeout=20000,
-        )
+        wait_until_page_cached(page, f"/a/{slug}")
 
         context.set_offline(True)
         page.reload(wait_until="domcontentloaded")
@@ -650,21 +642,64 @@ def test_keeping_an_article_offline_survives_losing_the_network(live, browser):
         context.close()
 
 
-def wait_until_uncached(page, url, timeout=10.0):
-    """Poll from Python, not with `wait_for_function`.
+def wait_until(page, expression, arg=None, timeout=20.0, what=None):
+    """Poll an async predicate from Python, because Playwright will not.
 
-    `wait_for_function` does not await a promise-returning predicate here —
-    proven by handing it one that always resolves `false` after a delay and
-    watching it return immediately anyway — so a predicate built on
-    `caches.match` cannot be trusted to actually wait for anything. `evaluate`
-    does await correctly; this just calls it in a loop.
+    `page.wait_for_function` does not await a promise-returning predicate. It
+    sees the Promise, a Promise is truthy, and it returns at once. Measured
+    against Playwright 1.62: a predicate that only turned true after two
+    seconds returned in **0.06 s**, and one that was *never* true returned
+    rather than timing out — while the same predicate written synchronously
+    waited the full two seconds.
+
+    So every wait built on `caches.match` or `fetch` has to run here. It is
+    not a style preference: written the other way the wait is a no-op, the
+    test races whatever it meant to wait for, and it fails only on a machine
+    slow enough to lose. `page.evaluate` does await correctly.
     """
     deadline = time.time() + timeout
     while time.time() < deadline:
-        if not page.evaluate("async (u) => !!(await caches.match(u))", url):
+        if page.evaluate(expression, arg):
             return
-        time.sleep(0.2)
-    raise AssertionError(f"{url} was never removed from the cache")
+        time.sleep(0.1)
+    raise AssertionError(what or f"never became true: {expression}")
+
+
+def wait_until_cached(page, url, timeout=20.0):
+    """Wait for the service worker to have stored `url`."""
+    wait_until(
+        page,
+        "async (u) => !!(await caches.match(new Request(u)))",
+        url,
+        timeout,
+        f"{url} was never cached",
+    )
+
+
+def wait_until_page_cached(page, url, timeout=20.0):
+    """Wait for a *page* to be stored, asked for by name.
+
+    By name and not as a `Request`, because that is how the reload after it
+    has to find it.
+    """
+    wait_until(
+        page,
+        "async (u) => !!(await caches.match(u))",
+        url,
+        timeout,
+        f"the page {url} was never cached",
+    )
+
+
+def wait_until_uncached(page, url, timeout=10.0):
+    """Wait for `url` to be gone from every cache."""
+    wait_until(
+        page,
+        "async (u) => !(await caches.match(u))",
+        url,
+        timeout,
+        f"{url} was never removed from the cache",
+    )
 
 
 def test_reconciling_drops_an_articles_page_along_with_its_media(live, browser):
@@ -686,16 +721,8 @@ def test_reconciling_drops_an_articles_page_along_with_its_media(live, browser):
         page.check("#opt-offline")
 
         audio_url = first_audio_url(page, slug)
-        page.wait_for_function(
-            "async (url) => !!(await caches.match(new Request(url)))",
-            arg=audio_url,
-            timeout=20000,
-        )
-        page.wait_for_function(
-            "async (url) => !!(await caches.match(url))",
-            arg=f"/a/{slug}",
-            timeout=20000,
-        )
+        wait_until_cached(page, audio_url)
+        wait_until_page_cached(page, f"/a/{slug}")
 
         # Removed directly, not through the checkbox -- unticking it would
         # already correctly clean up via `drop-article`. This is what a
@@ -732,11 +759,7 @@ def test_cached_audio_still_answers_a_byte_range(live, browser):
         page.check("#opt-offline")
 
         audio_url = first_audio_url(page, slug)
-        page.wait_for_function(
-            "async (url) => !!(await caches.match(new Request(url)))",
-            arg=audio_url,
-            timeout=20000,
-        )
+        wait_until_cached(page, audio_url)
 
         got = page.evaluate(
             """async (url) => {
@@ -776,11 +799,7 @@ def test_a_suffix_range_and_a_malformed_one_are_both_answered(live, browser):
         page.check("#opt-offline")
 
         audio_url = first_audio_url(page, slug)
-        page.wait_for_function(
-            "async (url) => !!(await caches.match(new Request(url)))",
-            arg=audio_url,
-            timeout=20000,
-        )
+        wait_until_cached(page, audio_url)
 
         got = page.evaluate(
             """async (url) => {
@@ -1367,11 +1386,7 @@ def test_an_article_nobody_asked_to_keep_is_not_kept(live, browser):
         # And ticking the box still keeps it, which is the other half.
         page.click("#menu")
         page.check("#opt-offline")
-        page.wait_for_function(
-            "async (url) => !!(await caches.match(new Request(url)))",
-            arg=audio_url,
-            timeout=20000,
-        )
+        wait_until_cached(page, audio_url)
     finally:
         context.close()
 
@@ -1391,20 +1406,19 @@ def test_unticking_removes_every_file_it_stored(live, browser):
         page.click("#menu")
         page.check("#opt-offline")
         audio_url = first_audio_url(page, slug)
-        page.wait_for_function(
-            "async (url) => !!(await caches.match(new Request(url)))",
-            arg=audio_url, timeout=20000,
-        )
+        wait_until_cached(page, audio_url)
 
         page.uncheck("#opt-offline")
-        page.wait_for_function(
+        wait_until(
+            page,
             """async (slug) => {
                 const cache = await caches.open("textcast-offline");
                 const keys = await cache.keys();
                 return keys.every(r => !r.url.includes("/media/" + slug + "/")
                                        && !r.url.includes("__offline__"));
             }""",
-            arg=slug, timeout=20000,
+            slug,
+            what="the offline cache still holds the article's media",
         )
         assert page.evaluate("localStorage.getItem('tc:offline:' + arguments[0])"
                              .replace("arguments[0]", f"'{slug}'")) == "0"
@@ -1429,19 +1443,18 @@ def test_a_page_load_collects_what_nothing_points_at_any_more(live, browser):
         page.click("#menu")
         page.check("#opt-offline")
         audio_url = first_audio_url(page, slug)
-        page.wait_for_function(
-            "async (url) => !!(await caches.match(new Request(url)))",
-            arg=audio_url, timeout=20000,
-        )
+        wait_until_cached(page, audio_url)
 
         # The box goes without the worker being told — which is exactly the
         # shape of "deleted in another tab".
         page.evaluate("(slug) => localStorage.removeItem('tc:offline:' + slug)", slug)
         page.reload(wait_until="networkidle")
 
-        page.wait_for_function(
-            "async (url) => !(await caches.match(new Request(url)))",
-            arg=audio_url, timeout=20000,
+        wait_until(
+            page,
+            "async (u) => !(await caches.match(new Request(u)))",
+            audio_url,
+            what=f"{audio_url} was never dropped from the cache",
         )
     finally:
         context.close()
