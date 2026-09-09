@@ -48,11 +48,27 @@
 
      `trimMs` is what is left after that — a browser that does not implement
      the property, or a pair of earbuds that lies about itself. It is zero
-     for almost everybody and the slider says so. */
-  var detectedMs = 0;
+     for almost everybody and the slider says so.
+
+     Both are **wall-clock** delays, and they are subtracted from a **media**
+     clock, so the rate has to convert one into the other. What sits in the
+     pipeline is a fixed amount of real time; at 2x it is twice as much
+     *speech*. Unscaled, the highlight led by `offsetMs()` milliseconds of
+     media time at every rate above 1 — half a second of words at 2x, and
+     the faster you went the further ahead it blazed. media-chrome's rate
+     button offers 0.9 to 2, so this is not a corner. */
+  /* Seeded from the last answer this device gave, because the property
+     reads 0 until the output stream is open and `measureLatency` needs up to
+     a second and a bit to get a number. Starting from 0 meant the highlight
+     ran the whole latency ahead of the voice for the first second of every
+     play — most visible at the start of a listen, which is exactly when
+     somebody is looking at the words to find their place. Last time's number
+     is a far better guess than zero, and the real one replaces it the moment
+     it lands. */
+  var detectedMs = parseInt(store("output-latency", "0"), 10) || 0;
   var trimMs = parseInt(store("sync-offset", "0"), 10) || 0;
 
-  function offsetMs() { return detectedMs + trimMs; }
+  function offsetMs() { return (detectedMs + trimMs) * (audio.playbackRate || 1); }
 
   var current = -1;
   var activeEl = null;
@@ -229,6 +245,8 @@
       if (ok) {
         var ms = Math.round(seconds * 1000);
         asked = true;
+        // Third argument is the value: `store` takes it there, not second.
+        store("output-latency", "0", String(ms));
         if (ms !== detectedMs) { detectedMs = ms; syncHighlight(); }
         showOffset();
         done();
@@ -758,6 +776,10 @@
   audio.addEventListener("ended", stopFollowing);
   /* Every seek, whoever made it. */
   audio.addEventListener("seeked", syncHighlight);
+  /* The hold-back is in media time and the rate changes what that is worth,
+     so the highlight moves the moment the rate does — not at the next frame
+     if the page is paused, and not at the next boundary if it is hidden. */
+  audio.addEventListener("ratechange", syncHighlight);
   audio.addEventListener("timeupdate", function () {
     savePosition(false);
     // A hidden tab runs no frames and the audio keeps playing. timeupdate

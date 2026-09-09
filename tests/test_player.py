@@ -1932,3 +1932,107 @@ def test_a_burst_of_back_skips_moves_one_step_for_every_press(still_page, live):
             f"{state['lit']} is lit at {state['at']:.0f} ms, but it runs "
             f"{lit.start_ms}-{lit.start_ms + lit.dur_ms} ms"
         )
+
+
+@pytest.fixture
+def trimmed_page(live_words, browser):
+    """A word-aligned reader carrying a known manual sync trim.
+
+    The trim stands in for the output latency a headless browser has none of:
+    `AudioContext.outputLatency` reads 0 here, so `detectedMs` stays 0 and the
+    hold-back would otherwise be nothing to measure. It is read once at script
+    start, hence the reload.
+    """
+    base, slug, _ = live_words
+    context = browser.new_context()
+    page = context.new_page()
+    page.goto(f"{base}/a/{slug}", wait_until="domcontentloaded")
+    page.evaluate("() => localStorage.setItem('tc:sync-offset', '1000')")
+    page.reload(wait_until="domcontentloaded")
+    page.wait_for_function(
+        "() => { const a = document.getElementById('audio');"
+        " return a && a.readyState >= 1 && a.textTracks.length && a.textTracks[0].cues"
+        " && a.textTracks[0].cues.length > 0; }",
+        timeout=20000,
+    )
+    yield page
+    context.close()
+
+
+def _lit_word_start(page, manifest) -> float:
+    """Where the lit word begins, in ms of the section's own clock."""
+    state = page.evaluate(
+        "() => { const b = document.querySelector('#doc .b.on');"
+        " const w = document.querySelector('#doc .w.on');"
+        " return b && w ? { block: b.id, word: Number(w.dataset.w) } : null; }"
+    )
+    assert state, "nothing is lit"
+    block = next(b for b in manifest.sections[0].blocks if b.id == state["block"])
+    # `word.start_ms` is already the section's own clock, not a delta against
+    # the block -- only the JSON the page carries delta-encodes it.
+    return block.words[state["word"]].start_ms
+
+
+@pytest.mark.parametrize("rate", [1.0, 2.0])
+def test_the_hold_back_is_media_time_so_the_rate_scales_it(trimmed_page, live_words, rate):
+    """The output delay is wall-clock; the clock it is subtracted from is not.
+
+    Whatever sits between the decoder and the speaker is a fixed amount of
+    *real* time, so at 2x it is twice as much speech. Held back by the
+    unscaled number, the highlight led by a whole trim's worth of media time
+    at every rate above 1 -- half a second of words at 2x, and worse the
+    faster you went. media-chrome's rate button offers 0.9 to 2.
+
+    The trim is 1000 ms, so the lit word must start a second of media time
+    behind the playhead at 1x and two seconds behind it at 2x.
+    """
+    _base, _slug, manifest = live_words
+    trim_ms = 1000.0
+    at_ms = 6000.0
+
+    trimmed_page.evaluate("(r) => { document.getElementById('audio').playbackRate = r; }", rate)
+    seek_to(trimmed_page, at_ms / 1000)
+    trimmed_page.wait_for_function(
+        "() => document.querySelector('#doc .w.on') !== null", timeout=10000
+    )
+
+    lit = _lit_word_start(trimmed_page, manifest)
+    want = at_ms - trim_ms * rate
+
+    # One word of slack: the lit word is the last one to have *started* by
+    # then, so it begins at or just before the moment being asked about.
+    assert want - 700 <= lit <= want + 50, (
+        f"at {rate}x the lit word starts at {lit:.0f} ms; "
+        f"a {trim_ms:.0f} ms hold-back puts it near {want:.0f} ms"
+    )
+
+
+def test_the_measured_latency_is_remembered_for_the_next_listen(live_words, browser):
+    """`outputLatency` reads 0 until the output stream is open.
+
+    Measuring takes up to a second and a bit after play, and starting from
+    zero left the highlight running the whole latency ahead of the voice for
+    that first second -- at the start of a listen, which is when somebody is
+    looking at the words to find their place. The last answer this device
+    gave is a better opening guess than nothing.
+    """
+    base, slug, _ = live_words
+    context = browser.new_context()
+    page = context.new_page()
+    page.goto(f"{base}/a/{slug}", wait_until="domcontentloaded")
+
+    # Stand in for a measurement this device made on an earlier visit.
+    page.evaluate("() => localStorage.setItem('tc:output-latency', '180')")
+    page.reload(wait_until="domcontentloaded")
+    page.wait_for_function(
+        "() => { const a = document.getElementById('audio');"
+        " return a && a.readyState >= 1 && a.textTracks.length && a.textTracks[0].cues"
+        " && a.textTracks[0].cues.length > 0; }",
+        timeout=20000,
+    )
+
+    # The sheet reports what the player is holding back, before any play.
+    shown = page.evaluate("() => (document.getElementById('sync-detected') || {}).textContent || ''")
+    context.close()
+
+    assert "180" in shown, f"the remembered 180 ms was not picked up: {shown!r}"

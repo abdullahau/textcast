@@ -434,6 +434,23 @@ section you are about to touch**, and add to it when something bites you.
   is not the fault**: over a nine-minute section, cue starts matched the
   decoded audio to within the measurement's own resolution, and the total to
   the millisecond. Do not go looking there again.
+- **The hold-back is wall-clock; the clock it comes off is media time.**
+  `offsetMs()` must be multiplied by `playbackRate`. What sits between the
+  decoder and the speaker is a fixed amount of *real* time, so at 2x it is
+  twice as much speech. Unscaled, the highlight led by a whole offset's worth
+  of media time at every rate above 1 — half a second of words at 2x — and
+  the faster you went the further ahead it blazed. media-chrome's rate button
+  offers **0.9 to 2**, so this is not a corner case, and it is the reason the
+  read-along still drifted on a phone after the output delay itself was
+  measured and subtracted. The highlight also re-syncs on `ratechange`: the
+  offset changes the moment the rate does.
+- **`outputLatency` is not known until a second after play, so remember it.**
+  It reads 0 until the output stream is open and `measureLatency` polls for
+  up to 1.2 s. Starting from 0 every time left the highlight running the
+  whole latency ahead of the voice for the first second of every listen —
+  which is exactly when somebody is watching the words to find their place.
+  The last answer a device gave is kept in `tc:output-latency` and used as
+  the opening estimate; the real one replaces it when it lands.
 - **The browser will tell you the output delay: `AudioContext.outputLatency`.**
   It is a property of the output *device*, not of any graph, so a context with
   nothing connected to it reports the number and the audio element keeps its
