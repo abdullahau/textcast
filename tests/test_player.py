@@ -2110,3 +2110,24 @@ def test_the_lock_screen_scrubber_can_seek(live, browser):
         )
     finally:
         context.close()
+
+
+def test_the_build_checkboxes_line_up(still_page):
+    """A `?` beside one checkbox must not lift it above the others.
+
+    The one that carries a tip is wrapped in `.titled` so the box and the `?`
+    sit side by side, and `.titled` has a bottom margin for its *other* use --
+    a heading above a control, where the gap belongs underneath. Dropped
+    straight into a `.row`, which centres what it is given, that margin lifted
+    the checkbox by half of itself: 2.8 px, small enough to read as a mistake
+    and large enough to see.
+    """
+    tops = still_page.evaluate(
+        "() => { const row = document.querySelector("
+        "'input[name=\"skip_word_highlight\"]').closest('.row');"
+        " return Array.from(row.querySelectorAll('input[type=checkbox]'))"
+        ".map(i => [i.name, Math.round(i.getBoundingClientRect().top * 10) / 10]); }"
+    )
+
+    assert len(tops) >= 4, f"expected the build checkboxes, found {tops}"
+    assert len({top for _name, top in tops}) == 1, f"these do not line up: {tops}"

@@ -583,6 +583,13 @@ button.q:focus-visible { color: var(--fg); border-color: var(--fg-soft); opacity
 .titled { display: flex; align-items: center; gap: .45rem; margin-bottom: .35rem; }
 .titled h2 { margin: 0; }
 .titled label { margin-bottom: 0; }
+/* That bottom margin is for the heading-above-a-control use, where `.titled`
+   sits in its own <div> and the gap belongs under it. Put straight into a
+   `.row` -- a checkbox that needed a `?` beside it -- the margin joins the
+   flex item's box, and the row centres what it is given, so the checkbox rode
+   2.8px above the three bare labels next to it. Half the margin, and the eye
+   catches it because the boxes no longer line up. */
+.row > .titled { margin-bottom: 0; }
 .card > .titled { margin-bottom: .15rem; }
 
 /* Import and export live inside the rule box: same subject, one place. */

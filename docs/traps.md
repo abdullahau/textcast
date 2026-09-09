@@ -576,6 +576,16 @@ section you are about to touch**, and add to it when something bites you.
 
 Each cost an afternoon once; the incident is in git, the rule is here.
 
+- *A margin on a flex item is part of what gets aligned.* `.titled` carries
+  `margin-bottom` for its heading-above-a-control use, where the gap belongs
+  underneath it. Put straight into a `.row` — which is what a checkbox needing
+  a `?` beside it wants — the margin joins the item's box, and a row that
+  centres its items splits the difference: the checkbox rode **2.8 px** above
+  the three bare labels next to it, half of the 0.35 rem margin. Small enough
+  to read as a mistake, large enough to see. `.row > .titled` zeroes it. When
+  a control looks a hair out of line, measure `getBoundingClientRect().top` on
+  the `<input>` rather than the label — the label's own height differs when
+  its text wraps, and that is not the fault.
 - *Centring is `grid`, not `flex`.* A centred flex row centres the row, not the
   thing in the middle of it. `grid-template-columns: 1fr auto 1fr`.
 - *Alignment in a `.row` is on the bottom edge*, so a taller intrinsic box
@@ -1076,6 +1086,14 @@ Each cost an afternoon once; the incident is in git, the rule is here.
   `browser` fixture; a test needing isolation takes a context from it. A second
   `sync_playwright()` does not fail loudly — it raises inside the `chromium
   unavailable` guard and the test silently skips.
+- **`test_keeping_an_article_offline_survives_losing_the_network` fails on a
+  busy box.** It registers a worker, fills a cache, pulls the network out and
+  reloads; on a loaded machine the reload can beat the cache and the reader
+  comes back empty. Measured at roughly one run in four with the build worker
+  synthesising beside it, and never on its own — and at the same rate with and
+  without the change in hand, so it is the box, not the diff. Check
+  `uptime` before believing it: `docker compose logs worker` will say whether
+  something is being built.
 - **`test_seeking_to_a_block_highlights_that_block` is the flaky one.** It
   shares the module's page, so a slow frame in a test before it leaves the
   playhead somewhere else. It passes on its own and on a re-run; check that
