@@ -12,6 +12,7 @@ Skipped unless playwright and its Chromium build are present:
 
 from __future__ import annotations
 
+import random
 import shutil
 import subprocess
 import sys
@@ -1847,3 +1848,87 @@ def test_a_hint_on_a_phone_opens_in_front_of_the_player(live, browser):
         assert not seen["overPlayer"], "the player is drawn on top of the hint"
     finally:
         context.close()
+
+
+def _settled(page) -> float:
+    """The clock, once the element has stopped seeking."""
+    page.wait_for_function("() => !document.getElementById('audio').seeking", timeout=10000)
+    return page.evaluate("document.getElementById('audio').currentTime")
+
+
+def test_a_burst_of_back_skips_moves_one_step_for_every_press(still_page, live):
+    """Eight presses in random bursts, with listening in between.
+
+    media-chrome's skip buttons work their target out from the
+    `mediacurrenttime` *attribute*, and the controller refreshes that on
+    `timeupdate` and `loadedmetadata` only. Every press inside one of those
+    windows read the same stale number and asked for the same destination, so
+    a burst moved one step however many times it was pressed, and the
+    read-along followed the audio somewhere nobody had asked for.
+
+    A burst is fired back to back rather than at some measured spacing,
+    because the window is what matters and its width is not ours: headless
+    Chromium refreshes far faster than a phone, so pressing on a timer here
+    would test the harness's `timeupdate` rate rather than the bug. Back to
+    back is one window on any browser, and is what a fast double tap is.
+
+    Bursts are two or three, never one -- a single press is right even with
+    the stale read, so it discriminates nothing. The step is shrunk to a
+    second so eight presses fit the fixture's audio; the step is not under
+    test. The rhythm is random so no one rhythm is special-cased, and seeded
+    so a failure runs again.
+    """
+    _base, _slug, manifest = live
+    blocks = manifest.sections[0].blocks
+    rng = random.Random(20260908)
+    step, presses = 1.0, 8
+
+    still_page.evaluate(
+        "(s) => document.querySelector('media-seek-backward-button')"
+        ".setAttribute('seekoffset', String(s))",
+        step,
+    )
+    duration = still_page.evaluate("document.getElementById('audio').duration")
+    assert duration > presses * step + 3, "the fixture's audio is too short for this test"
+
+    seek_to(still_page, duration * 0.6)
+    still_page.evaluate("document.getElementById('audio').play()")
+    still_page.wait_for_timeout(500)
+
+    left = presses
+    while left:
+        burst = min(left, rng.randint(2, 3))
+        left -= burst
+
+        before = _settled(still_page)
+        still_page.evaluate(
+            "(n) => { const b = document.querySelector('media-seek-backward-button');"
+            " for (let i = 0; i < n; i++) b.click(); }",
+            burst,
+        )
+        after = _settled(still_page)
+
+        moved = before - after
+        assert moved == pytest.approx(burst * step, abs=0.6), (
+            f"{burst} presses moved {moved:.2f}s, not {burst * step:.2f}s"
+        )
+
+        # Listen for a moment before the next burst, the way a person would.
+        still_page.wait_for_timeout(rng.randint(400, 900))
+        assert not still_page.evaluate("document.getElementById('audio').paused"), (
+            "a burst of skips left the audio paused"
+        )
+
+        # Read both in one go: apart, the clock moves between them.
+        state = still_page.evaluate(
+            "() => ({ at: document.getElementById('audio').currentTime * 1000,"
+            " lit: (document.querySelector('#doc .b.on') || {}).id || null })"
+        )
+        assert state["lit"] and state["lit"].startswith("b0-"), (
+            f"the skips left section 0 for {state['lit']}"
+        )
+        lit = next(b for b in blocks if b.id == state["lit"])
+        assert lit.start_ms - 400 <= state["at"] <= lit.start_ms + lit.dur_ms + 400, (
+            f"{state['lit']} is lit at {state['at']:.0f} ms, but it runs "
+            f"{lit.start_ms}-{lit.start_ms + lit.dur_ms} ms"
+        )

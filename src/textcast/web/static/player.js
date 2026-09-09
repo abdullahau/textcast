@@ -474,6 +474,36 @@
     loadSection(idx, ms - offsets[idx], autoplay);
   }
 
+  /* Every way of nudging the audio a few seconds, in one place.
+
+     All three -- the transport buttons, the lock screen and the arrow keys --
+     set `currentTime` on a playing element, which is the case `seekWithin`
+     exists to avoid: the buffered output finishes first, so you hear a
+     fragment of where you just were while the highlight is already somewhere
+     else. Over Bluetooth that fragment is 150-300 ms, and a burst of skips
+     never lets the pipeline settle, so the two stay apart until something
+     re-measures. Going through `seekWithin` pauses first, waits for the seek
+     to land, and the `play` that follows re-asks for the output latency. */
+  var skipUntil = 0;
+  var skipResume = false;
+
+  function skipBy(seconds) {
+    /* `seekWithin` pauses while the seek lands, so the *second* tap of a
+       burst would find a paused element and conclude the listener had asked
+       for silence -- four taps on back and the audio never came back. The
+       intent to carry on playing belongs to the burst, not to whichever tap
+       is in flight, so it is read once and then held. A second and a half is
+       longer than any gap inside one burst and shorter than any pause a
+       person means. */
+    var now = Date.now();
+    if (now > skipUntil) skipResume = !audio.paused;
+    skipUntil = now + 1500;
+
+    var limit = isFinite(audio.duration) ? audio.duration * 1000 : Infinity;
+    var target = (audio.currentTime || 0) * 1000 + seconds * 1000;
+    seekWithin(Math.max(0, Math.min(target, limit)), skipResume);
+  }
+
   function onEnded() {
     if (sleepAtSectionEnd) return;
     if (current + 1 < sections.length) loadSection(current + 1, 0, true);
@@ -585,11 +615,10 @@
       pause: function () { audio.pause(); },
       /* Same step as the buttons, so the lock screen and the page agree. */
       seekbackward: function (details) {
-        audio.currentTime = Math.max(0, audio.currentTime - (details && details.seekOffset || SKIP_SECONDS));
+        skipBy(-(details && details.seekOffset || SKIP_SECONDS));
       },
       seekforward: function (details) {
-        audio.currentTime = Math.min(audio.duration || Infinity,
-                                     audio.currentTime + (details && details.seekOffset || SKIP_SECONDS));
+        skipBy(details && details.seekOffset || SKIP_SECONDS);
       },
       previoustrack: function () {
         if (current > 0) loadSection(current - 1, 0, !audio.paused);
@@ -675,6 +704,38 @@
 
   buildChapters();
   wireMediaSession();
+
+  /* media-chrome's two skip buttons ask for a destination they worked out
+     from the `mediacurrenttime` *attribute*, and the controller refreshes
+     that attribute on `timeupdate` and `loadedmetadata` only -- about four
+     times a second. Every tap inside one of those windows reads the same
+     stale number and asks for the same place, so four quick taps on back
+     went five seconds rather than twenty, and the highlight followed the
+     audio somewhere nobody had asked for.
+
+     Recomputed here from the element itself, which is exact: assigning
+     `currentTime` updates the property synchronously, so the next tap in the
+     same burst already reads the new position.
+
+     The scrub bar's own request is left alone. Its target is where the
+     pointer is, not a sum against a cached clock, so it is right as it
+     comes. This listener sits on `#player`, a plain `<div>` *above* the
+     controller: on the controller itself it would be a second listener on
+     the same target and would run after the one already registered there. */
+  var SKIP_DIRECTION = {
+    "media-seek-backward-button": -1,
+    "media-seek-forward-button": 1
+  };
+
+  $("player").addEventListener("mediaseekrequest", function (event) {
+    var button = event.target && event.target.closest
+      ? event.target.closest("media-seek-backward-button, media-seek-forward-button")
+      : null;
+    if (!button) return;
+    event.stopImmediatePropagation();
+    var step = parseFloat(button.getAttribute("seekoffset")) || SKIP_SECONDS;
+    skipBy(SKIP_DIRECTION[button.localName] * step);
+  }, true);
   audio.addEventListener("ended", onEnded);
   audio.addEventListener("play", function () {
     forgotten = false;
@@ -984,8 +1045,7 @@
     if (typing(event.target) || sheet.contains(event.target)) return;
     event.preventDefault();
     event.stopPropagation();
-    var delta = event.code === "ArrowLeft" ? -SKIP_SECONDS : SKIP_SECONDS;
-    audio.currentTime = Math.min(audio.duration || Infinity, Math.max(0, audio.currentTime + delta));
+    skipBy(event.code === "ArrowLeft" ? -SKIP_SECONDS : SKIP_SECONDS);
   }, true);
   addEventListener("pagehide", function () { savePosition(true); });
   document.addEventListener("visibilitychange", function () {

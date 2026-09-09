@@ -355,6 +355,33 @@ section you are about to touch**, and add to it when something bites you.
 - **Not every seek comes from this file.** media-chrome's skip buttons and
   scrub bar set `currentTime` themselves; only the `seeked` listener on the
   element sees them.
+- **media-chrome's skip buttons seek to a stale clock.** `handleClick` works
+  its target out from the `mediacurrenttime` *attribute*, and the controller
+  refreshes that on `timeupdate` and `loadedmetadata` only — about four times
+  a second. Every press inside one of those windows reads the same number and
+  asks for the same destination, so a burst of four taps on back moved **five
+  seconds, not twenty**, and the read-along followed the audio somewhere
+  nobody had asked for. `#player` catches `mediaseekrequest` in the capture
+  phase and recomputes from the element, which is exact — assigning
+  `currentTime` updates the property synchronously, so the next tap in the
+  same burst already reads the new position. The scrub bar's own request is
+  left alone: its target is where the pointer is, not a sum against a cached
+  clock. The listener must sit on `#player`, the plain `<div>` *above* the
+  controller; on the controller it is a second listener on the same target
+  and runs after the one already registered there.
+- **A test for that burst must press back to back, not on a timer.** The
+  window is `timeupdate`'s and its width is not ours: headless Chromium
+  refreshes far faster than a phone, so presses spaced 40 ms apart pass
+  against the broken code. Back to back is one window on any browser.
+- **Skipping goes through `seekWithin`, like every other seek.** The three
+  ways to nudge the audio — the transport buttons, the lock screen and the
+  arrow keys — each set `currentTime` on a *playing* element, which is the
+  case `seekWithin` exists to avoid: the buffered output finishes first, so
+  you hear a fragment of where you just were while the highlight is already
+  elsewhere. Over Bluetooth that fragment is 150–300 ms. `skipBy` is the one
+  door. It has to hold the burst's intent to keep playing, too: `seekWithin`
+  pauses while the seek lands, so the second tap would find a paused element
+  and conclude the listener wanted silence.
 - **`activeCues[0]` is the cue that is *ending*.** At a boundary the browser
   reports both, ordered by start time, so the highlight sat a block behind
   after every seek. Take the last. And `cuechange` fires only on a *change*, so
